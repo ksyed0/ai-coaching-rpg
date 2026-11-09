@@ -119,7 +119,9 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
       const sttPort = sttPortOf(merged0);
       if (!node.ok || sttPort === null || !sameSettings(st, s.access, node.ip, wantedPorts(s, sttPort), profiles)) throw new Stop(1, "settings changed: run pnpm voice:down first");
       const sttUrl = new URL(merged0.STT_URL!);
-      const ours = st.whisper !== undefined && await isOurWhisper(st.whisper, d.run);
+      const ident = st.whisper !== undefined ? await isOurWhisper(st.whisper, d.run) : "not_ours";
+      if (ident === "unknown") throw new Stop(1, "could not identify the recorded whisper-server: run pnpm voice:up again"); // review B2 F4
+      const ours = ident === "ours";
       const healthy = ours && (await d.health(sttUrl)) === "ok";
       const livekitUp = await d.answers(s.livekitHost.href);
       const proxyUp = s.access !== "lan" || !s.lan ? true

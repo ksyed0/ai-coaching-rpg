@@ -83,14 +83,22 @@ function psEnv(): NodeJS.ProcessEnv {
   return { PATH: "/usr/bin:/bin", LC_ALL: "C", ...(process.env.TZ !== undefined ? { TZ: process.env.TZ } : {}) };
 }
 
+/** One `ps` answer: the value; "gone" (exit 1 with no output at all: no such process); "unknown" (ps could not answer: review B2 F4). */
+type PsAnswer = { value: string } | "gone" | "unknown";
+
+async function psAsk(field: "comm=" | "lstart=" | "args=", pid: number, run: Run): Promise<PsAnswer> {
+  if (!Number.isInteger(pid) || pid < 1) return "gone";
+  let r: RunResult;
+  try { r = await run("ps", ["-o", field, "-p", String(pid)], { env: psEnv(), timeoutMs: PS_TIMEOUT_MS }); } catch { return "unknown"; }
+  const v = r.stdout.trim();
+  if (r.code === 0) return v === "" ? "unknown" : { value: v };
+  if (r.code === 1 && v === "" && r.stderr.trim() === "") return "gone";
+  return "unknown";
+}
+
 async function ps(field: "comm=" | "lstart=" | "args=", pid: number, run: Run): Promise<string | null> {
-  if (!Number.isInteger(pid) || pid < 1) return null;
-  try {
-    const r = await run("ps", ["-o", field, "-p", String(pid)], { env: psEnv(), timeoutMs: PS_TIMEOUT_MS });
-    if (r.code !== 0) return null;
-    const v = r.stdout.trim();
-    return v === "" ? null : v;
-  } catch { return null; }
+  const a = await psAsk(field, pid, run);
+  return typeof a === "object" ? a.value : null;
 }
 
 /** The basename of `ps -o comm= -p <pid>` (macOS prints the full path, Linux the name), or null for a dead pid or a failed ps. */
@@ -146,14 +154,21 @@ function hasPortWords(args: string, port: number): boolean {
 
 /**
  * Whether the recorded pid is still the whisper-server `voice:up` started (pid reuse after a crash or a reboot): the comm, the start time
- * within START_TOLERANCE_MS and `--port <port>`. Never throws, never logs; false for a dead pid or when `ps` cannot answer.
+ * within START_TOLERANCE_MS and `--port <port>`. "ours"; "not_ours" for a dead or bad pid or a real mismatch; "unknown" when `ps` could
+ * not answer one of the three questions (it threw, timed out or failed: review B2 F4), so a caller never mistakes a ps failure for
+ * another program and drops the record of a whisper-server that still runs. Never throws, never logs.
  */
-export async function isOurWhisper(w: { pid: number; port: number; startedAt: number; comm: string }, run: Run): Promise<boolean> {
-  const comm = await readComm(w.pid, run);
-  if (comm === null || comm !== w.comm) return false;
-  const lstart = await ps("lstart=", w.pid, run);
-  const ts = lstart === null ? null : lstartCandidates(lstart);
-  if (ts === null || !ts.some((t) => Math.abs(t - w.startedAt) <= START_TOLERANCE_MS)) return false;
-  const args = await ps("args=", w.pid, run);
-  return args !== null && hasPortWords(args, w.port);
+export type WhisperIdentity = "ours" | "not_ours" | "unknown";
+
+export async function isOurWhisper(w: { pid: number; port: number; startedAt: number; comm: string }, run: Run): Promise<WhisperIdentity> {
+  const comm = await psAsk("comm=", w.pid, run);
+  if (comm === "unknown") return "unknown";
+  if (comm === "gone" || (comm.value.split("/").pop() ?? "") !== w.comm) return "not_ours";
+  const lstart = await psAsk("lstart=", w.pid, run);
+  if (lstart === "unknown") return "unknown";
+  const ts = lstart === "gone" ? null : lstartCandidates(lstart.value);
+  if (ts === null || !ts.some((t) => Math.abs(t - w.startedAt) <= START_TOLERANCE_MS)) return "not_ours";
+  const args = await psAsk("args=", w.pid, run);
+  if (args === "unknown") return "unknown";
+  return args !== "gone" && hasPortWords(args.value, w.port) ? "ours" : "not_ours";
 }

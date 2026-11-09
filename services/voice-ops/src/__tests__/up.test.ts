@@ -447,6 +447,19 @@ describe("voiceUp leaves the state alone when it starts nothing (review B2 F1)",
     expect(readFileSync(w.statePath).equals(before)).toBe(true);
   });
 
+  // Review B2 F4: a ps failure while checking the recorded whisper-server is a refusal, not "not ours" (which would start a second one).
+  it("a ps failure during the existing-state check is refused, nothing is started and state.json stays byte-identical", async () => {
+    const w = world();
+    expect(await voiceUp(w.deps())).toBe(0);
+    const before = readFileSync(w.statePath);
+    w.psFails = true;
+    w.out.length = 0;
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(w.out).toEqual(["voice:up: could not identify the recorded whisper-server: run pnpm voice:up again"]);
+    expect(w.spawns).toHaveLength(1);
+    expect(readFileSync(w.statePath).equals(before)).toBe(true);
+  });
+
   it("a fresh start that fails after its first start still rolls back everything", async () => {
     const w = world();
     w.livekit = () => false;

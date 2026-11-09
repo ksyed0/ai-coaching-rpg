@@ -110,6 +110,24 @@ describe("voiceDown", () => {
     expect(w.out.join("\n")).toContain("the voice state is unreadable");
   });
 
+  // Review B2 F4: a ps that cannot answer is not "another program": the record stays, exit 1, nothing signalled.
+  it("a ps failure keeps the whisper record and exits 1 with the voice:down-again sentence", async () => {
+    const w = await upped();
+    const rec = readState(w.stateDir)!.whisper!;
+    w.psFails = true;
+    expect(await voiceDown(w.deps())).toBe(1);
+    expect(w.signals).toEqual([]);
+    expect(w.procs.has(rec.pid)).toBe(true);
+    expect(w.out).toContain("voice:down: could not identify whisper-server: run pnpm voice:down again");
+    expect(w.out.join("\n")).not.toContain("belongs to another program");
+    expect(readState(w.stateDir)?.whisper).toEqual(rec);
+    w.psFails = false;
+    w.out.length = 0;
+    expect(await voiceDown(w.deps())).toBe(0);
+    expect(w.procs.has(rec.pid)).toBe(false);
+    expect(existsSync(w.statePath)).toBe(false);
+  });
+
   it("a busy lock is refused with the remove-the-lock sentence", async () => {
     const w = await upped();
     writeFileSync(path.join(w.stateDir, LOCK_FILE), `${process.ppid}\n`, { mode: 0o600 });

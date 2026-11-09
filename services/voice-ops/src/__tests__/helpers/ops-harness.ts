@@ -74,6 +74,8 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     composeVersion: "2.24.0",
     contextHost: "unix:///var/run/docker.sock",
     dockerMissing: false,
+    /** `ps` times out (code null): the identity cannot be decided (review B2 F4). */
+    psFails: false,
     git: (): RunResult => ({ code: 128, stdout: "", stderr: "" }),
     health: (): HealthAnswer => "ok",
     warm: async (): Promise<void> => {},
@@ -102,6 +104,7 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     const ok = (stdout = ""): RunResult => ({ code: 0, stdout, stderr: "" });
     if (cmd === "git") return w.git();
     if (cmd === "ps") {
+      if (w.psFails) return { code: null, stdout: "", stderr: "" };
       const pid = Number(args[3]);
       const p = w.procs.get(pid);
       if (!p) return { code: 1, stdout: "", stderr: "" };

@@ -67,10 +67,13 @@ async function downLocked(d: OpsDeps, stateDir: string, say: (l: string) => void
 
   if (state?.whisper) {
     const r = await stopWhisper(state.whisper, { run: d.run, kill: d.kill, setTimer: d.setTimer, graceMs: WHISPER_STOP_GRACE_MS });
-    if (r === "not_ours") say("the recorded whisper-server is gone and its process id now belongs to another program: left alone");
-    else if (r === "stopped") say("whisper-server stopped");
-    else say("whisper-server was not running");
-    delete state.whisper;
+    if (r === "unknown") { say("could not identify whisper-server: run pnpm voice:down again"); code = 1; } // the record stays (review B2 F4)
+    else {
+      if (r === "not_ours") say("the recorded whisper-server is gone and its process id now belongs to another program: left alone");
+      else if (r === "stopped") say("whisper-server stopped");
+      else say("whisper-server was not running");
+      delete state.whisper;
+    }
   }
 
   try {

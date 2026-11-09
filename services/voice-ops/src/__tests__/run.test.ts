@@ -202,47 +202,65 @@ describe("process identity (US-0072, A1c Task 3)", () => {
         return { code: 0, stdout: "whisper-server --host 127.0.0.1 --port 24680\n", stderr: "" };
       };
       for (const startedAt of [first + 2000, second + 2000]) {
-        expect(await isOurWhisper({ pid: 123, port: 24680, startedAt, comm: "whisper-server" }, fake("Sun Nov  1 01:30:00 2026")), String(startedAt)).toBe(true);
+        expect(await isOurWhisper({ pid: 123, port: 24680, startedAt, comm: "whisper-server" }, fake("Sun Nov  1 01:30:00 2026")), String(startedAt)).toBe("ours");
       }
-      expect(await isOurWhisper({ pid: 123, port: 24680, startedAt: second + 3_600_000, comm: "whisper-server" }, fake("Sun Nov  1 01:30:00 2026"))).toBe(false);
+      expect(await isOurWhisper({ pid: 123, port: 24680, startedAt: second + 3_600_000, comm: "whisper-server" }, fake("Sun Nov  1 01:30:00 2026"))).toBe("not_ours");
     } finally {
       if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
     }
   });
 
-  it("isOurWhisper is true for the process it started (comm, start time and --port recorded as voice:up does)", async () => {
+  it("isOurWhisper is ours for the process it started (comm, start time and --port recorded as voice:up does)", async () => {
     const w = await sleeper(41001);
-    expect(await isOurWhisper({ ...w, port: 41001 }, realRun)).toBe(true);
+    expect(await isOurWhisper({ ...w, port: 41001 }, realRun)).toBe("ours");
   });
 
-  it("isOurWhisper is false for a live pid of another program (the test's own pid)", async () => {
-    expect(await isOurWhisper({ pid: process.pid, port: 41002, startedAt: Date.now(), comm: "whisper-server" }, realRun)).toBe(false);
+  it("isOurWhisper is not_ours for a live pid of another program (the test's own pid)", async () => {
+    expect(await isOurWhisper({ pid: process.pid, port: 41002, startedAt: Date.now(), comm: "whisper-server" }, realRun)).toBe("not_ours");
   });
 
-  it("isOurWhisper is false when the start time is more than 5 s from startedAt (pid reuse)", async () => {
+  it("isOurWhisper is not_ours when the start time is more than 5 s from startedAt (pid reuse)", async () => {
     const w = await sleeper(41003);
-    expect(await isOurWhisper({ ...w, port: 41003, startedAt: w.startedAt - 10_000 }, realRun)).toBe(false);
-    expect(await isOurWhisper({ ...w, port: 41003, startedAt: w.startedAt + 10_000 }, realRun)).toBe(false);
+    expect(await isOurWhisper({ ...w, port: 41003, startedAt: w.startedAt - 10_000 }, realRun)).toBe("not_ours");
+    expect(await isOurWhisper({ ...w, port: 41003, startedAt: w.startedAt + 10_000 }, realRun)).toBe("not_ours");
   });
 
-  it("isOurWhisper is false when --port differs (pid reuse)", async () => {
+  it("isOurWhisper is not_ours when --port differs (pid reuse)", async () => {
     const w = await sleeper(41004);
-    expect(await isOurWhisper({ ...w, port: 41005 }, realRun)).toBe(false);
-    expect(await isOurWhisper({ ...w, port: 4100 }, realRun)).toBe(false); // a prefix of the real port is not the port
+    expect(await isOurWhisper({ ...w, port: 41005 }, realRun)).toBe("not_ours");
+    expect(await isOurWhisper({ ...w, port: 4100 }, realRun)).toBe("not_ours"); // a prefix of the real port is not the port
   });
 
-  it("isOurWhisper is false for a dead pid", async () => {
+  it("isOurWhisper is not_ours for a dead pid (ps exits 1 with no output)", async () => {
     const r = spawnSync(process.execPath, ["-e", ""]);
     expect(r.pid).toBeGreaterThan(0);
     expect(existsSync(process.execPath)).toBe(true);
-    expect(await isOurWhisper({ pid: r.pid, port: 41006, startedAt: Date.now(), comm: "node" }, realRun)).toBe(false);
+    expect(await isOurWhisper({ pid: r.pid, port: 41006, startedAt: Date.now(), comm: "node" }, realRun)).toBe("not_ours");
   });
 
-  it("isOurWhisper is false for a bad pid and when ps cannot be run, without throwing", async () => {
+  it("isOurWhisper is not_ours for a bad pid", async () => {
+    expect(await isOurWhisper({ pid: 0, port: 1, startedAt: 0, comm: "node" }, realRun)).toBe("not_ours");
+    expect(await isOurWhisper({ pid: -5, port: 1, startedAt: 0, comm: "node" }, realRun)).toBe("not_ours");
+  });
+
+  // Review B2 F4: a ps that cannot answer (not found, a timeout, any other failure) is "unknown", never "not_ours": voice:down would
+  // otherwise call a running whisper-server another program's and drop its record.
+  it("isOurWhisper is unknown when ps cannot be run, times out or fails, at any of its three questions, without throwing", async () => {
     const throwing: Run = async () => { throw new Error("no ps"); };
-    expect(await isOurWhisper({ pid: 0, port: 1, startedAt: 0, comm: "node" }, realRun)).toBe(false);
-    expect(await isOurWhisper({ pid: -5, port: 1, startedAt: 0, comm: "node" }, realRun)).toBe(false);
-    expect(await isOurWhisper({ pid: process.pid, port: 1, startedAt: Date.now(), comm: "node" }, throwing)).toBe(false);
+    expect(await isOurWhisper({ pid: process.pid, port: 1, startedAt: Date.now(), comm: "node" }, throwing)).toBe("unknown");
+    const failAt = (field: string, r: { code: number | null; stderr: string }): Run => async (_cmd, args) => {
+      if (args[1] === field) return { code: r.code, stdout: "", stderr: r.stderr };
+      if (args[1] === "comm=") return { code: 0, stdout: "whisper-server\n", stderr: "" };
+      if (args[1] === "lstart=") return { code: 0, stdout: "Mon Nov  9 12:00:05 2026\n", stderr: "" };
+      return { code: 0, stdout: "whisper-server --port 24680\n", stderr: "" };
+    };
+    const w = { pid: 123, port: 24680, startedAt: new Date(2026, 10, 9, 12, 0, 3).getTime(), comm: "whisper-server" };
+    for (const field of ["comm=", "lstart=", "args="]) {
+      expect(await isOurWhisper(w, failAt(field, { code: null, stderr: "" })), `timeout at ${field}`).toBe("unknown");
+      expect(await isOurWhisper(w, failAt(field, { code: 1, stderr: "ps: something went wrong" })), `error at ${field}`).toBe("unknown");
+      expect(await isOurWhisper(w, failAt(field, { code: 2, stderr: "" })), `exit 2 at ${field}`).toBe("unknown");
+      expect(await isOurWhisper(w, failAt(field, { code: 1, stderr: "" })), `gone at ${field}`).toBe("not_ours");
+    }
   });
 
   it("asks ps with a fixed PATH and the C locale, and never prints what it read", async () => {
@@ -258,7 +276,7 @@ describe("process identity (US-0072, A1c Task 3)", () => {
       return { code: 0, stdout: "whisper-server --host 127.0.0.1 --port 24680 --request-path /SECRETPATH -m /m.bin\n", stderr: "" };
     };
     const startedAt = new Date(2026, 10, 9, 12, 0, 3).getTime();
-    expect(await isOurWhisper({ pid: 123, port: 24680, startedAt, comm: "whisper-server" }, fake)).toBe(true);
+    expect(await isOurWhisper({ pid: 123, port: 24680, startedAt, comm: "whisper-server" }, fake)).toBe("ours");
     spy.mockRestore(); spyErr.mockRestore();
     expect(lines).toEqual([]);
     expect(calls.map((c) => [c.cmd, ...c.args])).toEqual([

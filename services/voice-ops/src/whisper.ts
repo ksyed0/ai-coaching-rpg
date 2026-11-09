@@ -197,19 +197,23 @@ export async function startWhisper(o: {
 
 /**
  * Stops the recorded whisper-server: "gone" when the pid no longer exists; "not_ours" when it exists but is not the process voice:up
- * started (`isOurWhisper`: comm, start time, `--port`), which is never signalled; else SIGTERM, then SIGKILL after `graceMs` (checked
- * again before the SIGKILL), and "stopped".
+ * started (`isOurWhisper`: comm, start time, `--port`), which is never signalled; "unknown" when `ps` cannot say (review B2 F4: the
+ * caller keeps the record); else SIGTERM, then SIGKILL after `graceMs` (checked again before the SIGKILL), and "stopped".
  */
-export async function stopWhisper(w: WhisperRecord, o: { run: Run; kill: Kill; setTimer: SetTimer; graceMs: number }): Promise<"stopped" | "not_ours" | "gone"> {
+export async function stopWhisper(w: WhisperRecord, o: { run: Run; kill: Kill; setTimer: SetTimer; graceMs: number }): Promise<"stopped" | "not_ours" | "gone" | "unknown"> {
   if (!exists(o.kill, w.pid)) return "gone";
-  if (!(await isOurWhisper(w, o.run))) return exists(o.kill, w.pid) ? "not_ours" : "gone";
+  const ident = await isOurWhisper(w, o.run);
+  if (ident === "unknown") return exists(o.kill, w.pid) ? "unknown" : "gone";
+  if (ident === "not_ours") return exists(o.kill, w.pid) ? "not_ours" : "gone";
   try { o.kill(w.pid, "SIGTERM"); } catch { return "gone"; }
   for (let waited = 0; waited < o.graceMs; waited += WHISPER_STOP_POLL_MS) {
     if (!exists(o.kill, w.pid)) return "stopped";
     await sleep(o.setTimer, WHISPER_STOP_POLL_MS);
   }
   if (!exists(o.kill, w.pid)) return "stopped";
-  if (!(await isOurWhisper(w, o.run))) return "stopped"; // it went, and the pid is someone else's now: leave that one alone
+  const again = await isOurWhisper(w, o.run);
+  if (again === "unknown") return "unknown"; // still there and ps cannot say whose: no SIGKILL, the record stays
+  if (again === "not_ours") return "stopped"; // it went, and the pid is someone else's now: leave that one alone
   try { o.kill(w.pid, "SIGKILL"); } catch { /* gone in between */ }
   return "stopped";
 }
