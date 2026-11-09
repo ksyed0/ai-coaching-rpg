@@ -5,12 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { privateTmp } from "./helpers/ops-harness.js";
+import { assertUnchanged, digestFiles, type FileDigest } from "./helpers/real-files.js";
 
 // US-0072 (EPIC-0003 voice A1c, Tasks 7 and 9): the REAL root scripts (`pnpm -s voice:up`, `voice:down`, `voice:check`) run as real
 // processes against a PRIVATE copy of the repository skeleton (VOICE_OPS_REPO_ROOT): the root package.json and pnpm-workspace.yaml
 // copied byte for byte, the voice-ops sources, its node_modules linked, a placeholder 0600 `.env`. `docker` and `whisper-server` are
 // stubs on PATH (fixtures/*-stub.mjs, absolute shebang, configured by stub-config.json); no container, model or real server runs.
-// The real worktree's package.json, pnpm-lock.yaml and .env are compared byte for byte before and after (the `update` trap, K13).
+// The real worktree's package.json, pnpm-lock.yaml and .env are compared by sha256 digest before and after (the `update` trap, K13).
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -36,20 +37,20 @@ function portTaken(port: number): Promise<boolean> {
 }
 
 const PLACEHOLDER_TOKEN = "placeholder-launcher-token-0123456789abcdef";
+// Digests only, never contents (review B2 F2): a failure names the changed file and prints nothing of the owner's real .env.
 const REAL_FILES = ["package.json", "pnpm-lock.yaml", ".env"].map((f) => path.join(REAL_ROOT, f));
-const snapshot = (): (string | null)[] => REAL_FILES.map((f) => (existsSync(f) ? readFileSync(f).toString("base64") : null));
 
 let tmp: ReturnType<typeof privateTmp>;
 let skip: string | null = null;
-let realBefore: (string | null)[];
+let realBefore: FileDigest[];
 beforeAll(async () => {
   tmp = privateTmp("acr-voice-ops-cli-");
-  realBefore = snapshot();
+  realBefore = digestFiles(REAL_FILES);
   if (PNPM === null) skip = "pnpm is not on PATH";
   else if (await portTaken(7880)) skip = "port 7880 is taken on this machine (the LiveKit stand-in needs it)";
 });
 afterAll(() => {
-  expect(snapshot()).toEqual(realBefore);
+  assertUnchanged(realBefore, digestFiles(REAL_FILES));
   tmp.restore();
 });
 
