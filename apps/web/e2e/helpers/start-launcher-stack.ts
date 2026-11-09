@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -45,6 +45,13 @@ export type LauncherStack = {
   crashRuntimes(): Promise<void>;
   /** How many session runtimes run now (processes of the control service's group whose command line holds the runtime entry). */
   runtimeCount(): Promise<number>;
+  /** US-0071: the web server's LIVEKIT_URL origin (`ws://127.0.0.1:<port>`, a port nothing listens on), when the stack has one. */
+  livekitOrigin?: string;
+  /**
+   * US-0071: SIGKILLs every speech worker of the control service's group (each process whose command line holds the speech entry);
+   * waits up to the start timeout for one to exist first. The control service restarts them by itself (bounded backoff).
+   */
+  crashSpeechWorkers(): Promise<void>;
   /** Stops everything and removes the temp dir. */
   stop(): Promise<void>;
 };
@@ -52,13 +59,38 @@ export type LauncherStack = {
 export type LauncherStackOptions = {
   /** Diagnostic output of the child processes (default: discarded). Never carries codes, credentials, cookies or names. */
   onOutput?: (line: string) => void;
+  /**
+   * US-0071 (A1b Task 17): voice on in the control service (VOICE_ENABLED=1, notice v3, the fake speech-to-text with an empty script,
+   * the file ingest with an empty directory: no audio is ever read) and, unless `livekitUrl` is false, LIVEKIT_URL in the web server
+   * set to a loopback port nothing listens on (an explicit port, as the web config requires). No LiveKit key or secret is set anywhere:
+   * the control service then answers every token request `voice_unavailable` (it issues tokens only with SPEECH_INGEST=livekit), and
+   * no LiveKit server exists in the e2e run.
+   */
+  voice?: { livekitUrl?: boolean };
 };
+
+/** The voice settings of the control service (US-0071): every path is inside `dir`, a private temp directory of this stack. */
+async function voiceEnv(dir: string): Promise<Record<string, string>> {
+  const ingest = path.join(dir, "ingest");
+  await mkdir(ingest, { mode: 0o700 });
+  const script = path.join(dir, "stt-script.json");
+  await writeFile(script, "{}", { mode: 0o600 });
+  return {
+    VOICE_ENABLED: "1",
+    CONSENT_NOTICE_VERSION: "v3",
+    STT_PROVIDER: "fake",
+    STT_FAKE_SCRIPT: script,
+    SPEECH_INGEST: "file",
+    SPEECH_INGEST_DIR: ingest,
+  };
+}
 
 async function startControl(
   port: number,
   dataDir: string,
   token: string,
   out: (l: string) => void,
+  extra: Record<string, string> = {},
 ): Promise<ChildProcess> {
   // An explicit environment, never the caller's: no provider key, token or proxy setting of the shell reaches the service or its runtimes.
   const env: Record<string, string> = {
@@ -75,6 +107,7 @@ async function startControl(
     AI_PLAYER_SETTLE_MS: "0",
     AI_PLAYER_MIN_GAP_MS: "0",
     AI_PLAYER_NUDGE_MS: "600000",
+    ...extra,
   };
   const child: ChildProcess = spawn(TSX, ["src/main.ts"], {
     cwd: CONTROL_DIR,
@@ -163,14 +196,16 @@ async function stopControl(child: ChildProcess): Promise<void> {
 const run = promisify(execFile);
 /** The entry `services/control/src/runtime-command.ts` resolves for every runtime it forks. */
 const RUNTIME_ENTRY = path.join(REPO_ROOT, "services/runtime/src/main.ts");
+/** The entry `services/control/src/voice/speech-command.ts` resolves for every speech worker it forks (US-0071). */
+const SPEECH_ENTRY = path.join(REPO_ROOT, "services/speech/src/main.ts");
 
-/** The pids in process group `pgid` whose command line contains the runtime entry. `-ww`: BSD ps otherwise cuts args to a column width. */
-async function runtimePids(pgid: number): Promise<number[]> {
+/** The pids in process group `pgid` whose command line contains `entry`. `-ww`: BSD ps otherwise cuts args to a column width. */
+async function runtimePids(pgid: number, entry = RUNTIME_ENTRY): Promise<number[]> {
   const { stdout } = await run("ps", ["-A", "-ww", "-o", "pid=,pgid=,args="], { maxBuffer: 16 * 1024 * 1024 });
   const out: number[] = [];
   for (const line of stdout.split("\n")) {
     const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
-    if (m && Number(m[2]) === pgid && m[3]!.includes(RUNTIME_ENTRY)) out.push(Number(m[1]));
+    if (m && Number(m[2]) === pgid && m[3]!.includes(entry)) out.push(Number(m[1]));
   }
   return out;
 }
@@ -207,6 +242,29 @@ async function crashRuntimesOf(control: ChildProcess, controlUrl: string, token:
   );
 }
 
+async function crashSpeechOf(control: ChildProcess): Promise<void> {
+  const pgid = control.pid;
+  if (pgid === undefined) throw new Error("the control service is not running");
+  const pids = await withTimeout(
+    (async () => {
+      for (;;) {
+        const found = await runtimePids(pgid, SPEECH_ENTRY);
+        if (found.length > 0) return found;
+        await new Promise((r) => setTimeout(r, 200)); // a poll interval, not an ordering assumption
+      }
+    })(),
+    START_TIMEOUT_MS,
+    `no process of the control service's group runs ${SPEECH_ENTRY}`,
+  );
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
+    }
+  }
+}
+
 export async function startLauncherStack(
   o: LauncherStackOptions = {},
 ): Promise<LauncherStack> {
@@ -224,7 +282,16 @@ export async function startLauncherStack(
     const facilitatorSecret = randomBytes(12).toString("hex"); // 24 characters
     const controlPort = await freePort();
     const controlUrl = `http://127.0.0.1:${controlPort}`;
-    let control = await startControl(controlPort, dataDir, serviceToken, out);
+    let controlExtra: Record<string, string> = {};
+    let livekitOrigin: string | undefined;
+    if (o.voice) {
+      const voiceDir = await mkdtemp(path.join(os.tmpdir(), "acr-voice-e2e-"));
+      cleanups.push(() => rm(voiceDir, { recursive: true, force: true }));
+      controlExtra = await voiceEnv(voiceDir);
+      // A port that was free a moment ago and that nothing here listens on: every LiveKit connection to it fails.
+      if (o.voice.livekitUrl !== false) livekitOrigin = `ws://127.0.0.1:${await freePort()}`;
+    }
+    let control = await startControl(controlPort, dataDir, serviceToken, out, controlExtra);
     cleanups.push(() => stopControl(control));
 
     const port = await freePort();
@@ -236,6 +303,7 @@ export async function startLauncherStack(
       FACILITATOR_SECRET: facilitatorSecret,
       PUBLIC_ORIGIN: baseUrl,
       COOKIE_KEYS: `e2e:${randomBytes(32).toString("base64")}`,
+      ...(livekitOrigin !== undefined && { LIVEKIT_URL: livekitOrigin }),
     };
     let next = await startNext(port, nextEnv, baseUrl, out);
     cleanups.push(() => killGroup(next));
@@ -248,7 +316,7 @@ export async function startLauncherStack(
       dataDir,
       async restartControl() {
         await stopControl(control);
-        control = await startControl(controlPort, dataDir, serviceToken, out);
+        control = await startControl(controlPort, dataDir, serviceToken, out, controlExtra);
       },
       async restartBff() {
         await killGroup(next);
@@ -256,6 +324,8 @@ export async function startLauncherStack(
       },
       crashRuntimes: () => crashRuntimesOf(control, controlUrl, serviceToken),
       runtimeCount: async () => (control.pid === undefined ? 0 : (await runtimePids(control.pid)).length),
+      ...(livekitOrigin !== undefined && { livekitOrigin }),
+      crashSpeechWorkers: () => crashSpeechOf(control),
       stop: cleanup,
     };
   } catch (e) {
