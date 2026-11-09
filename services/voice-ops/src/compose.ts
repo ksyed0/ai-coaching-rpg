@@ -52,7 +52,7 @@ export function composeArgs(repoRoot: string, access: "local" | "lan", verb: "up
 }
 
 /** PATH, HOME and every DOCKER_* name of `parent`: what the docker CLI needs to find its engine and its configuration, nothing else. */
-function dockerBaseEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function dockerBaseEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   if (parent.PATH !== undefined) env.PATH = parent.PATH;
   if (parent.HOME !== undefined) env.HOME = parent.HOME;
