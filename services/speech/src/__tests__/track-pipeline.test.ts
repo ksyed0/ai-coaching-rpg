@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FakeSpeechToText, SpeechRefusedError, SpeechTimeoutError, type SpeechSegment, type Transcript } from "@acr/adapters";
+import { FakeSpeechToText, LimitedSpeechToText, SpeechRefusedError, SpeechTimeoutError, type SpeechSegment, type Transcript } from "@acr/adapters";
 import { ActivityReporter } from "../activity.js";
 import type { WorkerMessage } from "../protocol.js";
 import { DEFAULT_SEGMENTER, Segmenter } from "../segmenter.js";
@@ -154,6 +154,44 @@ describe("TrackPipeline (US-0070, AC-0398): segment, transcribe, gate, clean, de
     expect(h.stt.calls).toEqual([]);
     expect(h.lines()).toEqual([]);
     expect(h.sent).toEqual([{ type: "speech_activity", roleId: "tech_lead", active: true }, { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 0 }]);
+  });
+
+  // F5 (review fix wave, privacy defence in depth): segments already handed to the limiter are cancelled by an opt-out, a pause or a
+  // reissue: nothing queued behind the in-flight cap reaches speech-to-text after the worker applied the change.
+  it("an opt-out with two segments queued behind the in-flight cap makes no further inner call", async () => {
+    const roleId = "tech_lead";
+    const sent: WorkerMessage[] = [];
+    const clock = { t: 5_000_000 };
+    const gate = new VoiceGate();
+    gate.update({ type: "voice_state", paused: false, ended: false, holders: [{ roleId, participantId: "p1", recording: true }] });
+    const d = deferredAnswers();
+    const signals: (AbortSignal | undefined)[] = [];
+    const inner = new FakeSpeechToText({ script: d.answers });
+    const innerTranscribe = inner.transcribe.bind(inner);
+    inner.transcribe = (seg, signal) => { signals.push(signal); return innerTranscribe(seg, signal); };
+    const stt = new LimitedSpeechToText(inner, { now: () => clock.t, sleep: async () => {}, setTimer: () => () => {}, maxInFlight: 1 });
+    const send = (m: WorkerMessage) => { sent.push(m); };
+    let n = 0;
+    const p = new TrackPipeline({ roleId, segmenter: new Segmenter(DEFAULT_SEGMENTER), stt, gate, activity: new ActivityReporter(send, () => clock.t), send, now: () => clock.t, newSegmentId: () => `seg${String(++n).padStart(3, "0")}`, deadlineMs: 5000 });
+    for (const f of frames(concat(BURST, BURST, BURST))) { clock.t += 20; p.push(f); }
+    await settle();
+    expect(inner.calls).toHaveLength(1); // one in flight, two queued
+    gate.update({ type: "voice_state", paused: false, ended: false, holders: [{ roleId, participantId: "p1", recording: false }] });
+    p.stop();
+    expect(signals[0]?.aborted).toBe(true); // the one in flight is told to stop as well
+    d.pending[0]!(good("too late"));
+    await settle();
+    expect(inner.calls).toHaveLength(1);
+    expect(sent.filter((m) => m.type === "voice_line")).toEqual([]);
+  });
+
+  it("a pipeline stopped once still transcribes what it segments afterwards (the cancel is renewed)", async () => {
+    const h = harness();
+    h.p.stop();
+    h.feed(BURST);
+    await h.p.flush();
+    await settle();
+    expect(h.lines()).toEqual([expect.objectContaining({ text: "line 1" })]);
   });
 
   it("a gate change noticed only at the next frame also discards (defence in depth: stop() not called)", async () => {

@@ -36,6 +36,11 @@ export class TrackPipeline {
   private feeding: string | null = null;
   /** The stream time (ms) at the end of the last frame pushed into the segmenter. */
   private pushedEnd = 0;
+  /**
+   * F5 (privacy defence in depth): cancels every transcription started before the last `stop` (opt-out, pause, reissue, a lost seat): a
+   * segment queued behind the limiter's in-flight cap leaves the queue and one in flight is aborted. Renewed on every `stop`.
+   */
+  private cancel = new AbortController();
 
   constructor(private readonly o: {
     roleId: string; segmenter: Segmenter; stt: SpeechToText; gate: VoiceGate; activity: ActivityReporter;
@@ -60,6 +65,8 @@ export class TrackPipeline {
 
   /** The role stopped recording: drop the open segment and the lead-in, close the edge. Results already in flight are re-checked on delivery. */
   stop(): void {
+    this.cancel.abort();
+    this.cancel = new AbortController();
     this.o.segmenter.discard();
     this.feeding = null;
     this.o.activity.stop(this.o.roleId);
@@ -90,12 +97,14 @@ export class TrackPipeline {
     if (!isFileSafeId(segmentId)) return this.tail; // never happens with the real generator; never used as an id
     const startMs = this.wallOf(s.startMs);
     const endMs = Math.max(startMs, this.wallOf(s.endMs));
+    const signal = this.cancel.signal;
     const result: Promise<Outcome> = this.o.stt
-      .transcribe({ id: segmentId, pcm: s.pcm, sampleRate: SAMPLE_RATE, deadline: this.o.now() + this.o.deadlineMs })
+      .transcribe({ id: segmentId, pcm: s.pcm, sampleRate: SAMPLE_RATE, deadline: this.o.now() + this.o.deadlineMs }, signal)
       .then((t) => outcomeOf(s, t), (): Outcome => ({ kind: "failed", status: "stt_failed" }));
     const roleId = this.o.roleId;
     this.tail = this.tail.then(async () => {
       const out = await result;
+      if (signal.aborted) return; // cancelled by a stop: never a line, never a failure notice
       const still = this.o.gate.recordingFor(roleId);
       if (still === null || still.participantId !== participantId) return; // replaced, opted out, paused or ended meanwhile
       if (out.kind === "text") this.o.send({ type: "voice_line", segmentId, roleId, participantId, text: out.text, startMs, endMs });
