@@ -86,7 +86,7 @@ function guard<T>(code: EnvFileErrorCode, fn: () => T): T {
 export type FileId = { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number; nlink: number };
 
 /** The command runner seam (Task 3's `Run` has this shape). Only `git ls-files` runs through it here. */
-export type GitRun = (cmd: string, args: readonly string[], o?: { env?: NodeJS.ProcessEnv; timeoutMs?: number }) => Promise<{ code: number | null; stdout: string; stderr: string }>;
+export type GitRun = (cmd: string, args: readonly string[], o: { env: NodeJS.ProcessEnv; timeoutMs?: number }) => Promise<{ code: number | null; stdout: string; stderr: string }>;
 
 const MAX_ENV_BYTES = 1024 * 1024;
 export const STT_PORT_MIN = 20000;

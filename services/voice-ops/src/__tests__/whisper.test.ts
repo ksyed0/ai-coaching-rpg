@@ -263,7 +263,7 @@ describe("startWhisper and stopWhisper, with fakes (US-0072, A1c Task 4)", () =>
   it("a process whose comm cannot be read right after the spawn is stopped through its handle", async () => {
     const timers = autoTimers();
     const sys = fakeSystem({ startedAt: () => timers.now() });
-    const run: Run = async (cmd, args) => (args[1] === "comm=" ? { code: 1, stdout: "", stderr: "" } : sys.run(cmd, args));
+    const run: Run = async (cmd, args, o) => (args[1] === "comm=" ? { code: 1, stdout: "", stderr: "" } : sys.run(cmd, args, o));
     const dir = stateDir();
     await expect(startWhisper({
       spawnDetached: sys.spawnDetached, run, kill: sys.kill, env: {}, stateDir: dir, sttUrl: sttUrl(), modelFile: "/m.bin",

@@ -6,7 +6,8 @@ import path from "node:path";
  * US-0072 (EPIC-0003 voice A1c, Task 3): the command runner, the detached spawn and the process identity of `voice-ops`. Every other
  * module takes these as injected seams (tests fake them); `cli.ts` (Task 7) passes the real ones below.
  *
- * - `realRun`: `execFile`, never a shell, exactly the given environment (the command is looked up in ITS `PATH`), a default timeout of
+ * - `realRun`: `execFile`, never a shell, exactly the given environment (REQUIRED, never a default of process.env: review B2 F5; the
+ *   command is looked up in ITS `PATH`), a default timeout of
  *   120 s, output capped at 1 MiB per stream. A non-zero exit is a result, not a throw; a run that was killed (the timeout, or the cap)
  *   is `code: null`; a command that cannot be started (ENOENT) throws. Assignable to the `.env` writer's `GitRun`.
  * - `realSpawnDetached`: `spawn` with `detached: true` (its own process group, so a Ctrl-C to the terminal does not reach it), the
@@ -29,14 +30,17 @@ export const realSetTimer: SetTimer = (fn, ms) => {
 };
 
 export type RunResult = { code: number | null; stdout: string; stderr: string };
-export type Run = (cmd: string, args: readonly string[], o?: { env?: NodeJS.ProcessEnv; timeoutMs?: number }) => Promise<RunResult>;
+/** `env` is required (review B2 F5): a call that forgets it would hand the child the whole process.env, exported keys included. */
+export type Run = (cmd: string, args: readonly string[], o: { env: NodeJS.ProcessEnv; timeoutMs?: number }) => Promise<RunResult>;
 
 export const RUN_DEFAULT_TIMEOUT_MS = 120_000;
 export const RUN_MAX_OUTPUT_BYTES = 1024 * 1024;
 
-export const realRun: Run = (cmd, args, o = {}) => new Promise<RunResult>((resolve, reject) => {
+export const realRun: Run = (cmd, args, o) => new Promise<RunResult>((resolve, reject) => {
+  // Never a default of process.env: a caller (or a cast) that leaves env out is refused before anything runs.
+  if (o === undefined || o === null || typeof o.env !== "object" || o.env === null) { reject(new Error(`${path.basename(cmd)} needs an explicit environment`)); return; }
   execFile(cmd, [...args], {
-    env: o.env ?? process.env, timeout: o.timeoutMs ?? RUN_DEFAULT_TIMEOUT_MS, maxBuffer: RUN_MAX_OUTPUT_BYTES, shell: false, windowsHide: true, encoding: "utf8",
+    env: o.env, timeout: o.timeoutMs ?? RUN_DEFAULT_TIMEOUT_MS, maxBuffer: RUN_MAX_OUTPUT_BYTES, shell: false, windowsHide: true, encoding: "utf8",
   }, (err, stdout, stderr) => {
     const out = { stdout: String(stdout ?? ""), stderr: String(stderr ?? "") };
     if (!err) { resolve({ code: 0, ...out }); return; }

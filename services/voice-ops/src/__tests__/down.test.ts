@@ -128,6 +128,22 @@ describe("voiceDown", () => {
     expect(existsSync(w.statePath)).toBe(false);
   });
 
+  // Review B2 F5: the secret scan of voice:up, for voice:down's commands too.
+  it("no output line, argument list or command environment of voice:down holds a secret, and every command has an explicit environment", async () => {
+    for (const lan of [false, true]) {
+      const w = await upped({ lan });
+      const text = w.envText();
+      const get = (n: string): string => text.split("\n").find((l) => l.startsWith(`${n}=`))!.slice(n.length + 1);
+      const p = new URL(get("STT_URL")).pathname;
+      const values = [get("LIVEKIT_API_KEY"), get("LIVEKIT_API_SECRET"), p, p.slice(1), "placeholder-launcher-token-0123456789abcdef"];
+      expect(await voiceDown(w.deps())).toBe(0);
+      expect(w.calls.length).toBeGreaterThan(0);
+      for (const c of w.calls) expect(c.env, `${c.cmd} without an explicit environment`).toBeDefined();
+      const haystacks = [...w.out, ...w.calls.flatMap((c) => [...c.args, ...Object.values(c.env ?? {}).map(String)])];
+      for (const v of values) for (const h of haystacks) expect(h.includes(v)).toBe(false);
+    }
+  });
+
   it("a busy lock is refused with the remove-the-lock sentence", async () => {
     const w = await upped();
     writeFileSync(path.join(w.stateDir, LOCK_FILE), `${process.ppid}\n`, { mode: 0o600 });

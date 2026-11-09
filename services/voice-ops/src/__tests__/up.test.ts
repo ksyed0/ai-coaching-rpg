@@ -538,6 +538,7 @@ describe("voiceUp never shows a secret", () => {
         readFileSync(w.statePath, "utf8"),
       ];
       for (const v of values) for (const h of haystacks) expect(h.includes(v)).toBe(false);
+      for (const c of w.calls) expect(c.env, `${c.cmd} without an explicit environment`).toBeDefined();
       for (const s of w.spawns) expect(s.args).toContain(sec.requestPath);
       for (const s of w.spawns) expect(Object.keys(s.env).sort()).toEqual(["HOME", "PATH"]);
     }

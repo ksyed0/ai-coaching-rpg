@@ -96,6 +96,11 @@ describe("voiceCheck", () => {
     const report = w.out.join("\n");
     for (const v of [...Object.values(MARKERS), MARKERS.sttPath.slice(1), "marker-real-environment-value-0001", "seat-room-marker"]) expect(report).not.toContain(v);
     expect(report).toContain("OK   LiveKit accepts control's keys");
+    // review B2 F5: the commands voice:check runs (docker, tmutil) carry no secret and always an explicit environment
+    expect(w.calls.length).toBeGreaterThan(0);
+    for (const c of w.calls) expect(c.env, `${c.cmd} without an explicit environment`).toBeDefined();
+    const haystacks = w.calls.flatMap((c) => [...c.args, ...Object.values(c.env ?? {}).map(String)]);
+    for (const v of [...Object.values(MARKERS), MARKERS.sttPath.slice(1), "marker-real-environment-value-0001"]) for (const h of haystacks) expect(h.includes(v)).toBe(false);
     expect(readFileSync(w.envFile).equals(before)).toBe(true);
     expect(existsSync(w.stateDir)).toBe(false);
     expect(w.calls.filter((c) => c.cmd === "git")).toEqual([]);

@@ -99,7 +99,9 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     if (sig === "SIGKILL" || !w.stubborn.has(pid)) w.procs.delete(pid);
   };
 
-  const run = async (cmd: string, args: readonly string[], ro: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): Promise<RunResult> => {
+  const run = async (cmd: string, args: readonly string[], ro: { env: NodeJS.ProcessEnv; timeoutMs?: number }): Promise<RunResult> => {
+    // Review B2 F5: every command gets an explicit environment (realRun refuses one without); a call without it fails the test here.
+    if (ro?.env === undefined) throw new Error(`the harness was asked to run ${cmd} without an explicit environment`);
     w.calls.push({ cmd, args: [...args], env: ro.env, timeoutMs: ro.timeoutMs });
     const ok = (stdout = ""): RunResult => ({ code: 0, stdout, stderr: "" });
     if (cmd === "git") return w.git();

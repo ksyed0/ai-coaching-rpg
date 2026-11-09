@@ -37,12 +37,12 @@ describe("realRun (US-0072, A1c Task 3)", () => {
   });
 
   it("runs without a shell: an argument $(echo x) comes back literally", async () => {
-    const r = await realRun(process.execPath, ["-e", "console.log(process.argv[1])", "$(echo x)"]);
+    const r = await realRun(process.execPath, ["-e", "console.log(process.argv[1])", "$(echo x)"], { env: {} });
     expect(r).toEqual({ code: 0, stdout: "$(echo x)\n", stderr: "" });
   });
 
   it("reports the exit code, and stdout and stderr apart", async () => {
-    const r = await realRun(process.execPath, ["-e", "process.stdout.write('o'); process.stderr.write('e'); process.exit(3)"]);
+    const r = await realRun(process.execPath, ["-e", "process.stdout.write('o'); process.stderr.write('e'); process.exit(3)"], { env: {} });
     expect(r).toEqual({ code: 3, stdout: "o", stderr: "e" });
   });
 
@@ -57,14 +57,24 @@ describe("realRun (US-0072, A1c Task 3)", () => {
   });
 
   it("reports a timeout as code null", async () => {
-    const r = await realRun(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], { timeoutMs: 300 });
+    const r = await realRun(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], { env: {}, timeoutMs: 300 });
     expect(r.code).toBeNull();
   });
 
   it("caps the output at 1 MiB and reports the cut run as code null", async () => {
-    const r = await realRun(process.execPath, ["-e", "process.stdout.write('x'.repeat(3 * 1024 * 1024))"]);
+    const r = await realRun(process.execPath, ["-e", "process.stdout.write('x'.repeat(3 * 1024 * 1024))"], { env: {} });
     expect(r.code).toBeNull();
     expect(r.stdout.length).toBeLessThanOrEqual(1024 * 1024);
+  });
+
+  // Review B2 F5: a call that forgets the environment would get the whole process.env (the keys a shell exported included): refused.
+  it("refuses a call without an environment and starts nothing", async () => {
+    const loose = realRun as unknown as (cmd: string, args: string[], o?: object) => Promise<unknown>;
+    const marker = path.join(newDir(), "ran");
+    const code = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`;
+    await expect(loose(process.execPath, ["-e", code])).rejects.toThrow("needs an explicit environment");
+    await expect(loose(process.execPath, ["-e", code], { timeoutMs: 1000 })).rejects.toThrow("needs an explicit environment");
+    expect(existsSync(marker)).toBe(false);
   });
 
   it("throws when the command does not exist (git missing: the tracked check skips)", async () => {
