@@ -1,15 +1,49 @@
 {
   "note": "US-0072 (A1c, review finding 16u): the LIVEKIT_HOST and STT_MODEL rules are duplicated in services/voice-ops (it may import only node: built-ins and @acr/adapters). voice-ops, control (livekit-config.test.ts) and the speech worker (config.test.ts) each assert that their own parser agrees with every value here.",
   "livekitHost": {
-    "accepted": ["http://127.0.0.1:7880", "http://127.0.0.1:7880/", "http://[::1]:7880", "http://127.0.0.1:1", "http://127.0.0.1:65535"],
+    "accepted": [
+      "http://127.0.0.1:7880",
+      "http://127.0.0.1:7880/",
+      "http://[::1]:7880",
+      "http://127.0.0.1:1",
+      "http://127.0.0.1:65535"
+    ],
     "refused": [
-      "https://127.0.0.1:7880", "ws://127.0.0.1:7880", "http://localhost:7880", "http://127.0.0.1", "http://127.0.0.1:80", "http://192.168.1.20:7880",
-      "http://10.0.0.5:7880", "http://0.0.0.0:7880", "http://user:pw@127.0.0.1:7880", "http://127.0.0.1:7880/x", "http://127.0.0.1:7880?x=1",
-      "http://127.0.0.1:7880?", "http://127.0.0.1:7880#f", "not a url"
+      "https://127.0.0.1:7880",
+      "ws://127.0.0.1:7880",
+      "http://localhost:7880",
+      "http://127.0.0.1",
+      "http://127.0.0.1:80",
+      "http://192.168.1.20:7880",
+      "http://10.0.0.5:7880",
+      "http://0.0.0.0:7880",
+      "http://user:pw@127.0.0.1:7880",
+      "http://127.0.0.1:7880/x",
+      "http://127.0.0.1:7880?x=1",
+      "http://127.0.0.1:7880?",
+      "http://127.0.0.1:7880#f",
+      "not a url"
     ]
   },
   "sttModel": {
-    "accepted": ["small.en", "large-v3-turbo-q5_0", "base", "Base.EN", "a_b-c.d", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
-    "refused": ["../x", ".en", "small.", "a..b", "a b", "a/b", "small,en", "é", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    "accepted": [
+      "small.en",
+      "large-v3-turbo-q5_0",
+      "base",
+      "Base.EN",
+      "a_b-c.d",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "refused": [
+      "../x",
+      ".en",
+      "small.",
+      "a..b",
+      "a b",
+      "a/b",
+      "small,en",
+      "é",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
   }
 }
