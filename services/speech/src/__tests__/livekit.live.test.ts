@@ -512,7 +512,7 @@ describe.skipIf(!LIVE)("LiveKit live checks (US-0071, A1b Task 18; VOICE_LIVE=1)
     expectClean(w2);
   });
 
-  it("case 8: at the session end control deletes the seat rooms, then sends ended: the open segment is still flushed, and the worker does not exit 3", async () => {
+  it("case 8: at the session end control sends ended, then deletes the seat rooms: the open segment is still flushed, and the worker does not exit 3", async () => {
     const room = newRoom();
     const gen = newGen();
     const p = await publisher(room, ROLE, gen);
@@ -521,7 +521,8 @@ describe.skipIf(!LIVE)("LiveKit live checks (US-0071, A1b Task 18; VOICE_LIVE=1)
     const w = await startChild(room);
     w.child.send(recording(gen));
     await vi.waitFor(() => expect(w.messages.some((m) => m.type === "voice_line")).toBe(true), { timeout: 60_000 });
-    // Wait until a segment is open again (speech started after the last line), then end as VoiceHost.end does: deleteRoom first (async), then ended.
+    // Wait until a segment is open again (speech started after the last line), then end as VoiceHost.end does: ended first, then
+    // deleteRoom (async; review finding on case 8: the old order, deleteRoom first, was a race the IPC message happened to win).
     const lines = () => w.messages.filter((m) => m.type === "voice_line" || m.type === "segment_failed").length;
     const before = lines();
     const activeEdges = () => w.messages.filter((m) => m.type === "speech_activity" && m.active === true).length;
@@ -529,8 +530,8 @@ describe.skipIf(!LIVE)("LiveKit live checks (US-0071, A1b Task 18; VOICE_LIVE=1)
     // The burst lasts 1.5 s: let the open segment gather more than the segmenter's minSpeechMs (300 ms) of live audio first.
     await new Promise((r) => setTimeout(r, 800));
     const atEnd = lines();
-    void admin.deleteRoom(room);
     w.child.send({ type: "voice_state", paused: false, ended: true, holders: [{ roleId: ROLE, participantId: "p-live-1", recording: true, voiceChosen: true, generation: gen }] });
+    void admin.deleteRoom(room);
     await vi.waitFor(() => expect(lines()).toBeGreaterThan(atEnd), { timeout: 60_000 }); // the open segment was flushed
     await quiet();
     expect(before).toBeGreaterThan(0);

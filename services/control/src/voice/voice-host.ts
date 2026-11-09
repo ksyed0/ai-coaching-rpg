@@ -75,7 +75,8 @@ type Session = {
  *  - US-0071 (A1b Task 6): one speech-to-text budget across every session (SttSlots); a stuck worker loses its slot and is killed.
  *  - US-0071 (A1b Task 9): `voice_availability { available, off }` (worker up, speech-to-text healthy, not off) goes to the runtime on
  *    every change and every runtime ready; `stt_unavailable` / `stt_recovered` alerts on a health change only.
- *  - `end`: a final `ended` state (the worker flushes), then the worker is stopped after `graceMs` (forced after another); once it has
+ *  - `end`: a final `ended` state (the worker flushes), THEN the seat rooms are deleted, then the worker is stopped after `graceMs`
+ *    (forced after another; its speech-to-text slots go back at its exit, D14); once it has
  *    stopped (or when there was none) the session's entry is removed.
  * Every handler is fire-and-forget and never throws. Logs carry the session id and an error name at most: never a text, a participant
  * id, a segment id or a path.
@@ -248,14 +249,19 @@ export class VoiceHost {
 
   end(sessionId: string): void {
     try {
-      try { this.o.tokens?.endSession(sessionId); } catch (err) { this.failed(sessionId, err); } // every seat room is deleted
       const s = this.sessions.get(sessionId);
-      if (!s || s.ended) return;
-      s.ended = true;
-      this.cancelRestart(s); // US-0071: an ended session is never respawned
+      const first = s !== undefined && !s.ended;
+      if (first) {
+        s.ended = true;
+        this.cancelRestart(s); // US-0071: an ended session is never respawned
+        this.toWorker(s, { type: "voice_state", paused: s.seats?.paused ?? false, ended: true, holders: s.seats?.holders ?? [] });
+      }
+      // Review finding (case 8): every seat room is deleted only AFTER the worker was sent `ended` (its final flush): deleting a room
+      // kicks the worker out of it, and a lost race between that kick and the IPC message would drop the open segments.
+      try { this.o.tokens?.endSession(sessionId); } catch (err) { this.failed(sessionId, err); }
+      if (!first) return;
       const w = s.worker;
       if (!w || w.exited) { this.drop(sessionId, s); return; } // F9b: nothing to stop: forget the session now
-      this.toWorker(s, { type: "voice_state", paused: s.seats?.paused ?? false, ended: true, holders: s.seats?.holders ?? [] });
       w.stopping = true;
       const grace = this.o.config.graceMs;
       this.o.setTimer(() => {

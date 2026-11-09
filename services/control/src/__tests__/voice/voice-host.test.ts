@@ -662,6 +662,23 @@ describe("VoiceHost and LiveKit (US-0071, A1b Task 5)", () => {
     expect(admin.calls.at(-1)).toBe("delete");
   });
 
+  // Review finding (case 8): deleting the room kicks the worker out of it, so `ended` (the final flush) must reach the worker FIRST.
+  // The live check saw it arrive first every time, but that was a race between IPC and an HTTP call plus the server's kick.
+  it("end sends the worker its final ended state BEFORE any seat room is deleted (even when deleteRoom resolves at once)", async () => {
+    const { v, admin } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    await v.voiceToken(ID, "tech_lead", "p-secret-1"); // the seat room exists
+    const order: string[] = [];
+    const send = w.send.bind(w);
+    w.send = (m) => { if (m.type === "voice_state" && m.ended) order.push("ended to the worker"); return send(m); };
+    const del = admin.deleteRoom.bind(admin);
+    admin.deleteRoom = (room) => { order.push("deleteRoom"); return del(room); };
+    v.end(ID);
+    await settle();
+    expect(order).toEqual(["ended to the worker", "deleteRoom"]);
+  });
+
   it("roleReissued sweeps the seat at once; a runtime exit forgets the seats (a token request then waits for the next ones)", async () => {
     const { v, tokens, admin } = withLiveKit();
     live(v);
