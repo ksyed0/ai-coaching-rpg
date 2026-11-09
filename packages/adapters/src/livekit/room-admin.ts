@@ -3,8 +3,9 @@ import { RoomServiceClient } from "livekit-server-sdk";
 /**
  * US-0071 (EPIC-0003 voice A1b, Task 4): the three LiveKit server calls control needs, behind a port so tests use a fake. Control removes
  * stale identities from a seat room, sweeps a room's participants, and deletes a session's rooms at its end. A twirp `not_found` answer (no
- * such room or participant; never a bare HTTP 404) is success: the state control wanted already holds. Any other failure is a LiveKitAdminError with a fixed
- * message; the original error is kept as `cause` for the caller, never in the message (it may name the room or the identity).
+ * such room or participant; never a bare HTTP 404) is success: the state control wanted already holds. Any other failure is a
+ * LiveKitAdminError with a fixed message and only a sanitised `{ status?, code? }` as `cause` (the raw error may name the room, the
+ * identity or the host). Callers log `errorName(err)` only.
  */
 export interface RoomAdmin {
   removeParticipant(room: string, identity: string): Promise<void>;
@@ -20,9 +21,32 @@ export interface RoomServiceClientLike {
   deleteRoom(room: string): Promise<unknown>;
 }
 
+/** The twirp error codes (a fixed vocabulary that names nothing); any other `code` is dropped. */
+const TWIRP_CODES: ReadonlySet<string> = new Set([
+  "canceled", "unknown", "invalid_argument", "malformed", "deadline_exceeded", "not_found", "bad_route", "already_exists", "permission_denied",
+  "unauthenticated", "resource_exhausted", "failed_precondition", "aborted", "out_of_range", "unimplemented", "internal", "unavailable", "data_loss",
+]);
+
+/** What a LiveKitAdminError keeps of the SDK's error: an HTTP status (an integer 100..599) and an allowlisted twirp code, nothing else. */
+export type LiveKitAdminCause = { status?: number; code?: string };
+
+function sanitise(err: unknown): LiveKitAdminCause {
+  if (typeof err !== "object" || err === null) return {};
+  const { status, code } = err as { status?: unknown; code?: unknown };
+  return {
+    ...(typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+    ...(typeof code === "string" && TWIRP_CODES.has(code) ? { code } : {}),
+  };
+}
+
+/**
+ * A LiveKit admin call failed. The message is fixed and `cause` is only the sanitised `{ status?, code? }`: the raw SDK error is never
+ * kept, since its message, metadata or stack can name the room, the identity or the host.
+ */
 export class LiveKitAdminError extends Error {
-  constructor(what: "remove" | "list" | "delete", cause: unknown) {
-    super(`the LiveKit server refused or did not answer a ${what} call`, { cause });
+  declare readonly cause: LiveKitAdminCause;
+  constructor(what: "remove" | "list" | "delete", err: unknown) {
+    super(`the LiveKit server refused or did not answer a ${what} call`, { cause: sanitise(err) });
     this.name = "LiveKitAdminError";
   }
 }

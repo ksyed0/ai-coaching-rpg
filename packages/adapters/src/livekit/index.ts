@@ -5,4 +5,4 @@
  */
 export { GENERATION_HEX_CHARS, WORKER_IDENTITY_PREFIX, participantIdentity, parseParticipantIdentity, workerIdentity } from "./identity.js";
 export { LiveKitTokenError, VOICE_TOKEN_TTL_S, mintParticipantToken, mintWorkerToken, type MintInput, type MintedToken } from "./token.js";
-export { LiveKitAdminError, createRoomAdmin, type RoomAdmin, type RoomServiceClientLike } from "./room-admin.js";
+export { LiveKitAdminError, createRoomAdmin, type LiveKitAdminCause, type RoomAdmin, type RoomServiceClientLike } from "./room-admin.js";

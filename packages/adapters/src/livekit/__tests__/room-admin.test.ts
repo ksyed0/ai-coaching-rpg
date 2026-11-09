@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { createRoomAdmin, LiveKitAdminError, type RoomServiceClientLike } from "../index.js";
 
@@ -72,7 +73,26 @@ describe("createRoomAdmin (US-0071)", () => {
       expect((err as Error).message).not.toContain(ROOM);
       expect((err as Error).message).not.toContain(IDENTITY);
       expect((err as Error).message).not.toContain("ECONNREFUSED");
-      expect((err as Error & { cause?: unknown }).cause).toBe(boom); // kept for the caller, out of the message
+      expect((err as Error & { cause?: unknown }).cause).toEqual({ status: 500 }); // only the sanitised shape, never the raw error
+    }
+  });
+
+  it("the error keeps only a sanitised status and an allowlisted twirp code: inspect shows no room, identity, host or key", async () => {
+    const KEY = "APIadminkey0001";
+    const SECRET = "q".repeat(40);
+    const raw = Object.assign(new Error(`twirp error for room ${ROOM} identity ${IDENTITY} at 127.0.0.1:7880 key ${KEY}`), {
+      status: 403, code: "permission_denied", metadata: { room: ROOM, identity: IDENTITY, host: "127.0.0.1:7880" }, stack: `Error: ${ROOM}\n at ${IDENTITY}`,
+    });
+    const odd = Object.assign(new Error(ROOM), { status: `${ROOM}`, code: `room ${ROOM} not here` }); // non-number status, unknown code
+    for (const [fail, want] of [[raw, { status: 403, code: "permission_denied" }], [odd, {}], ["a string error naming " + ROOM, {}]] as const) {
+      const admin = createRoomAdmin({ host: HOST, apiKey: KEY, apiSecret: SECRET, client: fake({ fail }).client });
+      for (const p of [admin.removeParticipant(ROOM, IDENTITY), admin.listParticipants(ROOM), admin.deleteRoom(ROOM)]) {
+        const err = await p.then(() => null, (e: unknown) => e);
+        expect(err).toBeInstanceOf(LiveKitAdminError);
+        expect((err as Error & { cause?: unknown }).cause).toEqual(want);
+        const text = `${inspect(err, { depth: 10, showHidden: true })}\n${JSON.stringify(err)}\n${(err as Error).stack ?? ""}`;
+        for (const s of [ROOM, IDENTITY, "127.0.0.1", KEY, SECRET]) expect(text).not.toContain(s);
+      }
     }
   });
 
