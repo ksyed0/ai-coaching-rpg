@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { LiveKitAdminError, parseParticipantIdentity, type RoomAdmin } from "@acr/adapters/livekit";
 import { isVoiceRoomName } from "@acr/speech/protocol";
 import type { LiveKitConfig } from "../../voice/livekit-config.js";
-import { SEATS_WAIT_MS, SWEEP_INTERVAL_MS, SWEEP_RETRY_MS, VoiceTokenRefused, VoiceTokens, type TokenSeats } from "../../voice/tokens.js";
+import { MAX_WAITERS_PER_ROLE, SEATS_WAIT_MS, SWEEP_INTERVAL_MS, SWEEP_RETRY_MS, VoiceTokenRefused, VoiceTokens, type TokenSeats } from "../../voice/tokens.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 5, K9, R6, R7): one LiveKit room per seat, seat generations, the token rules and identity removal.
 const S1 = "a".repeat(32);
@@ -593,5 +593,65 @@ describe("VoiceTokens: a failed sweep is retried once (US-0071, A1b batch 3 revi
     h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p3")]));
     await settle();
     expect(retries(h)).toHaveLength(1);
+  });
+});
+
+describe("VoiceTokens.issue: who may wait (US-0071, A1b batch 3 review F4)", () => {
+  const waits = (h: ReturnType<typeof harness>) => h.timers.filter((t) => t.ms === SEATS_WAIT_MS && !t.cancelled).length;
+
+  it("a request for a seat that the seats list for another participant is refused at once (no wait)", async () => {
+    const h = harness();
+    h.tokens.openSession(S1);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    expect(await refusal(h.tokens.issue(S1, "tech_lead", "stale-cookie"))).toBe("voice_refused");
+    expect(waits(h)).toBe(0);
+  });
+
+  it("a stale request cannot starve the real holder: both wait independently and the holder is answered by the seats", async () => {
+    const h = harness();
+    h.tokens.openSession(S1);
+    const stale = h.tokens.issue(S1, "tech_lead", "old-tab");
+    const real = h.tokens.issue(S1, "tech_lead", "p1"); // was refused at once while the stale request waited
+    expect(waits(h)).toBe(2);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    expect(await refusal(real)).toBe("resolved");
+    expect(await refusal(stale)).toBe("voice_refused"); // refused by the same report, not after the full wait
+  });
+
+  it("waits when the seat has no holder, or the caller holds it without voiceChosen yet", async () => {
+    const h = harness();
+    h.tokens.openSession(S1);
+    h.tokens.seatsChanged(S1, seats([holder("cfo", "p2", { voiceChosen: false })], ["tech_lead"]));
+    const empty = h.tokens.issue(S1, "tech_lead", "p1");
+    const choosing = h.tokens.issue(S1, "cfo", "p2");
+    expect(waits(h)).toBe(2);
+    h.tokens.seatsChanged(S1, seats([holder("cfo", "p2"), holder("tech_lead", "p1")]));
+    expect(await refusal(empty)).toBe("resolved");
+    expect(await refusal(choosing)).toBe("resolved");
+  });
+
+  it(`at most ${MAX_WAITERS_PER_ROLE} requests wait per seat; one more is refused at once`, async () => {
+    const h = harness();
+    h.tokens.openSession(S1);
+    const waiting = Array.from({ length: MAX_WAITERS_PER_ROLE }, (_, i) => h.tokens.issue(S1, "tech_lead", `p${i}`));
+    expect(await refusal(h.tokens.issue(S1, "tech_lead", "one-more"))).toBe("voice_refused");
+    expect(waits(h)).toBe(MAX_WAITERS_PER_ROLE);
+    h.fire(SEATS_WAIT_MS);
+    for (const p of waiting) expect(await refusal(p)).toBe("voice_refused");
+  });
+
+  it("while a seat is reissued, the old seats never grant a token: the old holder waits and is refused, the new holder is answered by its report", async () => {
+    const h = harness();
+    h.tokens.openSession(S1);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    h.tokens.roleReissued(S1, "tech_lead");
+    const old = h.tokens.issue(S1, "tech_lead", "p1"); // the stale seats still list p1 with voice
+    const next = h.tokens.issue(S1, "tech_lead", "p2");
+    await settle();
+    expect(h.minted).toEqual([]);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p2")]));
+    expect(await refusal(next)).toBe("resolved");
+    expect(await refusal(old)).toBe("voice_refused");
+    expect(h.minted.map((m) => m.identity)).toEqual([`tech_lead.g${h.tokens.generation(S1, "tech_lead", "p2")}`]);
   });
 });

@@ -12,6 +12,8 @@ export const SEATS_WAIT_MS = 1000;
  * change, so a removed browser that reconnects with its still-valid token (TTL 600 s) is removed again within one period. Not a setting.
  */
 export const SWEEP_INTERVAL_MS = 20_000;
+/** Batch 3 review F4: at most this many token requests wait for seats per seat (each participant at most once). */
+export const MAX_WAITERS_PER_ROLE = 4;
 /** Batch 3 review F7: a failed sweep (LiveKit briefly unreachable) is run once more this much later; a failed retry is not retried. */
 export const SWEEP_RETRY_MS = 2_000;
 
@@ -28,7 +30,7 @@ export type TokenSeats = {
   open: readonly string[];
 };
 
-type Waiter = { participantId: string; settle: (r: { ok: true } | { ok: false; code: VoiceTokenCode }) => void };
+type Waiter = { roleId: string; participantId: string; settle: (r: { ok: true } | { ok: false; code: VoiceTokenCode }) => void };
 /** `retrying`: the next run is the delayed retry of a failed sweep; `retry` cancels a pending retry timer. */
 type Sweep = { running: boolean; pending: boolean; retrying: boolean; retry?: () => void };
 type Session = {
@@ -43,7 +45,7 @@ type Session = {
    * the first report that lists a holder for it.
    */
   reissued: Set<string>;
-  /** One waiting token request per role. */
+  /** Waiting token requests, keyed by role and participant ("role\nparticipant"; at most MAX_WAITERS_PER_ROLE per role). */
   waiters: Map<string, Waiter>;
   sweeps: Map<string, Sweep>;
   /** Cancels the armed periodic sweep (SWEEP_INTERVAL_MS); absent while none is armed. */
@@ -60,8 +62,10 @@ const errorName = (err: unknown): string => (err instanceof Error && isSafeId(er
  *    another seat. Rooms and the session key survive a runtime restart (openSession keeps them) and are lost with control (by design).
  *  - **Seat generation** = the first 8 hex of HMAC-SHA256(session key, roleId + "\n" + participantId): new for a reissue, a rebind and a
  *    control restart, the same across a page reload, and it leaks nothing of the participant id.
- *  - **Tokens** only for the current holder whose choice is voice (`voiceChosen`), for that seat's room; a caller not listed yet waits up
- *    to SEATS_WAIT_MS for the next seats (one waiter per seat). Not refused while paused or before the start (K1).
+ *  - **Tokens** only for the current holder whose choice is voice (`voiceChosen`), for that seat's room; a caller waits up to
+ *    SEATS_WAIT_MS for the next seats only when the seats are unknown, the seat has no holder, the caller holds it without voice yet,
+ *    or the seat is reissued (keyed by role and participant, MAX_WAITERS_PER_ROLE per seat); a seat held by someone else is refused
+ *    at once (batch 3 review F4). Not refused while paused or before the start (K1).
  *  - **Removal**: on every seat change each seat room is swept (`listParticipants`, then `removeParticipant` for every identity other
  *    than the expected one, never the worker's). Expected: the holder's identity when they chose voice; nothing after a leave,
  *    withdrawal, reissue, removal, AI fill or opt-out; anything for an open seat (a socket close: the same person may come back). A
@@ -109,12 +113,19 @@ export class VoiceTokens {
     const s = this.sessions.get(sessionId);
     if (!s || s.seats?.ended) throw new VoiceTokenRefused("voice_unavailable");
     if (s.off) throw new VoiceTokenRefused("voice_off");
-    if (!this.isVoiceHolder(s, roleId, participantId)) {
-      if (s.waiters.has(roleId)) throw new VoiceTokenRefused("voice_refused");
+    // Batch 3 review F4: while the seat is reissued the stored seats are stale (they may still list the old holder): never issue from
+    // them; wait for the report that lists the new holder. A seat the seats give to someone else is refused at once (no wait that a
+    // stale cookie or a second tab could hold against the real holder).
+    if (s.reissued.has(roleId) || !this.isVoiceHolder(s, roleId, participantId)) {
+      if (!s.reissued.has(roleId) && this.heldByOther(s, roleId, participantId)) throw new VoiceTokenRefused("voice_refused");
+      const key = `${roleId}\n${participantId}`;
+      if (s.waiters.has(key) || [...s.waiters.values()].filter((x) => x.roleId === roleId).length >= MAX_WAITERS_PER_ROLE) {
+        throw new VoiceTokenRefused("voice_refused");
+      }
       const r = await new Promise<{ ok: true } | { ok: false; code: VoiceTokenCode }>((resolve) => {
-        const cancel = this.o.setTimer(() => { if (s.waiters.get(roleId) === w) { s.waiters.delete(roleId); resolve({ ok: false, code: "voice_refused" }); } }, SEATS_WAIT_MS);
-        const w: Waiter = { participantId, settle: (x) => { cancel(); s.waiters.delete(roleId); resolve(x); } };
-        s.waiters.set(roleId, w);
+        const cancel = this.o.setTimer(() => { if (s.waiters.get(key) === w) { s.waiters.delete(key); resolve({ ok: false, code: "voice_refused" }); } }, SEATS_WAIT_MS);
+        const w: Waiter = { roleId, participantId, settle: (x) => { cancel(); if (s.waiters.get(key) === w) s.waiters.delete(key); resolve(x); } };
+        s.waiters.set(key, w);
       });
       if (!r.ok) throw new VoiceTokenRefused(r.code);
     }
@@ -146,9 +157,11 @@ export class VoiceTokens {
     if (!s) return;
     s.seats = next;
     for (const roleId of [...s.reissued]) if (next.holders.some((h) => h.roleId === roleId)) s.reissued.delete(roleId);
-    for (const [roleId, w] of [...s.waiters]) {
+    for (const w of [...s.waiters.values()]) {
       if (next.ended) w.settle({ ok: false, code: "voice_unavailable" });
-      else if (this.isVoiceHolder(s, roleId, w.participantId)) w.settle({ ok: true });
+      else if (s.reissued.has(w.roleId)) continue; // still nobody bound since the reissue
+      else if (this.isVoiceHolder(s, w.roleId, w.participantId)) w.settle({ ok: true });
+      else if (this.heldByOther(s, w.roleId, w.participantId)) w.settle({ ok: false, code: "voice_refused" });
     }
     for (const roleId of s.rooms.keys()) this.sweep(sessionId, s, roleId);
     if (next.ended) this.disarm(s); else this.arm(sessionId, s);
@@ -200,6 +213,11 @@ export class VoiceTokens {
 
   private isVoiceHolder(s: Session, roleId: string, participantId: string): boolean {
     return !!s.seats && !s.seats.ended && s.seats.holders.some((h) => h.roleId === roleId && h.participantId === participantId && h.voiceChosen);
+  }
+
+  /** The current seats give the role to a different participant. */
+  private heldByOther(s: Session, roleId: string, participantId: string): boolean {
+    return !!s.seats && s.seats.holders.some((h) => h.roleId === roleId && h.participantId !== participantId);
   }
 
   private expected(sessionId: string, s: Session, roleId: string): Expected {
