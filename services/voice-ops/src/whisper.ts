@@ -3,7 +3,7 @@ import { statSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { encodeWav } from "@acr/adapters";
-import { sttRequestPath } from "./env-file.js";
+import { isLongRequestPath, sttRequestPath } from "./env-file.js";
 import { isOurWhisper, readComm, type Run, type SetTimer, type SpawnDetached, type SpawnedChild } from "./run.js";
 import { openPrivateSubdir, type WhisperRecord } from "./state.js";
 import { isRequestPath } from "./text.js";
@@ -11,7 +11,7 @@ import { isRequestPath } from "./text.js";
 /**
  * US-0072 (EPIC-0003 voice A1c, Task 4): starting whisper.cpp's `whisper-server` 1.9.5 natively, hardened, on loopback.
  *
- * - Always `whisper-server --host 127.0.0.1 --port <port> [--request-path /<32 hex>] -m <STT_MODEL_FILE> -sns --public <empty 0700
+ * - Always `whisper-server --host 127.0.0.1 --port <port> --request-path /<path> -m <STT_MODEL_FILE> -sns --public <empty 0700
  *   folder> --tmp-dir <state>/tmp`: fixed arguments only, **never `--convert`** (it would run ffmpeg on uploaded files); nothing here
  *   calls `/load`. The port and the request path come from the merged view control reads (`loadRootEnv`, Task 7). `whisperArgs` is the
  *   ONLY argument list that may hold the request path (K14: whisper-server has no other way to set it, so local processes can read it
@@ -54,16 +54,18 @@ export function checkModelFile(file: string, label: string): { ok: true; warning
 const isPort = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 65535;
 
 /**
- * whisper-server's exact argument list. `--request-path` and its value are left out when `requestPath` is "" (a hand-set STT_URL
- * without a path, K2). Throws (a programming error of the caller) for a port, path or folder that must not be passed.
+ * whisper-server's exact argument list. `--request-path` is always present (batch 2 review B F10): an empty path, or one under
+ * MIN_STT_PATH_CHARS characters, is refused, because whisper-server's CORS header lets any web page that finds the port POST to
+ * /inference and /load. (The omit-when-empty branch of K2 had no other caller and is gone.) Throws (a programming error of the
+ * caller: `.env` and `startWhisper` refuse such a value first) for a port, path or folder that must not be passed.
  */
 export function whisperArgs(o: { port: number; requestPath: string; modelFile: string; publicDir: string; tmpDir: string }): string[] {
   if (!isPort(o.port)) throw new Error("whisper-server needs a port from 1 to 65535");
-  if (o.requestPath !== "" && (!o.requestPath.startsWith("/") || o.requestPath.endsWith("/") || !isRequestPath(o.requestPath))) throw new Error("whisper-server needs a request path of the STT_URL rule");
+  if (!isLongRequestPath(o.requestPath) || o.requestPath.endsWith("/") || !isRequestPath(o.requestPath)) throw new Error("whisper-server needs a request path of the STT_URL rule");
   for (const p of [o.modelFile, o.publicDir, o.tmpDir]) if (!path.isAbsolute(p)) throw new Error("whisper-server needs absolute paths");
   return [
     "--host", "127.0.0.1", "--port", String(o.port),
-    ...(o.requestPath !== "" ? ["--request-path", o.requestPath] : []),
+    "--request-path", o.requestPath,
     "-m", o.modelFile, "-sns", "--public", o.publicDir, "--tmp-dir", o.tmpDir,
   ];
 }
@@ -92,7 +94,7 @@ const START_SENTENCES: Record<WhisperStartErrorCode, string> = {
   warm_failed: "whisper-server did not answer the warm-up request: it was stopped; see whisper.log in VOICE_STATE_DIR",
   exited: "whisper-server exited while starting: see whisper.log in VOICE_STATE_DIR (a wrong model file, or the port is taken)",
   interrupted: "interrupted while whisper-server was starting: it was stopped",
-  bad_url: "STT_URL is not one whisper-server can serve: http://127.0.0.1:<port>[/<path>] (it binds 127.0.0.1 only)",
+  bad_url: "STT_URL is not one whisper-server can serve: http://127.0.0.1:<port>/<path of at least 16 characters> (it binds 127.0.0.1 only)",
   spawn_failed: "whisper-server could not be started: install whisper.cpp (brew install whisper-cpp) so whisper-server is on PATH",
   not_stopped: "whisper-server failed to start and the process could not be stopped: stop it by hand and remove the state file (state.json in VOICE_STATE_DIR), then pnpm voice:up",
 };
@@ -161,7 +163,7 @@ export async function startWhisper(o: {
   const port = Number(o.sttUrl.port);
   const requestPath = sttRequestPath(o.sttUrl);
   if (o.sttUrl.protocol !== "http:" || o.sttUrl.hostname !== "127.0.0.1" || !isPort(port) || o.sttUrl.search !== "" || o.sttUrl.hash !== ""
-    || (requestPath !== "" && !isRequestPath(requestPath))) throw new WhisperStartError("bad_url");
+    || !isRequestPath(requestPath) || !isLongRequestPath(requestPath)) throw new WhisperStartError("bad_url");
   const publicDir = openPrivateSubdir(o.stateDir, "public", { empty: true });
   const tmpDir = openPrivateSubdir(o.stateDir, "tmp");
   const args = whisperArgs({ port, requestPath, modelFile: o.modelFile, publicDir, tmpDir });

@@ -110,9 +110,12 @@ describe("whisperArgs and whisperEnv (US-0072, A1c Task 4)", () => {
     expect(a.filter((x) => x === "--host")).toHaveLength(1);
   });
 
-  it("whisperArgs leaves out --request-path for an empty path", () => {
-    const a = whisperArgs({ port: 9000, requestPath: "", modelFile: "/m.bin", publicDir: "/p", tmpDir: "/t" });
-    expect(a).toEqual(["--host", "127.0.0.1", "--port", "9000", "-m", "/m.bin", "-sns", "--public", "/p", "--tmp-dir", "/t"]);
+  // Batch 2 review B F10: `--request-path` is always present for a voice-ops start: an empty path, or one under 16 characters after
+  // the leading slash, is refused (whisper-server's CORS header lets any web page that finds the port POST to /inference and /load).
+  it("whisperArgs refuses an empty or short request path: --request-path is always present", () => {
+    const base = { port: 9000, modelFile: "/m.bin", publicDir: "/p", tmpDir: "/t" };
+    for (const requestPath of ["", "/", "/abc", "/abcdefghijklmno"]) expect(() => whisperArgs({ ...base, requestPath }), requestPath).toThrow();
+    expect(whisperArgs({ ...base, requestPath: "/abcdefghijklmnop" })).toContain("--request-path");
   });
 
   it("whisperArgs refuses a port or a path it must not pass", () => {
@@ -292,7 +295,7 @@ describe("startWhisper and stopWhisper, with fakes (US-0072, A1c Task 4)", () =>
   });
 
   it("refuses an STT_URL whisper-server cannot serve, before spawning", async () => {
-    for (const u of [new URL("http://[::1]:9000/abc"), new URL("http://127.0.0.1:9000/a%20b")]) {
+    for (const u of [new URL("http://[::1]:9000/abc"), new URL("http://127.0.0.1:9000/a%20b"), new URL("http://127.0.0.1:9000"), new URL("http://127.0.0.1:9000/abcdefghijklmno")]) {
       const { p, sys } = setup({ url: u, health: async () => "ok" });
       expect(await startError(p)).toBe("bad_url");
       expect(sys.spawnDetached.last).toBeUndefined();

@@ -30,11 +30,19 @@ import { isLiveKitToken, isRequestPath } from "./text.js";
  */
 
 export const MANAGED_NAMES = ["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "STT_URL"] as const;
+/**
+ * The shortest STT request path voice-ops accepts, in characters after the leading slash (batch 2 review B F10). whisper-server sends a
+ * CORS header, so a web page that finds the port could POST to /inference and /load on loopback; the path is what keeps it out. The
+ * generated path is 32 hex characters.
+ */
+export const MIN_STT_PATH_CHARS = 16;
+/** Whether an STT request path (`sttRequestPath`: leading slash, no trailing slash) is long enough (MIN_STT_PATH_CHARS). */
+export const isLongRequestPath = (p: string): boolean => p.startsWith("/") && p.length - 1 >= MIN_STT_PATH_CHARS;
 export type ManagedName = (typeof MANAGED_NAMES)[number];
 
 export type EnvFileErrorCode =
   | "missing" | "symlink" | "not_regular" | "not_owner" | "linked" | "too_open" | "unreadable" | "too_large" | "unwritable" | "dev_keys" | "half_pair" | "empty_assignment"
-  | "bad_keys" | "bad_stt_url" | "changed" | "env_override" | "tracked" | "git_timeout";
+  | "bad_keys" | "bad_stt_url" | "short_stt_path" | "changed" | "env_override" | "tracked" | "git_timeout";
 
 const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => string> = {
   missing: () => ".env not found: run ./run.sh once first (it creates .env with a facilitator token), then pnpm voice:up",
@@ -50,7 +58,8 @@ const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => str
   half_pair: () => ".env sets only one of LIVEKIT_API_KEY and LIVEKIT_API_SECRET: set both, or remove both so voice:up generates them",
   empty_assignment: (name) => `.env assigns an empty value to ${name ?? "a managed name"}: remove that line or give it a value, then pnpm voice:up`,
   bad_keys: (name) => `.env sets a ${name ?? "LiveKit key or secret"} that LiveKit's key list cannot hold: use printable characters without space, quotes, backslash or any of : , # $ { } [ ] & * ! | > % @ ? (key 1 to 256, secret 32 to 512), or remove LIVEKIT_API_KEY and LIVEKIT_API_SECRET so voice:up generates them`,
-  bad_stt_url: () => ".env sets an STT_URL whisper-server cannot serve: use http://127.0.0.1:<port>[/<path>] with a port from 1 to 65535 and a path of letters, digits, - . _ ~ and single slashes (whisper-server binds 127.0.0.1 only), or remove it so voice:up picks one",
+  bad_stt_url: () => ".env sets an STT_URL whisper-server cannot serve: use http://127.0.0.1:<port>/<path> with a port from 1 to 65535 and a path of letters, digits, - . _ ~ and single slashes (whisper-server binds 127.0.0.1 only), or remove it so voice:up picks one",
+  short_stt_path: () => `.env sets an STT_URL whose request path is empty or shorter than ${MIN_STT_PATH_CHARS} characters: whisper-server answers requests from any web page (its CORS header), and the path is what keeps a page that finds the port out; use http://127.0.0.1:<port>/<at least ${MIN_STT_PATH_CHARS} letters or digits>, or remove STT_URL so voice:up generates one`,
   changed: () => ".env changed while voice:up was writing it: run pnpm voice:up again",
   env_override: (name) => `unset ${name ?? "the managed names"} in this shell: voice:up and control must read it from .env`,
   tracked: () => "remove .env from git (git rm --cached .env) before voice:up writes secrets into it",
@@ -167,6 +176,8 @@ function managedProblem(text: string, values: Record<string, string>): { code: E
     if (!u.ok || u.url.hostname !== "127.0.0.1") return { code: "bad_stt_url" };
     const port = Number(u.url.port);
     if (!Number.isInteger(port) || port < 1 || port > 65535 || !isRequestPath(u.url.pathname)) return { code: "bad_stt_url" };
+    // Review B F10: a hand-set STT_URL with an empty or short path is refused (K2 made it a warning only).
+    if (!isLongRequestPath(sttRequestPath(u.url))) return { code: "short_stt_path" };
   }
   return null;
 }
@@ -241,7 +252,7 @@ export function appendBlock(file: string, bytes: Buffer, block: string, readId: 
   fsyncDir(dir);
 }
 
-/** whisper-server's `--request-path` for an STT_URL: its pathname without trailing slashes; "" for none (then the flag is omitted). */
+/** whisper-server's `--request-path` for an STT_URL: its pathname without trailing slashes; "" for none (refused: `isLongRequestPath`). */
 export function sttRequestPath(sttUrl: URL): string {
   let p = sttUrl.pathname;
   while (p.endsWith("/")) p = p.slice(0, -1);

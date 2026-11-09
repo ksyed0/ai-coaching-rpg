@@ -605,9 +605,21 @@ describe("hand-set STT_URL (US-0072, review A F7)", () => {
     return r.ok ? null : r.code;
   };
   it.each([
-    "http://127.0.0.1:9000", "http://127.0.0.1:9000/", "http://127.0.0.1:9000/abc", "http://127.0.0.1:9000/abc/", "http://127.0.0.1:9000/a/b-c_d.e~f",
-    "http://127.0.0.1:1/x", "http://127.0.0.1:65535/x", STT,
+    "http://127.0.0.1:9000/abcdefghijklmnop", "http://127.0.0.1:9000/abcdefghijklmnop/", "http://127.0.0.1:9000/a/b-c_d.e~fghijklm",
+    "http://127.0.0.1:1/0123456789abcdef", "http://127.0.0.1:65535/0123456789abcdef", STT,
   ])("accepts %s", (u) => { expect(sttProblem(u)).toBeNull(); });
+  // Batch 2 review B F10: whisper-server sends a CORS header, so any web page that finds the port could POST to /inference and /load
+  // on loopback; the request path is what keeps it out. An empty path, or one under 16 characters (after the leading slash), is refused.
+  it.each([
+    "http://127.0.0.1:9000", "http://127.0.0.1:9000/", "http://127.0.0.1:9000/abc", "http://127.0.0.1:9000/abc/", "http://127.0.0.1:9000/abcdefghijklmno",
+    "http://127.0.0.1:9000/abcdefghijklmno/", "http://127.0.0.1:1/x",
+  ])("refuses the short or empty path of %s", (u) => { expect(sttProblem(u)).toBe("short_stt_path"); });
+  it("the short-path sentence names the rule and the variable, never the value", () => {
+    const msg = new EnvFileError("short_stt_path").message;
+    expect(msg).toContain("STT_URL");
+    expect(msg).toContain("16");
+    expect(msg).not.toContain("127.0.0.1:9000");
+  });
   it.each([
     "http://127.0.0.1:0/abc", "http://127.0.0.1:65536/abc", "http://127.0.0.1:9000/a//", "http://127.0.0.1:9000//", "http://127.0.0.1:9000//a",
     "http://127.0.0.1:9000/a//b", "http://127.0.0.1:9000/a%20b", "http://127.0.0.1:9000/%61", "http://127.0.0.1:9000/a;b", "http://127.0.0.1:9000/a:b",
