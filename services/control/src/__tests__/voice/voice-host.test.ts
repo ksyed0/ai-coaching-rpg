@@ -150,10 +150,14 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
   it("voice_turn reaches the bots; voice_choice is dropped in A1a", () => {
     const v = make();
     live(v);
+    expect(v.voiceTurnOpen(ID)).toBe(false);
     v.fromRuntime(ID, { type: "voice_turn", open: true });
+    expect(v.voiceTurnOpen(ID)).toBe(true); // the last relayed state (the demo's V-07 waits on it)
     v.fromRuntime(ID, { type: "voice_turn", open: false });
+    expect(v.voiceTurnOpen(ID)).toBe(false);
     v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
     expect(turns).toEqual([[ID, true], [ID, false]]);
+    expect(v.voiceTurnOpen("b".repeat(32))).toBe(false);
     expect(toRuntime).toEqual([]);
   });
 

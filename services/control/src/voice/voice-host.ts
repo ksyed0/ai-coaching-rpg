@@ -40,6 +40,8 @@ type Session = {
   /** The latest seats the runtime reported (cleared when that runtime exits). */
   seats?: Seats;
   pending: Map<string, () => void>;
+  /** The last `voice_turn` the runtime reported (for the demo's V-07 and tests). */
+  turnOpen?: boolean;
 };
 
 /**
@@ -96,7 +98,7 @@ export class VoiceHost {
     try {
       const s = this.session(sessionId);
       if (m.type === "voice_seats") { s.seats = m; this.pushState(s); return; }
-      if (m.type === "voice_turn") { this.o.bots?.voiceTurn(sessionId, m.open); return; }
+      if (m.type === "voice_turn") { s.turnOpen = m.open; this.o.bots?.voiceTurn(sessionId, m.open); return; }
       if (m.type === "voice_choice") return; // A2 writes it to the audio audit log
       const answer = s.pending.get(m.segmentId);
       if (!answer) return; // timed out already, or never asked
@@ -113,6 +115,7 @@ export class VoiceHost {
       const s = this.sessions.get(sessionId);
       if (!s) return;
       s.runtimeUp = false;
+      s.turnOpen = false; // a new runtime starts with no voice turn open
       this.failPending(s);
       const paused = s.seats?.paused ?? false;
       delete s.seats;
@@ -151,6 +154,9 @@ export class VoiceHost {
     });
     for (const w of live) if (!w.exited) { try { w.handle.forceKill(); } catch { /* already gone */ } }
   }
+
+  /** Whether the session's runtime last reported an open voice turn (for the demo's V-07 and tests). */
+  voiceTurnOpen(sessionId: string): boolean { return this.sessions.get(sessionId)?.turnOpen ?? false; }
 
   workerPid(sessionId: string): number | undefined {
     const w = this.sessions.get(sessionId)?.worker;

@@ -34,6 +34,14 @@ export function buildVoiceSeats(o: {
 /** An injected one-shot timer (the Supervisor's shape): schedules `fn` after `ms` and returns its cancel function. */
 export type SetTimer = (fn: () => void, ms: number) => () => void;
 
+/**
+ * US-0070 (F2, review fix wave): how long a speaking track may go with no news (no edge and no line) before the tracker forgets it, so a
+ * worker that died mid-speech, or a lost "speech stopped" edge, cannot hold the voice turn open for the rest of the session. A live track
+ * sends a line at least every VOICE_MAX_SEGMENT_MS of speech (at most 6000) plus the speech-to-text deadline (STT_DEADLINE_MS, 5000);
+ * one more second of slack for the two IPC hops. A cold model's first answer may come later: that line then ends its own turn.
+ */
+export const VOICE_ACTIVITY_STALE_MS = 12_000;
+
 /** The default SetTimer: a real timer that never keeps the process alive. */
 export const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
 
@@ -46,13 +54,16 @@ export const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms)
  */
 export class VoiceTurnTracker {
   private readonly active = new Set<string>();
+  /** F2: the backstop timer of each speaking role (only with `staleMs`); its token tells a stale fire from the current one. */
+  private readonly stale = new Map<string, { cancel: () => void }>();
   /** The pending timer's token (identity) and cancel function; a fire whose token is no longer current does nothing. */
   private timer: { cancel: () => void } | null = null;
   private wasOpen = false;
   private readonly ends: number[] = [];
   private epochN = 0;
 
-  constructor(private readonly o: { turnEndMs: number; setTimer: SetTimer; onTurnEnd: () => void; onOpenChange: (open: boolean) => void }) {}
+  /** `staleMs` (F2): forget a speaking role after this long with no news from it (see VOICE_ACTIVITY_STALE_MS); absent, never. */
+  constructor(private readonly o: { turnEndMs: number; setTimer: SetTimer; onTurnEnd: () => void; onOpenChange: (open: boolean) => void; staleMs?: number }) {}
 
   get open(): boolean { return this.active.size > 0 || this.timer !== null; }
 
@@ -64,8 +75,9 @@ export class VoiceTurnTracker {
 
   /** A speech edge of a recording track. */
   activity(roleId: string, active: boolean, silentMs?: number): void {
-    if (active) { this.cancel(); this.active.add(roleId); }
+    if (active) { this.cancel(); this.active.add(roleId); this.watch(roleId); }
     else {
+      this.unwatch(roleId);
       this.active.delete(roleId);
       if (this.active.size === 0) this.arm(Math.max(0, this.o.turnEndMs - (silentMs ?? 0)));
     }
@@ -74,9 +86,26 @@ export class VoiceTurnTracker {
 
   /** A track that may no longer record (opt-out, a lost seat): it stops holding the turn open; the last one arms the timer from now. */
   forget(roleId: string): void {
+    this.unwatch(roleId);
     if (!this.active.delete(roleId)) return;
     if (this.active.size === 0) this.arm(this.o.turnEndMs);
     this.notify();
+  }
+
+  /** News from a speaking track (a line arrived): its backstop starts again. Nothing for a role that is not speaking. */
+  touch(roleId: string): void { if (this.active.has(roleId)) this.watch(roleId); }
+
+  /**
+   * F2: the speech worker is gone, so no edge will ever come: every speaking role is dropped and an open turn ends NOW (`onTurnEnd`; the
+   * host runs its round only when the turn recorded a line). Nothing when no turn is open.
+   */
+  dropAll(): void {
+    if (!this.open) return;
+    for (const r of [...this.active]) this.unwatch(r);
+    this.active.clear();
+    this.cancel();
+    this.notify();
+    this.o.onTurnEnd();
   }
 
   /** Whether `roleId` is speaking (its last edge was `active: true`). */
@@ -96,6 +125,7 @@ export class VoiceTurnTracker {
   /** Pause or end: no timer, nobody speaking, no onTurnEnd. */
   clear(): void {
     this.cancel();
+    for (const r of [...this.active]) this.unwatch(r);
     this.active.clear();
     this.epochN++;
     this.notify();
@@ -116,6 +146,26 @@ export class VoiceTurnTracker {
       this.o.onTurnEnd();
     }, ms);
     this.timer = token;
+  }
+
+  private watch(roleId: string): void {
+    const ms = this.o.staleMs;
+    if (ms === undefined) return;
+    this.unwatch(roleId);
+    const token: { cancel: () => void } = { cancel: () => {} };
+    token.cancel = this.o.setTimer(() => {
+      if (this.stale.get(roleId) !== token) return; // news came, or the role stopped, meanwhile
+      this.stale.delete(roleId);
+      this.forget(roleId);
+    }, ms);
+    this.stale.set(roleId, token);
+  }
+
+  private unwatch(roleId: string): void {
+    const t = this.stale.get(roleId);
+    if (!t) return;
+    this.stale.delete(roleId);
+    t.cancel();
   }
 
   private cancel(): void {

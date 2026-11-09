@@ -24,6 +24,7 @@ export type RunningWorker = {
  *  - Starts the ingest only after a `voice_state` (overview C6) in which a seat records and the session is not paused (a file plays from
  *    then on, as live audio would only then be listened to), and builds one TrackPipeline per role on its first frame.
  *  - Every `voice_state` updates the gate; each role that stopped recording has its open segment discarded at once.
+ *  - The end of the ingest (a file ran out) flushes every track's open segment and closes its speech edge (F2).
  *  - `ended`: stops the ingest, flushes every track's open segment (audio recorded before the end), delivers what is pending, then applies
  *    the ended state (nothing records after it).
  * `voice_line_result` is not used in A1a (A2 writes the seq into the audio index). Logs fixed sentences and error names only.
@@ -64,6 +65,8 @@ export function startWorker(o: {
   const startIngest = (): void => {
     ingestStarted = true;
     ingest.start((roleId, frame) => { if (!ending) pipelineFor(roleId).push(frame); })
+      // F2: the ingest ran out (the end of a file): every open segment is closed now, so no speech edge stays open for the session.
+      .then(() => { if (!ending) return Promise.all([...pipelines.values()].map((p) => p.flush())).then(() => undefined); })
       .catch((err: unknown) => log(`speech ingest stopped (${err instanceof Error ? err.name : "error"})`));
   };
 

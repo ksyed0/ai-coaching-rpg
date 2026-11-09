@@ -287,7 +287,12 @@ export async function bootstrap(opts: {
       if (m.type === "speech_activity") { host.onSpeechActivity(m.roleId, m.active, m.silentMs); return; }
       // The speaker's private notice of a failed or empty segment, and the facilitator's alert (both rate-limited by the host; never answered).
       if (m.type === "voice_notice") { host.voiceNotice(m.roleId, m.participantId, m.code); return; }
-      if (m.type === "voice_alert") { void host.voiceAlert(m.code); return; }
+      if (m.type === "voice_alert") {
+        // F2: a worker that died mid-speech will send no "speech stopped" edge: the open voice turn closes now.
+        if (m.code === "worker_down") host.voiceWorkerDown();
+        void host.voiceAlert(m.code);
+        return;
+      }
       if (m.type === "voice_line") {
         // US-0070: exactly one answer per line: the seq, the host's refusal code, or "failed" for anything else (never a message or a path).
         host.onVoiceUtterance(m.roleId, m.participantId, m.text).then(

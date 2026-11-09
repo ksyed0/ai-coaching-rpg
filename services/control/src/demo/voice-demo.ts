@@ -26,7 +26,7 @@ export const VOICE_CHECKS = [
   { id: "V-04", title: "the seat that did not opt in was never sent to speech-to-text" },
   { id: "V-05", title: "the Game Master evaluated per voice turn, not per segment" },
   { id: "V-06", title: "no player frame carries a segment id or another seat's participant id" },
-  { id: "V-07", title: "killing the speech worker leaves the session running: one worker_down alert, typed lines still recorded" },
+  { id: "V-07", title: "killing the speech worker mid-speech leaves the session running: one worker_down alert, the voice turn closes, typed lines still recorded" },
   { id: "V-08", title: "the session log format is the one a session without voice gets (no format change)" },
 ] as const;
 
@@ -37,6 +37,8 @@ const ROLES = ["account_manager", "delivery_lead", "tech_lead"] as const;
 const SCENE = "s2_client_call";
 const NPC = "client_sponsor";
 const TURNS = 3;
+/** V-07: after the three turns the voice seat speaks once more, for longer than the demo can take, so the worker is killed MID-speech. */
+const LAST_BURST_MS = 75_000;
 /** VOICE_MAX_SEGMENT_MS for the demo: a 4.4 s burst is split into three segments (2000, 2000, 400 ms of speech). */
 const MAX_SEGMENT_MS = 2000;
 const SEGMENTS_PER_TURN = 3;
@@ -71,10 +73,11 @@ export async function runVoiceDemo(o: { root?: string; stdout: Out; stderr: Out;
     const run = async (): Promise<void> => {
       const ingest = path.join(tree, "ingest");
       mkdirSync(ingest, { mode: 0o700 });
-      // The voice seat: three bursts of 4.4 s (each one turn of three segments) with 2.5 s of silence between them. The text-only seat: two
-      // bursts, the first overlapping the voice seat's first turn.
+      // The voice seat: three bursts of 4.4 s (each one turn of three segments) with 2.5 s of silence between them, then one long burst
+      // (its segments get "" from the script: no line, nothing logged) that is still playing when V-07 kills the worker. The text-only
+      // seat: two bursts, the first overlapping the voice seat's first turn.
       const turn = (): Int16Array => tone(4400);
-      writeFileSync(path.join(ingest, `${VOICE_ROLE}.wav`), encodeWav(concat(silence(300), turn(), silence(2500), turn(), silence(2500), turn(), silence(1500)), RATE));
+      writeFileSync(path.join(ingest, `${VOICE_ROLE}.wav`), encodeWav(concat(silence(300), turn(), silence(2500), turn(), silence(2500), turn(), silence(1500), tone(LAST_BURST_MS)), RATE));
       writeFileSync(path.join(ingest, `${TEXT_ROLE}.wav`), encodeWav(concat(silence(1300), tone(1500), silence(4000), tone(1200), silence(1000)), RATE));
       const script = path.join(tree, "script.json");
       writeFileSync(script, JSON.stringify({ [VOICE_ROLE]: AM_LINES, [TEXT_ROLE]: DL_LINES }), { mode: 0o600 });
@@ -138,7 +141,8 @@ export async function runVoiceDemo(o: { root?: string; stdout: Out; stderr: Out;
       const groups = vl.reduce<number[][]>((g, e, i) => { const prev = vl[i - 1]; if (prev && npc.some((n) => n.seq > prev.seq && n.seq < e.seq)) g.push([]); g.at(-1)!.push(e.seq); return g; }, [[]]);
       check("V-03", npc.length === TURNS && groups.length === TURNS && groups.every((g) => g.length === SEGMENTS_PER_TURN), `${npc.length} answers for ${TURNS} turns of ${SEGMENTS_PER_TURN} segments (${vl.length} segments)`);
       const calls = readFileSync(`${script}.calls.jsonl`, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as { roleId: string });
-      check("V-04", calls.length === AM_LINES.length && calls.every((c) => c.roleId === VOICE_ROLE), `${calls.filter((c) => c.roleId === TEXT_ROLE).length} calls for the text-only seat, ${calls.length} in all`);
+      // The long last burst may already be sending its (empty) segments: at least one call per scripted line, every one for the voice seat.
+      check("V-04", calls.length >= AM_LINES.length && calls.every((c) => c.roleId === VOICE_ROLE), `${calls.filter((c) => c.roleId === TEXT_ROLE).length} calls for the text-only seat, ${calls.length} in all`);
       // Units by turn: each closed turn is one, each AI line one. Counting segments would have allowed floor((segments + AI lines) / N).
       const byTurn = Math.floor((TURNS + npc.length) / GM_EVERY_N);
       const bySegment = Math.floor((vl.length + npc.length) / GM_EVERY_N);
@@ -148,16 +152,22 @@ export async function runVoiceDemo(o: { root?: string; stdout: Out; stderr: Out;
       const bad = frames.filter((p) => p.text.includes("segmentId") || ROLES.some((r) => r !== p.roleId && p.text.includes(`pid-${r}`)));
       check("V-06", bad.length === 0, `${bad.length} player streams with a segment id or another seat's participant id`);
 
+      // Mid-speech: the long last burst has opened a voice turn (the runtime said voice_turn open). A worker killed now sends no "speech
+      // stopped" edge; the worker_down alert must close the turn, or the Game Master and the AI players would stay held for the session.
+      await waitUntil("the voice seat speaking again", () => voice?.voiceTurnOpen(id) === true, STEP_MS);
       const pid = voice?.workerPid(id);
       if (pid === undefined) throw new Error("the speech worker is not running");
       process.kill(pid, "SIGKILL");
       await waitUntil("the worker_down alert", () => events().some((e) => e.type === "facilitator.alert" && e.message === WORKER_DOWN), STEP_MS);
+      await waitUntil("the voice turn to close", () => voice?.voiceTurnOpen(id) === false, STEP_MS);
+      const linesAfterKill = voiceLines().length;
       players[TEXT_ROLE]!.send({ type: "say", text: "[DL-TYPED] I will send Priya the summary." });
       await waitUntil("the typed line", () => events().some((e) => e.type === "utterance" && e.roleId === TEXT_ROLE && e.channel === "text"), STEP_MS);
       await new Promise((r) => setTimeout(r, 1500));
       const status = (unwrap(await api("GET", `/sessions/${id}`)) as { status: string }).status;
       const downs = events().filter((e) => e.type === "facilitator.alert" && e.message === WORKER_DOWN).length;
-      check("V-07", status === "running" && downs === 1 && voice?.workerPid(id) === undefined, `session ${status}, ${downs} worker_down alert(s)`);
+      check("V-07", status === "running" && downs === 1 && voice?.workerPid(id) === undefined && voice?.voiceTurnOpen(id) === false && linesAfterKill === AM_LINES.length,
+        `session ${status}, ${downs} worker_down alert(s), voice turn ${voice?.voiceTurnOpen(id) ? "open" : "closed"}, ${linesAfterKill} voice lines`);
       const started = events().find((e) => e.type === "session.started")!;
       const expected = logFormatFor(started.aiRoles ?? []);
       check("V-08", started.logFormat === expected, `format ${String(started.logFormat)}, a session without voice: ${expected}`);

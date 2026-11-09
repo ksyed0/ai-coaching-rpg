@@ -14,7 +14,7 @@ import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitator
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers, noticeNamesVoice } from "./limits.js";
 import { VoiceChoices, type VoiceFileIO } from "../engine/voice-file.js";
-import { buildVoiceSeats, gmUnits, realSetTimer, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
+import { buildVoiceSeats, gmUnits, realSetTimer, VOICE_ACTIVITY_STALE_MS, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
 import type { VoiceConfig } from "./voice-config.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -127,7 +127,7 @@ export class SessionHost {
     if (this.voice.enabled) {
       if (this.seats) this.loadVoiceChoices(this.seats);
       this.turns = new VoiceTurnTracker({
-        turnEndMs: this.voice.turnEndMs, setTimer: opts.setTimer ?? realSetTimer,
+        turnEndMs: this.voice.turnEndMs, setTimer: opts.setTimer ?? realSetTimer, staleMs: VOICE_ACTIVITY_STALE_MS,
         onTurnEnd: () => this.endVoiceTurn(),
         onOpenChange: (open) => { for (const fn of this.voiceTurnListeners) { try { fn(open); } catch (err) { this.safeLog(`voice turn listener: ${errorName(err)}`); } } },
       });
@@ -630,6 +630,7 @@ export class SessionHost {
    * is failed (a log failure stays fatal through the engine). Nothing is appended for a refusal.
    */
   async onVoiceUtterance(roleId: string, participantId: string, text: string): Promise<{ seq: number }> {
+    this.turns?.touch(roleId); // F2: news from a speaking track restarts its backstop
     try { return await this.recordVoiceLine(roleId, participantId, text); }
     catch (err) {
       // AC-0399: a speaker whose line was refused for a reason they can act on is told, privately (rate-limited, never logged).
@@ -673,6 +674,15 @@ export class SessionHost {
     if (!turns || !this.started || this.fatal !== null || this.engine.state.paused || this.engine.state.status !== "running") return;
     if (!this.isRecordingHolder(roleId)) return;
     turns.activity(roleId, active, silentMs);
+  }
+
+  /**
+   * US-0070 (F2): the speech worker stopped, so no speech edge will come again: every speaking role is dropped and an open voice turn
+   * closes now (`voice_turn open:false` goes out, the Game Master is no longer held). Its recorded lines still get their round (F1).
+   * Never throws.
+   */
+  voiceWorkerDown(): void {
+    try { this.turns?.dropAll(); } catch (err) { this.safeLog(`voice worker down: ${errorName(err)}`); }
   }
 
   /** US-0070: whether a voice turn is open (someone speaking, or the turn timer pending). */

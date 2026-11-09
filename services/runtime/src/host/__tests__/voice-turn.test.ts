@@ -13,7 +13,7 @@ import { ConsentStore } from "../../engine/consent.js";
 import { AiRoleSet } from "../../engine/ai-roles.js";
 import type { Seats } from "../../engine/seats.js";
 import { SessionHost } from "../session-host.js";
-import { VoiceTurnTracker, type SetTimer } from "../voice.js";
+import { VOICE_ACTIVITY_STALE_MS, VoiceTurnTracker, type SetTimer } from "../voice.js";
 import { bootstrap, type Runtime } from "../../main.js";
 import type { ChildMessage, ParentChannel, ParentMessage } from "../parent-channel.js";
 
@@ -31,6 +31,8 @@ function manualTimers() {
     setTimer, all, live,
     /** Fires the one live timer (there must be exactly one). */
     fire() { const l = live(); expect(l).toHaveLength(1); l[0]!.fired = true; l[0]!.fn(); },
+    /** Fires the one live timer of `ms` (there must be exactly one). */
+    fireMs(ms: number) { const l = live().filter((t) => t.ms === ms); expect(l).toHaveLength(1); l[0]!.fired = true; l[0]!.fn(); },
   };
 }
 
@@ -159,6 +161,71 @@ describe("VoiceTurnTracker (US-0070, AC-0400)", () => {
     expect(t.live().map((x) => x.ms)).toEqual([800]);
     tracker.forget("nobody"); // not active: nothing changes
     expect(t.live()).toHaveLength(1);
+  });
+
+  // F2 (review fix wave): a worker that dies mid-speech sends no "speech stopped" edge; the turn must not stay open for the session.
+  it("with staleMs, a speaking role with no news is forgotten after staleMs and the turn timer then arms", () => {
+    const t = manualTimers();
+    const ends: number[] = [];
+    const tracker = new VoiceTurnTracker({ turnEndMs: 800, setTimer: t.setTimer, onTurnEnd: () => ends.push(1), onOpenChange: () => {}, staleMs: 12_000 });
+    tracker.activity("a", true);
+    expect(t.live().map((x) => x.ms)).toEqual([12_000]);
+    t.fireMs(12_000);
+    expect(tracker.isActive("a")).toBe(false);
+    expect(t.live().map((x) => x.ms)).toEqual([800]);
+    t.fire();
+    expect(ends).toHaveLength(1);
+    expect(tracker.open).toBe(false);
+  });
+
+  it("news restarts the backstop (touch, a new true edge); a false edge, forget and clear cancel it; a superseded fire does nothing", () => {
+    const t = manualTimers();
+    const tracker = new VoiceTurnTracker({ turnEndMs: 800, setTimer: t.setTimer, onTurnEnd: () => {}, onOpenChange: () => {}, staleMs: 12_000 });
+    tracker.activity("a", true);
+    const first = t.live()[0]!;
+    tracker.touch("a");
+    expect(first.cancelled).toBe(true);
+    first.fn(); // a cancelled backstop that fires anyway forgets nobody
+    expect(tracker.isActive("a")).toBe(true);
+    expect(t.live().map((x) => x.ms)).toEqual([12_000]);
+    tracker.activity("a", true);
+    expect(t.live().map((x) => x.ms)).toEqual([12_000]);
+    tracker.touch("nobody"); // not speaking: no backstop
+    expect(t.live()).toHaveLength(1);
+    tracker.activity("a", false, 0);
+    expect(t.live().map((x) => x.ms)).toEqual([800]);
+    tracker.activity("b", true);
+    tracker.forget("b");
+    expect(t.live().map((x) => x.ms)).toEqual([800]);
+    tracker.activity("c", true);
+    tracker.clear();
+    expect(t.live()).toHaveLength(0);
+  });
+
+  it("without staleMs no backstop is armed", () => {
+    const { t, tracker } = make();
+    tracker.activity("a", true);
+    expect(t.live()).toHaveLength(0);
+  });
+
+  it("dropAll ends an open turn at once (onTurnEnd once, closed, no timer left); with no open turn it does nothing", () => {
+    const t = manualTimers();
+    const ends: number[] = [];
+    const opens: boolean[] = [];
+    const tracker = new VoiceTurnTracker({ turnEndMs: 800, setTimer: t.setTimer, onTurnEnd: () => ends.push(1), onOpenChange: (o) => opens.push(o), staleMs: 12_000 });
+    tracker.dropAll();
+    expect(ends).toHaveLength(0);
+    tracker.activity("a", true);
+    tracker.activity("b", true);
+    tracker.dropAll();
+    expect(ends).toHaveLength(1);
+    expect(tracker.open).toBe(false);
+    expect(t.live()).toHaveLength(0);
+    expect(opens).toEqual([true, false]);
+    tracker.activity("a", false, 0); // only a timer pending: the turn still ends at once
+    tracker.dropAll();
+    expect(ends).toHaveLength(2);
+    expect(t.live()).toHaveLength(0);
   });
 
   it("closedTurnEnds keeps rising boundaries only", () => {
@@ -419,6 +486,54 @@ describe("SessionHost voice turns (US-0070, AC-0400)", () => {
     expect(h.rounds).toHaveBeenCalledTimes(2);
   });
 
+  it("the worker going down mid-speech closes the turn at once: closed, the Game Master no longer held, one round for its line", async () => {
+    const h = makeHost();
+    const seen: boolean[] = [];
+    h.host.onVoiceTurn((o) => seen.push(o));
+    await startVoice(h);
+    const gm = (h.host as unknown as { gm: { hold: () => boolean } }).gm;
+    h.host.onSpeechActivity("tech_lead", true);
+    await h.host.onVoiceUtterance("tech_lead", PID("tech_lead"), "Cut off mid-sentence.");
+    expect(h.host.voiceTurnOpen).toBe(true);
+    h.host.voiceWorkerDown();
+    expect(h.host.voiceTurnOpen).toBe(false);
+    expect(seen).toEqual([true, false]);
+    expect(h.timers.live()).toHaveLength(0);
+    expect(gm.hold()).toBe(false);
+    await vi.waitFor(() => expect(h.rounds).toHaveBeenCalledTimes(1));
+    await h.host.idle(); await turn();
+    expect(h.rounds).toHaveBeenCalledTimes(1);
+    h.host.voiceWorkerDown(); // again: nothing open, nothing happens
+    await h.host.idle(); await turn();
+    expect(h.rounds).toHaveBeenCalledTimes(1);
+  });
+
+  it("the worker going down mid-speech with no line recorded closes the turn and runs no round", async () => {
+    const h = makeHost();
+    await startVoice(h);
+    h.host.onSpeechActivity("tech_lead", true);
+    h.host.voiceWorkerDown();
+    expect(h.host.voiceTurnOpen).toBe(false);
+    await h.host.idle(); await turn(); await turn();
+    expect(h.rounds).toHaveBeenCalledTimes(0);
+  });
+
+  it("the backstop: a speaking track with no news for VOICE_ACTIVITY_STALE_MS is forgotten and the turn closes", async () => {
+    const h = makeHost();
+    await startVoice(h);
+    h.host.onSpeechActivity("tech_lead", true);
+    expect(h.timers.live().map((t) => t.ms)).toEqual([VOICE_ACTIVITY_STALE_MS]);
+    await h.host.onVoiceUtterance("tech_lead", PID("tech_lead"), "A line is news.");
+    expect(h.timers.live().map((t) => t.ms)).toEqual([VOICE_ACTIVITY_STALE_MS]); // restarted, still one
+    expect(h.timers.all.filter((t) => t.ms === VOICE_ACTIVITY_STALE_MS)).toHaveLength(2);
+    h.timers.fireMs(VOICE_ACTIVITY_STALE_MS);
+    expect(h.timers.live().map((t) => t.ms)).toEqual([800]);
+    h.timers.fire();
+    expect(h.host.voiceTurnOpen).toBe(false);
+    await vi.waitFor(() => expect(h.rounds).toHaveBeenCalledTimes(1));
+    await h.host.idle();
+  });
+
   it("onVoiceTurn reports each open and close, in order", async () => {
     const h = makeHost();
     const seen: boolean[] = [];
@@ -464,6 +579,13 @@ describe("main and voice_turn (US-0070)", () => {
     // silentMs above TURN_END_MS arms a zero timer: the close follows without waiting for real time to pass.
     handler!({ type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 60_000 });
     await vi.waitFor(() => expect(sent.filter((m) => m.type === "voice_turn")).toEqual([{ type: "voice_turn", open: true }, { type: "voice_turn", open: false }]));
+    await host.idle();
+    // F2: voice_alert worker_down closes a turn left open by a worker that died mid-speech.
+    handler!({ type: "speech_activity", roleId: "tech_lead", active: true });
+    expect(host.voiceTurnOpen).toBe(true);
+    handler!({ type: "voice_alert", code: "worker_down" });
+    expect(host.voiceTurnOpen).toBe(false);
+    expect(sent.filter((m) => m.type === "voice_turn").at(-1)).toEqual({ type: "voice_turn", open: false });
     await host.idle();
   });
 });

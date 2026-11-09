@@ -65,7 +65,7 @@ export class TrackPipeline {
     this.o.activity.stop(this.o.roleId);
   }
 
-  /** Emits the open segment (session end) and resolves once every result of this track has been delivered. */
+  /** Emits the open segment (session end, or the end of an ingest file), closes the speech edge, and resolves once every result of this track has been delivered. */
   async flush(): Promise<void> {
     const rec = this.o.gate.recordingFor(this.o.roleId);
     const owner = this.feeding;
@@ -73,6 +73,8 @@ export class TrackPipeline {
     this.feeding = null;
     if (rec !== null && owner === rec.participantId) {
       for (const s of segs) this.o.activity.segmentClosed(this.o.roleId, this.wallOf(s.lastSpeechMs), this.enqueue(s, owner));
+      // F2: an open segment too short to keep still closes the speech edge (after any earlier outcome of this track).
+      if (segs.length === 0) this.o.activity.segmentClosed(this.o.roleId, this.o.now(), this.tail);
     }
     await this.tail;
   }

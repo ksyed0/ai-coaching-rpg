@@ -93,9 +93,13 @@ describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
   });
 
   it("ended flushes and stops", async () => {
-    const sub = await mkdtemp(path.join(dir, "end-"));
-    await writeFile(path.join(sub, "tech_lead.wav"), encodeWav(concat(silence(300), tone(900, LOUD)), 16000)); // still speaking at the end of the file
-    const h = harness({ roles: ["tech_lead"], ingestDir: sub });
+    // An ingest still playing (live audio): every frame is pushed, then it waits for stop, so only the end can close the open segment.
+    const pcm = concat(silence(300), tone(900, LOUD)); // still speaking when the end comes
+    const ingest: AudioIngest = {
+      start: (onFrame) => { for (let i = 0; i + 320 <= pcm.length; i += 320) onFrame("tech_lead", pcm.slice(i, i + 320)); return new Promise<void>(() => {}); },
+      stop: async () => {},
+    };
+    const h = harness({ roles: ["tech_lead"], ingest });
     await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
     const holders = [{ roleId: "tech_lead", participantId: "p1", recording: true }];
     h.w.onControl(state(holders));
@@ -109,6 +113,30 @@ describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
     h.w.onControl(state(holders)); // nothing records after the end
     await new Promise((r) => setImmediate(r));
     expect(h.sent.length).toBe(before);
+  });
+
+  // F2 (review fix wave): a file that ends inside an open segment must not leave the speech edge open for the rest of the session.
+  it("the end of a file closes its open segment: the line goes out and the speech edge closes", async () => {
+    const sub = await mkdtemp(path.join(dir, "eof-"));
+    await writeFile(path.join(sub, "tech_lead.wav"), encodeWav(concat(silence(300), tone(900, LOUD)), 16000)); // still speaking at the end
+    const h = harness({ roles: ["tech_lead"], ingestDir: sub });
+    await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
+    h.w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: true }]));
+    await vi.waitFor(() => expect(h.sent.at(-1)).toMatchObject({ type: "speech_activity", roleId: "tech_lead", active: false }));
+    expect(h.lines()).toEqual([expect.objectContaining({ roleId: "tech_lead", text: "tech_lead line 1" })]);
+    expect(h.sent.filter((m) => m.type === "speech_activity").map((m) => (m as { active: boolean }).active)).toEqual([true, false]);
+    await h.w.stop();
+  });
+
+  it("a file that ends inside a blip too short to keep still closes the speech edge (no line)", async () => {
+    const sub = await mkdtemp(path.join(dir, "eofblip-"));
+    await writeFile(path.join(sub, "tech_lead.wav"), encodeWav(concat(silence(300), tone(200, LOUD)), 16000));
+    const h = harness({ roles: ["tech_lead"], ingestDir: sub });
+    await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
+    h.w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: true }]));
+    await vi.waitFor(() => expect(h.sent.at(-1)).toMatchObject({ type: "speech_activity", roleId: "tech_lead", active: false }));
+    expect(h.lines()).toEqual([]);
+    await h.w.stop();
   });
 
   it("a failed warm-up reports stt unavailable and segments fail", async () => {
