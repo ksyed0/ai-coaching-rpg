@@ -14,3 +14,5 @@ export { speechToTextContract, type ContractControl } from "./speech/contract.js
 export { encodeWav, decodeWav } from "./speech/wav.js";
 export { parseSttUrl, WhisperHttpSpeechToText, MAX_WHISPER_BODY_BYTES, WHISPER_HEALTH_TIMEOUT_MS } from "./speech/whisper-http.js";
 export { LimitedSpeechToText, DEFAULT_STT_MAX_IN_FLIGHT, DEFAULT_STT_MAX_RETRIES, DEFAULT_STT_RETRY_BASE_MS, DEFAULT_STT_QUEUE_ALERT, DEFAULT_STT_COLD_TIMEOUT_MS, DEFAULT_STT_IDLE_COLD_MS, type LimitedOptions } from "./speech/limited.js";
+// US-0072 (EPIC-0003 voice A1c): an HTTP liveness probe (voice:up, voice:check, control's LiveKit probe). Loads no LiveKit SDK.
+export { httpAnswers, HTTP_PROBE_TIMEOUT_MS } from "./net/http-probe.js";

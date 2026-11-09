@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "../../voice/livekit-config.js";
 
@@ -105,5 +108,17 @@ describe("voiceTokensWanted (US-0071, A1b batch 3 review F8)", () => {
     expect(voiceTokensWanted({ SPEECH_INGEST: "file" }, cfg)).toBe(false); // nobody would listen to the room: no browser may publish into it
     expect(voiceTokensWanted({}, cfg)).toBe(false);
     expect(voiceTokensWanted({ SPEECH_INGEST: "livekit" }, null)).toBe(false);
+  });
+});
+
+// US-0072 (EPIC-0003 voice A1c, Task 1, review finding 16u): services/voice-ops repeats the LIVEKIT_HOST rule (it may not import control).
+// The shared fixture is read by voice-ops, control and the speech worker; each asserts its own parser agrees with every value.
+describe("LIVEKIT_HOST shared rules (US-0072)", () => {
+  const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../voice-ops/src/__tests__/fixtures/shared-rules.json");
+  const rules = JSON.parse(readFileSync(fixture, "utf8")) as { livekitHost: { accepted: string[]; refused: string[] } };
+  it("control agrees with every shared-rules LIVEKIT_HOST value", () => {
+    expect(rules.livekitHost.accepted.length).toBeGreaterThan(0);
+    for (const v of rules.livekitHost.accepted) expect(errorsOf({ ...both, LIVEKIT_HOST: v }), v).toEqual([]);
+    for (const v of rules.livekitHost.refused) expect(errorsOf({ ...both, LIVEKIT_HOST: v }).some((e) => e.startsWith("LIVEKIT_HOST ")), v).toBe(true);
   });
 });
