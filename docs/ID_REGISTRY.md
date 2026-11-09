@@ -6,7 +6,7 @@
 | US           | US-0072               | US-0071           |
 | TASK         | TASK-0108             | TASK-0107         |
 | AC           | AC-0417               | AC-0416           |
-| TC           | TC-0183               | TC-0182           |
+| TC           | TC-0189               | TC-0188           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0037                | L-0036            |
 
@@ -95,3 +95,5 @@ Assigned 2026-11-07 (bugfix/BUG-0025-throttle-resend-link-cap): TC-0155 (BUG-002
 Assigned 2026-11-08 (EPIC-0003 voice A1a, feature/EPIC-0003-US-0070-voice-pipeline): US-0070 (voice pipeline on file ingest); TASK-0106 (US-0070); AC-0396..AC-0404 (all under US-0070, in the A1a plan's order AC-a to AC-i); TC-0162..TC-0170 (one per AC, in order). Only A1a is filed: the overview's proposed story numbers for A1b, A1c, A2 and A3 are not reserved and take whatever ids are free when each slice is filed.
 
 Assigned 2026-11-08 (EPIC-0003 voice A1b, feature/EPIC-0003-US-0071-voice-livekit-consent): US-0071 (LiveKit and the web consent flow); TASK-0107 (US-0071); AC-0405..AC-0416 (all under US-0071, in the A1b plan's order AC-a to AC-l); TC-0171..TC-0182 (one per AC, in order; the edge cases of the plan's last task get the next free ids then). Only A1b is filed: the overview's proposed story numbers for A1c, A2 and A3 are not reserved and take whatever ids are free when each slice is filed.
+
+Assigned 2026-11-09 (EPIC-0003 voice A1b close-out, feature/EPIC-0003-US-0071-voice-livekit-consent): TC-0183..TC-0188 (US-0071 edge and negative cases: the subscription gate and per-frame generation, the sweep of a reconnecting removed browser, insecure page, denied permission and no transport, the session page headers, the ten live-only LiveKit cases, the browser matrix). No new US, TASK, AC or BUG.
