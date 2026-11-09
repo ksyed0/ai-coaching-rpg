@@ -208,6 +208,36 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     expect(w.killed).toBe(1);
   });
 
+  // F9b (review fix wave): a session's entry is removed once it has ended and its worker has stopped; late runtime messages do not
+  // bring it back.
+  it("an ended session's entry is removed after its worker stops, and late runtime messages do not recreate it", () => {
+    const v = make();
+    const size = () => (v as unknown as { sessions: Map<string, unknown> }).sessions.size;
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    v.end(ID);
+    expect(size()).toBe(1); // still stopping: late messages are absorbed by the ended entry
+    fire(700);
+    w.exit(null);
+    expect(size()).toBe(0);
+    v.fromRuntime(ID, seats({ ended: true }));
+    v.fromRuntime(ID, { type: "voice_line_ack", segmentId: SEG, seq: 3 });
+    v.fromRuntime(ID, { type: "voice_turn", open: false });
+    v.detach(ID);
+    expect(size()).toBe(0);
+  });
+
+  it("an ended session that never had a worker leaves no entry; end for an unknown session creates none", () => {
+    const v = make();
+    const size = () => (v as unknown as { sessions: Map<string, unknown> }).sessions.size;
+    v.attach(ID, { roles: ["tech_lead"] }); // no voice: no worker
+    expect(size()).toBe(1);
+    v.end(ID);
+    expect(size()).toBe(0);
+    v.end("b".repeat(32));
+    expect(size()).toBe(0);
+  });
+
   it("an invalid worker message is dropped", () => {
     const v = make();
     const w = live(v);

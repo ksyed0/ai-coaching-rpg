@@ -53,7 +53,8 @@ type Session = {
  *  - `detach` (the runtime exited): pending lines are answered `failed` and the worker is told nobody records until the next seats.
  *  - A worker exit while the session runs: ONE `worker_down` alert to the facilitator; the session keeps running (people continue by
  *    text) and no worker is started again in A1a (A1b adds restart with bounded backoff).
- *  - `end`: a final `ended` state (the worker flushes), then the worker is stopped after `graceMs` (forced after another).
+ *  - `end`: a final `ended` state (the worker flushes), then the worker is stopped after `graceMs` (forced after another); once it has
+ *    stopped (or when there was none) the session's entry is removed.
  * Every handler is fire-and-forget and never throws. Logs carry the session id and an error name at most: never a text, a participant
  * id, a segment id or a path.
  */
@@ -96,6 +97,8 @@ export class VoiceHost {
 
   fromRuntime(sessionId: string, m: VoiceFromRuntime): void {
     try {
+      // F9b: only a live seats report may create the entry (the first one can come before attach); nothing brings back an ended session.
+      if (!this.sessions.has(sessionId) && (m.type !== "voice_seats" || m.ended)) return;
       const s = this.session(sessionId);
       if (m.type === "voice_seats") { s.seats = m; this.pushState(s); return; }
       if (m.type === "voice_turn") { s.turnOpen = m.open; this.o.bots?.voiceTurn(sessionId, m.open); return; }
@@ -125,11 +128,11 @@ export class VoiceHost {
 
   end(sessionId: string): void {
     try {
-      const s = this.session(sessionId);
-      if (s.ended) return;
+      const s = this.sessions.get(sessionId);
+      if (!s || s.ended) return;
       s.ended = true;
       const w = s.worker;
-      if (!w || w.exited) return;
+      if (!w || w.exited) { this.drop(sessionId, s); return; } // F9b: nothing to stop: forget the session now
       this.toWorker(s, { type: "voice_state", paused: s.seats?.paused ?? false, ended: true, holders: s.seats?.holders ?? [] });
       w.stopping = true;
       const grace = this.o.config.graceMs;
@@ -202,10 +205,17 @@ export class VoiceHost {
     delete s.worker;
     for (const cancel of s.pending.values()) cancel(); // the worker is gone: nobody to answer
     s.pending.clear();
-    if (w.stopping || s.ended || this.closed) return;
+    if (s.ended) { this.drop(sessionId, s); return; } // F9b: the session is over and its worker has stopped
+    if (w.stopping || this.closed) return;
     s.workerLost = true;
     this.o.log(`session ${sessionId} speech worker stopped unexpectedly`);
     this.alert(sessionId, "worker_down");
+  }
+
+  /** F9b: forgets an ended session whose worker has stopped (or that never had one). */
+  private drop(sessionId: string, s: Session): void {
+    for (const cancel of s.pending.values()) cancel();
+    if (this.sessions.get(sessionId) === s) this.sessions.delete(sessionId);
   }
 
   private pushState(s: Session): void {
