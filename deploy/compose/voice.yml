@@ -33,6 +33,9 @@ services:
       - "${VOICE_MEDIA_BIND:?}:7882:7882/udp"
     # A crash restarts by itself (control's outage path waits for LiveKit to answer again); at most 5 tries. voice:down owns the stop.
     restart: on-failure:5
+    # No process in the container gains privileges through setuid or file capabilities (batch 2 review B F8). cap_drop: [ALL] and
+    # read_only: true are owner-run verification items of Task 15, not set here.
+    security_opt: ["no-new-privileges:true"]
 
   caddy:
     # Only with VOICE_ACCESS=lan: participants on the LAN open https://<VOICE_HOSTNAME> and wss://<VOICE_HOSTNAME>:<VOICE_LIVEKIT_TLS_PORT>.
@@ -58,3 +61,6 @@ services:
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on: [livekit]
     restart: on-failure:5
+    # Caddy runs as root in its image and keeps root's capabilities, and Docker 20.10 or newer lets a container bind low ports, so
+    # binding 443 is expected to work without the binary's file capability (UNVERIFIED until Task 15's owner run).
+    security_opt: ["no-new-privileges:true"]

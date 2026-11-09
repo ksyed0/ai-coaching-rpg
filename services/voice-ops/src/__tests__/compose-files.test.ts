@@ -73,6 +73,15 @@ describe("deploy/compose/voice.yml (US-0072, A1c Task 5)", () => {
     expect(service(voice, "livekit")).toContain("- ./livekit.yaml:/etc/livekit.yaml:ro");
   });
 
+  // Batch 2 review B F8: no process in either container may gain privileges through setuid or file capabilities. Caddy runs as root
+  // in its image and keeps root's capabilities, and Docker 20.10 or newer lets a container bind low ports, so its 443 is expected to
+  // survive (UNVERIFIED until Task 15's owner run).
+  it("both services run with no-new-privileges", () => {
+    expect(service(voice, "livekit")).toContain('security_opt: ["no-new-privileges:true"]');
+    expect(service(voice, "caddy")).toContain('security_opt: ["no-new-privileges:true"]');
+    expect(code(voice).filter((l) => l.trim().startsWith("security_opt:"))).toHaveLength(2);
+  });
+
   it("both services restart on-failure:5", () => {
     expect(service(voice, "livekit")).toContain("restart: on-failure:5");
     expect(service(voice, "caddy")).toContain("restart: on-failure:5");
