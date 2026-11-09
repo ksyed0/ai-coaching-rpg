@@ -300,6 +300,15 @@ describe("voiceUp rollback", () => {
     expect(w.out.join("\n")).toContain("could not be stopped");
   });
 
+  it("a whisper-server that never gets ready and cannot be stopped keeps its record (startWhisper not_stopped)", async () => {
+    const w = world();
+    w.health = () => { for (const pid of w.procs.keys()) w.eperm.add(pid); return "loading"; };
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(readState(w.stateDir)?.whisper).toBeDefined();
+    expect(w.composeVerbs()).toEqual([]);
+    expect(w.out.join("\n")).toContain("the process could not be stopped");
+  });
+
   it("a whisper-server that exits while starting clears its record and leaves nothing", async () => {
     const w = world();
     w.health = () => { w.procs.clear(); return "down"; };
