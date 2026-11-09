@@ -605,7 +605,7 @@ pnpm --filter @acr/web e2e   # builds apps/web, then the Playwright participant 
 pnpm demo --web     # the web demo: checks W-01 to W-08 against the real stack
 ```
 
-The Playwright specs (`apps/web/e2e`) start their own stack per test: the runtime in mock mode as a separate process, a WebSocket relay and `next start` on free ports, with generated `COOKIE_KEYS`. Each browser context sends `X-Forwarded-For: 127.0.0.1`, standing in for the single entry the proxy sets in a deployment (Caddy in `deploy/compose` REPLACES the header with the client's address; it never appends), so the BFF and the runtime key their limits on a real address. They need a Chromium for the pinned Playwright (`pnpm --filter @acr/web exec playwright install chromium`); to use another installed Chromium set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path.
+The Playwright specs (`apps/web/e2e`) start their own stack per test: the runtime in mock mode as a separate process, a WebSocket relay and `next start` on free ports, with generated `COOKIE_KEYS`. Each browser context sends `X-Forwarded-For: 127.0.0.1`, standing in for the single entry the proxy sets in a deployment (Caddy in `deploy/compose` REPLACES the header with the client's address; it never appends: Caddy's documented default; checked in the owner run, TC-0204), so the BFF and the runtime key their limits on a real address. They need a Chromium for the pinned Playwright (`pnpm --filter @acr/web exec playwright install chromium`); to use another installed Chromium set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path.
 
 The default test run never calls a real model or touches the network.
 

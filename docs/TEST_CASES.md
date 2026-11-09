@@ -2912,7 +2912,7 @@ Steps:
   1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/whisper.test.ts src/__tests__/up.test.ts src/__tests__/down.test.ts src/__tests__/cli.process.test.ts`.
 Expected Result: whisper-server is started with exactly `--host 127.0.0.1 --port <port> --request-path /<32 hex> -m <STT_MODEL_FILE> -sns --public <empty dir> --tmp-dir <state>/tmp` and never `--convert`; a missing model file is refused before anything is generated or started; compose is started with `up -d --no-build --wait --wait-timeout 60 --quiet-pull`; a second `voice:up` says "already running"; a changed setting is refused; repair restarts only what is missing; `voice:down` stops everything and clears the state.
 Actual Result: As expected with stand-ins only (stub `whisper-server` and `docker`, a LiveKit stand-in on 127.0.0.1:7880, a private repository copy): the exact whisper arguments, never `--convert`; the model refusal before anything is generated; compose `up -d --no-build --wait --wait-timeout 60 --quiet-pull`; rollback on a failure and on SIGINT through `pnpm -s voice:up` (the last line says whether it completed); repair mode; "already running"; `voice:down` leaving a foreign or reused pid alone. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`). The real stack: TC-0204.
-Status: [x] Pass
+Status: [x] Pass (stand-ins)
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story. The real stack is run only in the plan's Task 15 owner-approved run.
 
@@ -2941,7 +2941,7 @@ Steps:
   2. `docker compose -f deploy/compose/voice.yml config --quiet` with placeholder values (interpolation only, nothing pulled).
 Expected Result: Both images are pinned by digest; LiveKit never runs with `--dev`, takes its keys only from the private `livekit.env`, publishes its API on `127.0.0.1` only and its media on the node address only; the Caddyfile has `admin off`, no `log`, no `trusted_proxies`, no `X-Forwarded-For` directive, and forwards only `/rtc*` to LiveKit without the cookie.
 Actual Result: As expected: `compose-files.test.ts` and `compose.test.ts` pin both digests, no `--dev`, the private `livekit.env`, the API on 127.0.0.1, the media on the node address, `logging.level: error`, `no-new-privileges`, `restart: on-failure:5`, the Caddyfile (`admin off`, no site `log`, the ERROR `log default` filter, no `trusted_proxies` or `X-Forwarded-For`, `/rtc*` only with `header_up -Cookie`); both `docker compose -f deploy/compose/voice.yml --env-file /dev/null config --quiet` runs (lan and local placeholders) exit 0, nothing pulled. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
-Status: [x] Pass
+Status: [x] Pass (stand-ins)
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -2956,7 +2956,7 @@ Steps:
   2. From the repository root against a private copy: `pnpm -s voice:check`.
 Expected Result: Whisper health and its cross-origin answer, LiveKit reachability and the keys check, a changed node address, the certificate (warning under 21 days), the hostname's resolution, free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and the versions are reported; exit 0, 1 or 2; no output line holds a secret.
 Actual Result: As expected with injected seams and stand-ins: one OK/WARN/FAIL/SKIP line per check, exit 0/1/2, no secret in the report (marker scan), `pnpm -s voice:check` from the root of a private copy exits 1 with nothing running. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
-Status: [x] Pass
+Status: [x] Pass (stand-ins)
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -2985,7 +2985,7 @@ Steps:
   1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/livekit-outage.test.ts src/__tests__/voice/restart.test.ts`.
 Expected Result: Exit 3 with LiveKit unreachable is an outage: not counted, one `livekit_lost` alert, probes after 2, 4, 8, 16 and then every 30 s, a new worker and one `livekit_recovered` alert when LiveKit answers; exit 3 with LiveKit answering, any other exit, and a LiveKit that dies again within 60 s of a recovery are counted and reach voice off after the fifth failed restart.
 Actual Result: As expected with fakes (`livekit-outage.test.ts` 31 tests, `livekit-probe.test.ts`, `restart.test.ts`, `supervisor.voice.test.ts`, `main.test.ts` wiring): not counted, one `livekit_lost`, probes 2, 4, 8, 16 s after the previous answer then every 30 s, one `livekit_recovered` and a new worker; exit 3 with LiveKit answering, a rejected or hanging probe (watchdog), other exits and a re-loss within 60 s of a recovery count; end and shutdown cancel probes and ignore late answers; every listed mutation fails a test. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`). Not yet live: the real outage is TC-0204.
-Status: [x] Pass
+Status: [x] Pass (stand-ins)
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story. The live claim waits for the plan's Task 15 real outage run.
 

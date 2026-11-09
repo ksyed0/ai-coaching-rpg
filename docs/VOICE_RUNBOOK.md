@@ -36,10 +36,11 @@ There are two modes:
 2. **whisper-server** on `PATH` (`brew install whisper-cpp` gives 1.9.5).
 3. **A local Docker engine** (Docker Desktop or OrbStack) with Compose 2.24.0 or newer. `DOCKER_HOST` must be unset or `unix://`; a remote engine is refused.
 4. **`.env`** created by `./run.sh` first. `voice:up` never creates `.env`: a new one would make `run.sh` skip the facilitator token. It must be a regular file, mode 0600 (`chmod 600 .env`), not tracked by git. `voice:up` adds `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` and `STT_URL` only when they are absent, in one appended block, and never changes an existing byte. Do not export these three names in your shell: `voice:up` refuses to start ("unset LIVEKIT_API_KEY in this shell: voice:up and control must read it from .env").
-5. **`VOICE_STATE_DIR`** (default `<HOME>/.scenecoach/voice`): absolute, outside the repository, mode 0700, owned by you. `voice:up` creates it.
-6. **For `lan` mode only**, set `VOICE_ACCESS=lan`, `VOICE_HOSTNAME=<hostname>` (US-0048), optionally `VOICE_NODE_IP=<private IPv4 of this laptop>`, and the certificate:
+5. **`LIVEKIT_HOST`** must be unset or exactly `http://127.0.0.1:7880` for `voice:up` (`voice.yml` publishes LiveKit's API there); any other value exits 2.
+6. **`VOICE_STATE_DIR`** (default `<HOME>/.scenecoach/voice`): absolute, outside the repository, mode 0700, owned by you. `voice:up` creates it.
+7. **For `lan` mode only**, set `VOICE_ACCESS=lan`, `VOICE_HOSTNAME=<hostname>` (US-0048), optionally `VOICE_NODE_IP=<private IPv4 of this laptop>`, and the certificate:
    - **Owner-supplied files** (`VOICE_TLS_MODE=files`, the default and the only path in A1c): `VOICE_TLS_CERT_FILE=<absolute path>` and `VOICE_TLS_KEY_FILE=<absolute path>`. Run `chmod 600 <key file>` on the key.
-   - **The DNS-challenge path is not available** (plan Task 13 was skipped: no DNS provider has been named). `VOICE_TLS_MODE=dns` is refused with "VOICE_TLS_MODE=dns is not available yet: use VOICE_TLS_MODE=files with your own certificate (docs/VOICE_RUNBOOK.md)".
+   - **The DNS-challenge path is not available** (plan Task 13 was skipped: no DNS provider has been named). With `VOICE_TLS_MODE=dns` and no valid `VOICE_DNS_PROVIDER`, the settings check exits 2 with "VOICE_DNS_PROVIDER is required with VOICE_TLS_MODE=dns (1 to 64 lower-case letters, digits or -)". Only with a valid provider name does `voice:up` reach its refusal: "VOICE_TLS_MODE=dns is not available yet: use VOICE_TLS_MODE=files with your own certificate (docs/VOICE_RUNBOOK.md)".
    - Ports: `VOICE_HTTPS_PORT` (default 443) and `VOICE_LIVEKIT_TLS_PORT` (default 7443) must differ. `VOICE_WEB_PORT` (default 3000) is the web app's loopback port.
 
 ## 3. Start, check, stop
@@ -61,7 +62,7 @@ In `local` mode the web line says `PUBLIC_ORIGIN=http://localhost:3000 and LIVEK
 How `voice:up` behaves:
 
 - **Refusals.** Every refusal check runs before anything is written or started.
-- **Failure or Ctrl-C.** A failure or Ctrl-C rolls back what that run started. The last line says whether the rollback completed. If it says "the rollback is incomplete", run `pnpm voice:down`.
+- **Failure or Ctrl-C.** A failure or Ctrl-C rolls back what that run started. After Ctrl-C the last line says whether the rollback completed; after a failure, any part that could not be undone is named with "run pnpm voice:down".
 - **A second run** says "already running" when everything is up. If something is missing, it says "repairing: starting what is not running" and starts only that.
 - **Changed settings.** A changed setting (the node address after a DHCP change, ports, mode) is refused: run `pnpm voice:down`, then `pnpm voice:up`.
 
@@ -84,19 +85,20 @@ pnpm voice:check
 - LiveKit: whether it answers, and whether control's keys are LiveKit's. The key check sends a 60 s `ListRooms` token to `127.0.0.1:7880` only.
 - Docker.
 - The node address: FAIL "the node address changed since voice:up".
-- In `lan` mode: the certificate (present, the hostname, days to expiry; WARN under 21 days) and its key (mode 0600); DNS (the hostname must point to this laptop's private address; a DNS-rebinding hint); the TLS route; the web app through the proxy.
+- In `lan` mode: the certificate (present, the hostname, days to expiry; WARN under 21 days) and its key (mode 0600); DNS (the hostname must point to this laptop's private address; a DNS-rebinding hint); the TLS route; the web app through the proxy; and a WARN when this Node cannot read the system certificate store (Node before 22.15: a certificate trusted only by this machine's keychain then fails the TLS route check).
 - The web app on loopback, and not on any LAN address.
 - Free disk against `AUDIO_MIN_FREE_MB` (default 2048).
 - The ports.
 - The Time Machine exclusion of the state and audio folders.
 - Versions.
 - A WARN for any managed name exported in the shell.
+- The secure-context reminder, for example "voice:check: participants open https://<hostname>; a plain http:// LAN address cannot use the microphone" (in `local` mode: "only this machine's browser can use the microphone: http://localhost:3000").
 
 ```
 pnpm voice:down
 ```
 
-`voice:down` stops whisper-server (only the process `voice:up` started: a reused process id is left alone), runs `docker compose down` for the project and removes `livekit.env`, `state.json` and `whisper.log`. It keeps `caddy-data/` and `caddy-config/` (Caddy's data). If it says it could not identify whisper-server, run it again.
+`voice:down` stops whisper-server (only the process `voice:up` started: a reused process id is left alone), runs `docker compose down` for the project and removes `livekit.env`, `whisper.log`, `public/`, `tmp/` and `state.json`. It keeps `caddy-data/` and `caddy-config/` (Caddy's data). If it says it could not identify whisper-server, run it again.
 
 ## 4. The microphone needs a secure context
 
@@ -110,7 +112,7 @@ Browsers give the microphone only to `https://` pages or to `http://localhost` o
 - **The two-device address check (run once, before the room test; owner checklist item 7).** From device A, type five wrong join codes for one role. Then device B joins the same role with the right code.
   - **If B joins,** client addresses survive the container proxy.
   - **If B is blocked,** every client shares one address behind the proxy, and the caps of section 8 apply to the whole session. Use the manual fallback below for the room test.
-- **Manual fallback, not automated by A1c.** Run Caddy from Homebrew with the same `deploy/compose/Caddyfile`, with the upstreams changed from `host.docker.internal` and `livekit` to `127.0.0.1:<VOICE_WEB_PORT>` and `127.0.0.1:7880`. The cost: it is not digest-pinned, macOS asks a firewall question, and you keep it updated. A `VOICE_PROXY` setting is out of scope.
+- **Manual fallback, not automated by A1c.** Run Caddy from Homebrew with the same `deploy/compose/Caddyfile`, with the upstreams changed from `host.docker.internal` and `livekit` to `127.0.0.1:<VOICE_WEB_PORT>` and `127.0.0.1:7880`. The Caddyfile reads `VOICE_HOSTNAME`, `VOICE_HTTPS_PORT`, `VOICE_LIVEKIT_TLS_PORT` and `VOICE_WEB_UPSTREAM` (set it to `127.0.0.1:<VOICE_WEB_PORT>`) from Caddy's environment, and expects the certificate and key at `/certs/cert.pem` and `/certs/key.pem`: change those two `tls` paths to your files (and the LiveKit upstream `livekit:7880` to `127.0.0.1:7880`). The cost: it is not digest-pinned, macOS asks a firewall question, and you keep it updated. A `VOICE_PROXY` setting is out of scope.
 - **Who can read the keys.** `livekit.env` in the state directory is private to you. But anyone who can use the Docker socket can see `LIVEKIT_KEYS` through `docker inspect` or `docker compose config` (without `--quiet`). `voice-ops` itself only ever runs `config --quiet`.
 
 ## 6. Headsets and the same room
@@ -195,7 +197,7 @@ For each run, record: lines spoken, lines appended, lines under the wrong name, 
 
 ## 10. Reading the results
 
-`pnpm voice:timings <file>` prints two lines, each with count, p50, p95 and max, against the targets:
+`pnpm voice:timings <file>` prints three lines: one per number, each with count, p50, p95 and max against its target, then the reading guide:
 
 - **`end_to_append_ms`** runs from the voice detector's end of the segment to the log append. That end **includes the hangover** (`VOICE_HANGOVER_MS`, default 500 ms of silence after the last word), so the spoken word ended about `VOICE_HANGOVER_MS` earlier. Target: p95 at most 1000 ms at a 500 ms hangover.
 - **`start_to_append_ms`** runs from the segment's first frame (the 200 ms lead-in before the first word) to the log append. It approximates first word to line. Target: p95 at most 3000 ms.
