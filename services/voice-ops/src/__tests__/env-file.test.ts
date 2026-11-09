@@ -462,6 +462,19 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     noPathIn(err, path.dirname(file));
   });
 
+  it("the temp file is created exclusively: a file of that name that is not ours is never written or removed (review A F11)", () => {
+    const file = envFile("A=1\n");
+    const dir = path.dirname(file);
+    const r = readPrivateEnv(file);
+    const squatter = path.join(dir, `.env.voice-ops.${"ab".repeat(6)}.tmp`);
+    writeFileSync(squatter, "NOT OURS\n", { mode: 0o600 });
+    const err = thrown(() => appendBlock(file, r.bytes, "X=1\n", r.id, { random: (n) => Buffer.alloc(n, 0xab) }));
+    expect((err as EnvFileError).code).toBe("unwritable");
+    noPathIn(err, dir);
+    expect(readFileSync(squatter, "utf8")).toBe("NOT OURS\n");
+    expect(readFileSync(file, "utf8")).toBe("A=1\n");
+  });
+
   it("a file swapped while the port is being picked is left alone (end to end)", async () => {
     const file = envFile("A=1\n");
     const freePort = vi.fn(async () => {
@@ -574,6 +587,7 @@ describe("planSecrets (US-0072)", () => {
   it("the STT port must come from 20000..32767", () => {
     for (const port of [19999, 32768, 0, 20000.5]) expect(() => planSecrets("", {}, { random: counterRandom(), freePort: port }), String(port)).toThrow(/20000 to 32767/);
     expect(planSecrets("", {}, { random: counterRandom(), freePort: 32767 }).ok).toBe(true);
+    expect(planSecrets("", {}, { random: counterRandom(), freePort: 20000 }).ok).toBe(true); // review A F11: the lower bound itself
     expect(planSecrets("", { STT_URL: STT }, { random: counterRandom(), freePort: 0 }).ok).toBe(true); // unused when STT_URL is present
   });
 
@@ -611,6 +625,13 @@ describe("readPrivateEnv (US-0072)", () => {
     expect(r.bytes.equals(Buffer.from("A=1\nB=\"two\"\n"))).toBe(true);
     expect(r.values).toEqual({ A: "1", B: "two" });
     expect(r.id).toEqual({ dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, nlink: 1 });
+  });
+
+  it("refuses a .env owned by another uid (injected uid: runs on every machine, review A F11)", () => {
+    const file = envFile("A=1\n");
+    const own = statSync(file).uid;
+    expect(() => readPrivateEnv(file, { uid: own + 1 })).toThrow(expect.objectContaining({ code: "not_owner" }));
+    expect(readPrivateEnv(file, { uid: own }).text).toBe("A=1\n");
   });
 
   it("refuses a file over 1 MiB as too_large, with its own sentence (review A F3)", () => {

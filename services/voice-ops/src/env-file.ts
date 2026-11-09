@@ -83,8 +83,11 @@ const SECRET_MIN_CHARS = 32;
 const KEY_MAX_CHARS = 256; // control's limits (services/control/src/voice/livekit-config.ts)
 const SECRET_MAX_CHARS = 512;
 
-/** Reads `.env` through ONE descriptor (O_RDONLY | O_NOFOLLOW) and judges it by fstat. Throws EnvFileError. */
-export function readPrivateEnv(file: string): { bytes: Buffer; text: string; values: Record<string, string>; id: FileId } {
+/**
+ * Reads `.env` through ONE descriptor (O_RDONLY | O_NOFOLLOW) and judges it by fstat. `uid` is the owner it must have (default this
+ * process's uid; injectable so the `not_owner` refusal is tested without root). Throws EnvFileError.
+ */
+export function readPrivateEnv(file: string, o: { uid?: number } = {}): { bytes: Buffer; text: string; values: Record<string, string>; id: FileId } {
   let fd: number;
   try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); }
   catch (err) {
@@ -96,7 +99,8 @@ export function readPrivateEnv(file: string): { bytes: Buffer; text: string; val
   try {
     const st = guard("unreadable", () => fstatSync(fd));
     if (!st.isFile()) throw new EnvFileError("not_regular");
-    if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new EnvFileError("not_owner");
+    const uid = o.uid ?? (typeof process.getuid === "function" ? process.getuid() : undefined);
+    if (uid !== undefined && st.uid !== uid) throw new EnvFileError("not_owner");
     if (st.nlink > 1) throw new EnvFileError("linked"); // the rename would leave the other name with the old bytes (as readSecureJson refuses)
     if ((st.mode & 0o077) !== 0) throw new EnvFileError("too_open");
     if (st.size > MAX_ENV_BYTES) throw new EnvFileError("too_large");
@@ -199,11 +203,11 @@ function fsyncDir(dir: string): void {
 /**
  * Writes `bytes` (the file as read, unchanged; plus a newline if it does not end with one) and `block` to a new O_EXCL 0600 temp file
  * beside `file`, fsyncs it, then replaces `file` with it only if the path is still the file the read saw (`readId`). The temp is removed
- * on every failure.
+ * on every failure. `random` names the temp file (default `randomBytes`; injectable so a test can pre-create that name).
  */
-export function appendBlock(file: string, bytes: Buffer, block: string, readId: FileId): void {
+export function appendBlock(file: string, bytes: Buffer, block: string, readId: FileId, o: { random?: (n: number) => Buffer } = {}): void {
   const dir = path.dirname(file);
-  const tmp = path.join(dir, `.env.voice-ops.${randomBytes(6).toString("hex")}.tmp`);
+  const tmp = path.join(dir, `.env.voice-ops.${hexOf(o.random ?? randomBytes, 6)}.tmp`);
   const needsNewline = bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a;
   const data = Buffer.concat([bytes, Buffer.from((needsNewline ? "\n" : "") + block, "utf8")]);
   // Not created when this throws (EEXIST included): nothing to remove, and a file of that name that is not ours is left alone.
