@@ -7,20 +7,24 @@ import { isLiveKitToken, isRequestPath } from "./text.js";
 
 /**
  * US-0072 (EPIC-0003 voice A1c, Task 2): `pnpm voice:up` generates the LiveKit key and secret and `STT_URL` into the ROOT `.env` (the
- * only file control reads, R2) once, and never prints, logs or passes them in an argument list.
+ * only file control reads, R2) once. Nothing here prints or logs a value, and nothing here passes one in an argument list. The key and
+ * the secret never reach any argument list; the STT request path does, by design, in exactly one place: whisper-server's own
+ * `--request-path` (plan K14, Task 4 `whisperArgs`), where local processes can read it with `ps`.
  *
  * - Only names that are absent are added, as one appended block; an existing byte is never changed: the file is copied as the bytes the
  *   read saw (a decoded copy is used only to decide), so a byte that is not valid UTF-8 survives (review A F1).
- * - The file is read through one descriptor opened with O_NOFOLLOW and judged by fstat: a regular file owned by this user with no group
- *   or other permission bits and one hard link. A symlink, a second hard link, a directory, another owner, mode 0644 and a missing file are refused (a missing `.env` is NOT
- *   created: `run.sh` gives a facilitator token only to a NEW `.env`, so a `.env` made here would leave the server open).
- * - It is replaced atomically: an O_EXCL 0600 temp beside it, fsync; then the path is lstat'ed and its dev, ino, size and mtimeMs are
- *   compared with what the read descriptor saw, and so are ctimeMs and nlink (any change, or a link now, aborts with the file left alone); rename; fsync the directory.
+ * - The file is read through one descriptor opened with O_NOFOLLOW and judged by fstat: a regular file owned by this user, with no group
+ *   or other permission bits and one hard link. A symlink, a second hard link, a directory, another owner, mode 0644, a file over 1 MiB
+ *   and a missing file are refused (a missing `.env` is NOT created: `run.sh` gives a facilitator token only to a NEW `.env`, so a `.env`
+ *   made here would leave the server open). The mode check sees mode bits only, not ACLs or extended attributes (plan Task 15 residual).
+ * - It is replaced atomically: an O_EXCL temp beside it, set to 0600 whatever the umask, fsync; then the path is lstat'ed and its dev,
+ *   ino, size, mtimeMs, ctimeMs and nlink are compared with what the read descriptor saw (any change, or a link now, aborts with the
+ *   file left alone); rename; fsync the directory.
  * - Refused with the file unchanged byte for byte: half a key pair, an empty assignment of a managed name, the public development keys
  *   (`devkey` / `secret`, any case, or a secret under 32 characters), a key or secret outside control's rule or holding a character that
  *   would break `livekit.env` or LiveKit's key map (`bad_keys`), an `STT_URL` that whisper-server cannot serve, a `.env` tracked by
- *   git, and a REAL environment that sets a managed name (control merges `.env` UNDER the real environment, so a shell export would give
- *   control, LiveKit and whisper-server different values: finding 7).
+ *   git (or git not answering in time), and a REAL environment that sets a managed name (control merges `.env` UNDER the real
+ *   environment, so a shell export would give control, LiveKit and whisper-server different values: finding 7).
  *
  * Every error is an EnvFileError with a fixed sentence per code that names variables only, never a value or a path.
  */
