@@ -192,7 +192,7 @@ export class BotHost {
   }
 
   /**
-   * Closes the sockets; codes and budget stay. The port is forgotten (a later `attach` supplies it), so a reissue result or a late
+   * Closes the sockets; codes and budget stay; a voice turn of the old runtime no longer holds the bots (F3). The port is forgotten (a later `attach` supplies it), so a reissue result or a late
    * `setCodes` that arrives after a detach cannot reconnect to a possibly dead port.
    */
   detach(sessionId: string): Promise<void> {
@@ -204,6 +204,10 @@ export class BotHost {
       st.port = undefined;
       st.bound.clear();
       await Promise.allSettled([...st.bots.values()].map((b) => b.detach()));
+      // F3: the next runtime's voice turn starts closed and never reports the end of this one, so the hold ends here. The detach above
+      // already dropped any line the old turn deferred: nothing of the old socket is answered.
+      st.voiceOpen = false;
+      for (const [roleId, bot] of st.bots) { try { bot.setVoiceTurn(false); } catch { this.log(`session ${sessionId} AI player ${roleId} voice turn failed`); } }
     });
   }
 

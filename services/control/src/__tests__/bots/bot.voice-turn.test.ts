@@ -212,6 +212,31 @@ describe("BotHost.voiceTurn (US-0070)", () => {
     expect(h.isAiConnected("nope", "tech_lead")).toBe(false);
   });
 
+  // F3 (review fix wave): the new runtime's voice turn starts closed and never sends open:false for the old one, so a detach must
+  // release the hold; the line deferred by the old turn belongs to the old socket and is not answered.
+  it("a runtime restart during an open voice turn releases the hold (and drops the deferred line)", async () => {
+    const h = mk();
+    await h.attach("sess-1", { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "CODE-1" }] });
+    await flush();
+    const s = socks.at(-1)!;
+    feed(s, joinedFrame("tech_lead"));
+    h.voiceTurn("sess-1", true);
+    human(s, 6);
+    await h.detach("sess-1"); // the runtime exited mid-turn
+    await flush();
+    expect(s.said).toHaveLength(0);
+    await h.attach("sess-1", { port: 4001, aiRoles: ["tech_lead"] });
+    await flush();
+    const s2 = socks.at(-1)!;
+    expect(s2).not.toBe(s);
+    feed(s2, joinedFrame("tech_lead"));
+    await adv(60_000);
+    expect(s2.said).toHaveLength(0); // nothing deferred from the old turn is answered
+    human(s2, 7);
+    await adv(60_000);
+    expect(s2.said).toHaveLength(1); // no voice_turn open:false ever came, and the bot is awake
+  });
+
   it("reaches the session's bots, and a bot that attaches during an open turn starts held", async () => {
     const h = mk();
     await h.attach("sess-1", { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "CODE-1" }] });
