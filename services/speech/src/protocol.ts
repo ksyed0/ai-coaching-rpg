@@ -54,7 +54,52 @@ const SpeechActivity = z
 const SegmentFailed = z.strictObject({
   type: z.literal("segment_failed"), segmentId: SegmentIdSchema, roleId: RoleId, participantId: ParticipantId, status: z.enum(["empty", "stt_failed"]),
 });
-export const WorkerMessageSchema = z.discriminatedUnion("type", [WorkerReady, VoiceLine, SpeechActivity, SegmentFailed]);
+
+/**
+ * US-0071 (EPIC-0003 voice A1b): the LiveKit, health and slot messages (A1b plan, Task 2). Every id here is checked character by
+ * character (no new regular expression): a room is "v" + 32 lower-case hex, a slot 16 lower-case hex.
+ */
+/** The longest LiveKit signalling URL control may send (`ws:` or `wss:`). */
+export const MAX_LIVEKIT_URL_CHARS = 512;
+/** The longest LiveKit access token control may send. */
+export const MAX_LIVEKIT_TOKEN_CHARS = 4096;
+const HEX_DIGITS = "0123456789abcdef";
+/** True when `v` is exactly `length` lower-case hexadecimal digits. */
+export const isLowerHex = (v: unknown, length: number): boolean => {
+  if (typeof v !== "string" || v.length !== length) return false;
+  for (const c of v) if (!HEX_DIGITS.includes(c)) return false;
+  return true;
+};
+/** A seat's LiveKit room: "v" + 32 lower-case hex (control makes it up, one per session and human role). */
+export const isVoiceRoomName = (v: unknown): boolean => typeof v === "string" && v.startsWith("v") && isLowerHex(v.slice(1), 32);
+/** A speech-to-text slot id: 16 lower-case hex (the worker makes it up, `randomBytes(8).toString("hex")`). */
+export const SlotIdSchema = z.string().refine((v) => isLowerHex(v, 16), { message: "invalid slot id" });
+const RoomName = z.string().refine(isVoiceRoomName, { message: "invalid room name" });
+/** A LiveKit signalling URL: `ws:` or `wss:`, no user info. */
+const LiveKitUrl = z.string().max(MAX_LIVEKIT_URL_CHARS).refine((v) => {
+  try {
+    const u = new URL(v);
+    return (u.protocol === "ws:" || u.protocol === "wss:") && u.username === "" && u.password === "";
+  } catch { return false; }
+}, { message: "invalid LiveKit url" });
+
+/**
+ * Asks control for a fresh token to the seat's room: sent whenever the ingest is about to connect that room (its first connect and every
+ * reconnect, never cached). Control answers with `livekit_join`, or not at all (the worker's own wait times out).
+ */
+const LiveKitTokenRequest = z.strictObject({ type: z.literal("livekit_token_request"), roleId: RoleId });
+/** The worker's room connection changed. Control logs a fixed sentence only (no role, room or identity) and changes nothing else. */
+const LiveKitStatus = z.strictObject({ type: z.literal("livekit_status"), state: z.enum(["connected", "failed", "disconnected"]) });
+/** The result of one speech-to-text health poll. */
+const SttHealth = z.strictObject({ type: z.literal("stt_health"), ok: z.boolean() });
+/** Asks control for one of the global speech-to-text slots; control answers `stt_slot_grant` with the same slot when one is free. */
+const SttSlotRequest = z.strictObject({ type: z.literal("stt_slot_request"), slot: SlotIdSchema });
+/** Gives a granted slot back (or withdraws a waiting request). */
+const SttSlotRelease = z.strictObject({ type: z.literal("stt_slot_release"), slot: SlotIdSchema });
+
+export const WorkerMessageSchema = z.discriminatedUnion("type", [
+  WorkerReady, VoiceLine, SpeechActivity, SegmentFailed, LiveKitTokenRequest, LiveKitStatus, SttHealth, SttSlotRequest, SttSlotRelease,
+]);
 export type WorkerMessage = z.infer<typeof WorkerMessageSchema>;
 
 const Holder = z.strictObject({ roleId: RoleId, participantId: ParticipantId, recording: z.boolean() });
@@ -65,5 +110,11 @@ const VoiceState = z.strictObject({ type: z.literal("voice_state"), paused: z.bo
 const VoiceLineResult = z
   .strictObject({ type: z.literal("voice_line_result"), segmentId: SegmentIdSchema, seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(), refused: z.enum(VOICE_REFUSALS).optional() })
   .refine((m) => (m.seq === undefined) !== (m.refused === undefined), { message: "exactly one of seq and refused" });
-export const ControlToWorkerSchema = z.discriminatedUnion("type", [VoiceState, VoiceLineResult]);
+/** US-0071: always the answer to a `livekit_token_request` for that role: the signalling URL, a fresh worker token and the seat's room. */
+const LiveKitJoin = z.strictObject({
+  type: z.literal("livekit_join"), roleId: RoleId, url: LiveKitUrl, token: z.string().min(1).max(MAX_LIVEKIT_TOKEN_CHARS), room: RoomName,
+});
+/** US-0071: control grants a requested speech-to-text slot. */
+const SttSlotGrant = z.strictObject({ type: z.literal("stt_slot_grant"), slot: SlotIdSchema });
+export const ControlToWorkerSchema = z.discriminatedUnion("type", [VoiceState, VoiceLineResult, LiveKitJoin, SttSlotGrant]);
 export type ControlToWorker = z.infer<typeof ControlToWorkerSchema>;

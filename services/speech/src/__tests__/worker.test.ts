@@ -41,6 +41,20 @@ function harness(o: { roles: string[]; stt?: SpeechToText | ((roleId: string) =>
   return { w, sent, clock, lines: () => sent.filter((m) => m.type === "voice_line") };
 }
 
+describe("startWorker and the US-0071 control messages (A1b Task 2, characterisation)", () => {
+  it("livekit_join and stt_slot_grant are ignored until their tasks land: no ingest starts, nothing is sent", async () => {
+    const ingest = { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+    const h = harness({ roles: ["tech_lead"], ingest });
+    await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
+    const before = h.sent.length;
+    h.w.onControl({ type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: "t", room: `v${"0".repeat(32)}` });
+    h.w.onControl({ type: "stt_slot_grant", slot: "0123456789abcdef" });
+    expect(ingest.start).not.toHaveBeenCalled();
+    expect(h.sent.slice(before)).toEqual([]);
+    await h.w.stop();
+  });
+});
+
 describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
   it("worker_ready is sent after warm-up", async () => {
     let release!: () => void;

@@ -48,6 +48,10 @@ export const VOICE_ALERT_SENTENCES: Readonly<Record<VoiceAlertCode, string>> = {
   worker_down: "Voice input stopped: the speech worker is not running. Participants can continue by text.",
   stt_unavailable: "Voice input is unavailable: the speech-to-text server does not answer.",
   stt_failed: "A spoken line could not be transcribed; the speaker was told.",
+  // US-0071 (Task 2). Task 3 moves this table to host/voice.ts and raises stt_recovered at the info level.
+  worker_restarting: "Voice input is restarting after a fault.",
+  voice_off: "Voice input is off for this session after repeated faults. Participants can continue by text.",
+  stt_recovered: "Voice input is available again.",
 };
 /** The refusals of a voice line its speaker hears about (the others have no such speaker listening: not the holder, no such seat, voice off). */
 const SPEAKER_NOTICES: ReadonlySet<VoiceRefusal> = new Set<VoiceRefusal>(["paused", "not_in_scene", "ended", "not_recording"]);

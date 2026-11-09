@@ -195,6 +195,14 @@ export class VoiceHost {
         if (m.status === "stt_failed" || NOTICE_EMPTY_SEGMENTS) this.o.toRuntime(sessionId, { type: "voice_notice", roleId: m.roleId, participantId: m.participantId, code: m.status });
         if (m.status === "stt_failed") this.alert(sessionId, "stt_failed");
         return;
+      // US-0071 (A1b): accepted and ignored until their tasks land (token requests: Task 5; slots: Task 6; health: Task 9;
+      // livekit_status is logged as a fixed sentence from Task 5).
+      case "livekit_token_request":
+      case "livekit_status":
+      case "stt_health":
+      case "stt_slot_request":
+      case "stt_slot_release":
+        return;
     }
   }
 

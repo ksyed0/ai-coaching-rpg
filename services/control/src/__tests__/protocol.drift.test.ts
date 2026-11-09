@@ -24,7 +24,7 @@ describe("protocol copy", () => {
     expect(VOICE_REFUSALS).toEqual(RUNTIME_VOICE_REFUSALS);
     expect(SPEECH_VOICE_REFUSALS).toEqual(RUNTIME_VOICE_REFUSALS);
     expect(VOICE_ALERT_CODES).toEqual(RUNTIME_VOICE_ALERT_CODES);
-    expect(VOICE_ALERT_CODES).toEqual(["worker_down", "stt_unavailable", "stt_failed"]);
+    expect(VOICE_ALERT_CODES).toEqual(["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered"]);
     expect(REBIND_PENDING_PARTICIPANT).toBe(REBIND_PENDING);
   });
 
@@ -112,7 +112,11 @@ describe("protocol copy", () => {
       { type: "speech_activity", roleId: "tech_lead", active: true }, { type: "speech_activity", roleId: "tech_lead", active: false },
       { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 0 }, { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 60000 },
       { type: "voice_notice", roleId: "tech_lead", participantId: "p-1", code: "stt_failed" }, { type: "voice_notice", roleId: "tech_lead", participantId: "p-1", code: "empty" },
-      ...RUNTIME_VOICE_ALERT_CODES.map((code) => ({ type: "voice_alert", code }))];
+      ...RUNTIME_VOICE_ALERT_CODES.map((code) => ({ type: "voice_alert", code })),
+      // US-0071: the new alert codes and the availability message (fire-and-forget).
+      { type: "voice_alert", code: "voice_off" }, { type: "voice_alert", code: "worker_restarting" }, { type: "voice_alert", code: "stt_recovered" },
+      { type: "voice_availability", available: false, off: false }, { type: "voice_availability", available: true, off: false },
+      { type: "voice_availability", available: true, off: true }];
     const bad: unknown[] = [{ type: "reissue", requestId: "r1" }, { type: "reissue", requestId: "r1", roleId: "facilitator" }, { type: "reissue", requestId: "r 1", roleId: "cfo" },
       { type: "reissue", requestId: "r1", roleId: "cfo", by: "x".repeat(201) }, { type: "reissue", requestId: "r1", roleId: "cfo", z: 1 }, { type: "reissue", requestId: "r1", roleId: "cfo", reason: "other" }, { type: "reissue", requestId: "r1", roleId: "cfo", reason: "" }, { type: "other" }, null,
       { type: "set_ai_roles", requestId: "r1", roles: Array.from({ length: 257 }, (_, i) => `r${i}`) }, { type: "set_ai_roles", requestId: "r1", roles: "tech_lead" },
@@ -133,7 +137,10 @@ describe("protocol copy", () => {
       { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: -1 }, { type: "speech_activity", roleId: "tech_lead", active: "no" },
       { type: "voice_notice", roleId: "tech_lead", participantId: "p-1", code: "paused" }, { type: "voice_notice", roleId: "tech_lead", participantId: "p-1", code: "stt_failed", extra: 1 },
       { type: "voice_notice", roleId: "tech_lead", code: "empty" },
-      { type: "voice_alert", code: "nope" }, { type: "voice_alert", code: "worker_down", message: "m" }, { type: "voice_alert" }];
+      { type: "voice_alert", code: "nope" }, { type: "voice_alert", code: "worker_down", message: "m" }, { type: "voice_alert" },
+      // US-0071.
+      { type: "voice_availability", available: false, off: false, extra: 1 }, { type: "voice_availability", available: false, off: 1 },
+      { type: "voice_availability", available: "false", off: false }, { type: "voice_availability", available: false }, { type: "voice_availability", off: false }];
     for (const m of ok) { expect(RuntimeParent.safeParse(m).success).toBe(true); expect(ParentMessageSchema.safeParse(m).success).toBe(true); }
     for (const m of bad) { expect(RuntimeParent.safeParse(m).success).toBe(false); expect(ParentMessageSchema.safeParse(m).success).toBe(false); }
   });

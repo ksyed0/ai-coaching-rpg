@@ -40,7 +40,8 @@ const BotAlertSchema = z.strictObject({ type: z.literal("bot_alert"), roleId: Ro
  */
 export const VOICE_REFUSALS = ["voice_off", "not_started", "unknown_role", "ai_role", "not_holder", "not_recording", "paused", "not_in_scene", "ended", "failed"] as const;
 export type VoiceRefusal = (typeof VOICE_REFUSALS)[number];
-export const VOICE_ALERT_CODES = ["worker_down", "stt_unavailable", "stt_failed"] as const;
+/** US-0071 adds `worker_restarting`, `voice_off` and `stt_recovered` (the last one an info alert). */
+export const VOICE_ALERT_CODES = ["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered"] as const;
 export type VoiceAlertCode = (typeof VOICE_ALERT_CODES)[number];
 const MAX_VOICE_TEXT_CHARS = 2000;
 const MAX_SILENT_MS = 60_000;
@@ -55,13 +56,19 @@ const SpeechActivitySchema = z
 /** Only the worker's own outcomes come from control; the runtime's refusals become notices inside the runtime. */
 const VoiceNoticeSchema = z.strictObject({ type: z.literal("voice_notice"), roleId: RoleId, participantId: ParticipantId, code: z.enum(["stt_failed", "empty"]) });
 const VoiceAlertSchema = z.strictObject({ type: z.literal("voice_alert"), code: z.enum(VOICE_ALERT_CODES) });
+/**
+ * US-0071: whether voice input can work for this session (`available`: the speech worker and the speech-to-text server are up) and
+ * whether it is off for good after repeated faults (`off`). Control sends it on every change and on every runtime `ready`.
+ * Fire-and-forget: never answered. The runtime applies it before anything else, with no rate limit.
+ */
+const VoiceAvailabilitySchema = z.strictObject({ type: z.literal("voice_availability"), available: z.boolean(), off: z.boolean() });
 const VoiceHolderSchema = z.strictObject({ roleId: RoleId, participantId: ParticipantId, recording: z.boolean() });
 const VoiceLineAckSchema = z.strictObject({ type: z.literal("voice_line_ack"), segmentId: SegmentId, seq: z.number().int().min(1).max(MAX_SEQ) });
 const VoiceLineRefusedSchema = z.strictObject({ type: z.literal("voice_line_refused"), segmentId: SegmentId, code: z.enum(VOICE_REFUSALS) });
 const VoiceSeatsSchema = z.strictObject({ type: z.literal("voice_seats"), paused: z.boolean(), ended: z.boolean(), holders: z.array(VoiceHolderSchema).max(MAX_CODES) });
 const VoiceTurnSchema = z.strictObject({ type: z.literal("voice_turn"), open: z.boolean() });
 const VoiceChoiceSchema = z.strictObject({ type: z.literal("voice_choice"), roleId: RoleId, participantId: ParticipantId, choice: z.enum(["voice", "text_only"]), at: z.number().int().min(0).max(MAX_SEQ) });
-export const ParentMessageSchema = z.discriminatedUnion("type", [ReissueSchema, SetAiRolesSchema, BotAlertSchema, VoiceLineSchema, SpeechActivitySchema, VoiceNoticeSchema, VoiceAlertSchema]);
+export const ParentMessageSchema = z.discriminatedUnion("type", [ReissueSchema, SetAiRolesSchema, BotAlertSchema, VoiceLineSchema, SpeechActivitySchema, VoiceNoticeSchema, VoiceAlertSchema, VoiceAvailabilitySchema]);
 export type ParentMessage = z.infer<typeof ParentMessageSchema>;
 
 export const ChildMessageSchema = z.discriminatedUnion("type", [

@@ -275,7 +275,7 @@ export async function bootstrap(opts: {
     });
     // US-0060: a failure reply is chosen by the message's own type; nothing but a fixed string ever reaches the parent.
     const fail = (m: ParentMessage, reason: string) => {
-      if (m.type === "bot_alert" || m.type === "speech_activity" || m.type === "voice_notice" || m.type === "voice_alert") return; // fire-and-forget: no requestId, so no reply is possible
+      if (m.type === "bot_alert" || m.type === "speech_activity" || m.type === "voice_notice" || m.type === "voice_alert" || m.type === "voice_availability") return; // fire-and-forget: no requestId, so no reply is possible
       if (m.type === "voice_line") { parent.send({ type: "voice_line_refused", segmentId: m.segmentId, code: "failed" }); return; } // US-0070: every voice line gets exactly one answer
       if (m.type === "set_ai_roles") parent.send({ type: "ai_roles_failed", requestId: m.requestId, reason });
       else parent.send({ type: "reissue_failed", requestId: m.requestId, reason });
@@ -293,6 +293,8 @@ export async function bootstrap(opts: {
         void host.voiceAlert(m.code);
         return;
       }
+      // US-0071: fire-and-forget, never answered. The host applies it from Task 3 of the A1b plan; until then it is ignored.
+      if (m.type === "voice_availability") return;
       if (m.type === "voice_line") {
         // US-0070: exactly one answer per line: the seq, the host's refusal code, or "failed" for anything else (never a message or a path).
         host.onVoiceUtterance(m.roleId, m.participantId, m.text).then(

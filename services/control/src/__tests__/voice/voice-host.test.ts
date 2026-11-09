@@ -47,6 +47,22 @@ const live = (v: VoiceHost) => { v.attach(ID, { voice: true, roles: ["tech_lead"
 
 beforeEach(() => { timers = []; workers = []; toRuntime = []; logs = []; turns = []; runtimeUp = true; });
 
+describe("VoiceHost and the US-0071 worker messages (A1b Task 2, characterisation)", () => {
+  it("livekit_token_request, livekit_status, stt_health and the slot messages are accepted and ignored until their tasks land", () => {
+    const v = make();
+    const w = live(v);
+    const sentBefore = w.sent.length; const logsBefore = logs.length;
+    for (const m of [
+      { type: "livekit_token_request", roleId: "tech_lead" }, { type: "livekit_status", state: "connected" }, { type: "stt_health", ok: false },
+      { type: "stt_slot_request", slot: SEG }, { type: "stt_slot_release", slot: SEG },
+    ]) w.emit(m);
+    expect(w.sent.slice(sentBefore)).toEqual([]);
+    expect(toRuntime).toEqual([]);
+    expect(logs.slice(logsBefore)).toEqual([]);
+    expect(v.workerPid(ID)).toBe(4242);
+  });
+});
+
 describe("VoiceHost (US-0070): one speech worker per voice session", () => {
   it("no worker without ready.voice", () => {
     const v = make();

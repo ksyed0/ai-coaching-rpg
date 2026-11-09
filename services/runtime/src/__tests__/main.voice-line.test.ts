@@ -95,6 +95,31 @@ describe("main and voice_line (US-0070)", () => {
   });
 });
 
+describe("main and the US-0071 parent messages (Task 2)", () => {
+  it("voice_availability is never answered and never reaches the reissue path (applied by the host from Task 3)", async () => {
+    const b = await boot();
+    const before = b.sent.length;
+    b.send({ type: "voice_availability", available: false, off: false });
+    b.send({ type: "voice_availability", available: true, off: true });
+    await b.host.idle();
+    expect(b.sent.slice(before).filter((m) => m.type === "reissue_failed" || m.type === "ai_roles_failed" || m.type.startsWith("voice_line"))).toEqual([]);
+  });
+
+  it("the new alert codes append their fixed facilitator sentences", async () => {
+    const b = await boot();
+    for (const code of ["worker_restarting", "voice_off", "stt_recovered"] as const) b.send({ type: "voice_alert", code });
+    await vi.waitFor(async () => {
+      const r = b.host.engine.eventsAfter(0);
+      const alerts = r.complete ? [...r.events].flatMap((e) => (e.type === "facilitator.alert" ? [e.message] : [])) : [];
+      expect(alerts).toEqual(expect.arrayContaining([
+        "Voice input is restarting after a fault.",
+        "Voice input is off for this session after repeated faults. Participants can continue by text.",
+        "Voice input is available again.",
+      ]));
+    });
+  });
+});
+
 describe("main routes voice_notice and voice_alert (US-0070, Task 10)", () => {
   it("a voice_notice reaches the host's notice listeners and a voice_alert appends the fixed facilitator alert", async () => {
     const b = await boot();
