@@ -12,6 +12,11 @@ export type Config = {
   facilitatorSecret?: string;
   launcherUrl?: string;
   launcherToken?: string;
+  /**
+   * US-0071 (A1b Task 11): the LiveKit server's public origin the browser connects to (LIVEKIT_URL), validated and normalised by
+   * liveKitOrigin. Absent: no voice transport (the token route answers 503 and the session page offers no voice). Never a key or secret.
+   */
+  livekitUrl?: string;
 };
 
 /** The console variables that are unset (names only). Empty means the console is enabled. */
@@ -61,6 +66,23 @@ function parseKeys(raw: string | undefined, problems: string[]): Config["cookieK
   return out;
 }
 
+const LOOPBACK_HOSTS: readonly string[] = ["127.0.0.1", "[::1]"];
+
+/**
+ * US-0071 (A1b Task 11, Open Question 6): the validated origin of a LiveKit URL, or undefined. `wss:` to any host, or `ws:` to a loopback
+ * address only (local development: a LAN `ws:` is neither encrypted nor a secure context); a host, an optional port, and no path, query,
+ * fragment or credentials. Pure and never throws, so the page proxy (Task 12) uses the same rule and never the raw variable.
+ */
+export function liveKitOrigin(raw: string | undefined): string | undefined {
+  const u = parseUrl(raw);
+  if (!u || u.hostname === "" || u.username !== "" || u.password !== "" || u.pathname !== "/" || u.search !== "" || u.hash !== "") return undefined;
+  // `new URL` keeps a bare "#" or "?" out of `hash`/`search`: the normalised text must be exactly the origin (plus the root path).
+  if (u.href !== `${u.origin}/`) return undefined;
+  if (u.protocol === "wss:") return u.origin;
+  if (u.protocol === "ws:" && LOOPBACK_HOSTS.includes(u.hostname) && u.port !== "") return u.origin;
+  return undefined;
+}
+
 export function loadConfig(env: Record<string, string | undefined>): Config {
   const problems: string[] = [];
 
@@ -99,9 +121,16 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const maxStreamsPerSession = int(env, "WEB_MAX_STREAMS_PER_SESSION", 64, 1, 1000, problems);
   const maxStreamsPerAddress = int(env, "WEB_MAX_STREAMS_PER_ADDRESS", 16, 1, 1000, problems);
 
+  const livekitRaw = env.LIVEKIT_URL === "" ? undefined : env.LIVEKIT_URL;
+  const livekitUrl = liveKitOrigin(livekitRaw);
+  if (livekitRaw !== undefined && livekitUrl === undefined) {
+    problems.push("LIVEKIT_URL must be the LiveKit server's public origin: scheme wss with a host and an optional port, or scheme ws to 127.0.0.1 or [::1] with a port for local development; no path, query, fragment or credentials");
+  }
+
   if (problems.length > 0) throw new Error(`Invalid web configuration: ${problems.join("; ")}`);
   return {
     runtimeUrl: env.RUNTIME_URL ?? "", publicOrigin: env.PUBLIC_ORIGIN!, cookieKeys, cookieMaxAgeHours, maxStreams, maxStreamsPerSession, maxStreamsPerAddress,
     ...(facilitatorSecret !== undefined && { facilitatorSecret }), ...(launcherUrl !== undefined && { launcherUrl }), ...(launcherToken !== undefined && { launcherToken }),
+    ...(livekitUrl !== undefined && { livekitUrl }),
   };
 }

@@ -49,6 +49,7 @@ beforeEach(() => {
     reportWriteThrottle: new JoinThrottle({ max: 30, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportReadFailThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
+    voiceTokenThrottle: new JoinThrottle({ max: 20, windowMs: 60_000, blockMs: 60_000, now: t }),
   } as unknown as Deps;
   for (const k of ["error", "warn", "log", "info", "debug"] as const) vi.spyOn(console, k).mockImplementation(() => {});
 });

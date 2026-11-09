@@ -41,7 +41,11 @@ export type LauncherReason =
   | "not_editable"
   | "superseded"
   | "needs_amend"
-  | "refused";
+  | "refused"
+  // US-0071 (A1b Task 11): the voice token route's refusals (control's POST /sessions/:id/voice-token), one word each.
+  | "voice_refused"
+  | "voice_off"
+  | "voice_unavailable";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -175,6 +179,9 @@ const BY_CODE: Record<string, LauncherReason> = {
   superseded: "superseded",
   needs_amend: "needs_amend",
   refused: "refused",
+  voice_refused: "voice_refused",
+  voice_off: "voice_off",
+  voice_unavailable: "voice_unavailable",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -447,6 +454,17 @@ function toBlocked(data: unknown): string[] | undefined {
   return data.blocked.filter((x): x is string => isStr(x) && isSafeId(x)).slice(0, MAX_BLOCKED);
 }
 
+/** US-0071: a LiveKit access token as control mints it: a JWT (three base64url parts), capped like control's worker protocol. */
+const MAX_VOICE_TOKEN_CHARS = 4_096;
+const isJwt = (v: unknown): v is string => {
+  if (typeof v !== "string" || v.length < 5 || v.length > MAX_VOICE_TOKEN_CHARS) return false;
+  const parts = v.split(".");
+  return parts.length === 3 && parts.every((p) => p.length > 0 && [...p].every((c) => (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c === "-" || c === "_"));
+};
+/** A participant id as it goes into a body: what the parent channel accepts (1 to CLIENT_ID_MAX_CHARS), with no control character. */
+const isParticipantId = (v: unknown): v is string =>
+  typeof v === "string" && v.length >= 1 && v.length <= CLIENT_ID_MAX_CHARS && [...v].every((c) => c.charCodeAt(0) > 0x1f && c.charCodeAt(0) !== 0x7f);
+
 export type LauncherOptions = {
   baseUrl: string;
   token: string;
@@ -594,6 +612,18 @@ export class LauncherClient {
       includeInGroup: d.includeInGroup,
       codes: toRoleCodes(d.codes),
     };
+  }
+
+  /**
+   * US-0071 (A1b Task 11): a LiveKit token for this seat (POST /sessions/:id/voice-token). Only `token` and `expiresAt` are kept from the
+   * answer; control's refusals are the reasons `voice_refused`, `voice_off` and `voice_unavailable`; a malformed answer is `unavailable`.
+   * The role and participant come from the caller's sealed cookie; ones that are not well formed never reach the network.
+   */
+  async voiceToken(id: string, roleId: string, participantId: string): Promise<{ token: string; expiresAt: number }> {
+    if (!isId(roleId) || !isParticipantId(participantId)) throw new LauncherError("bad_request");
+    const d = await this.call("POST", `/sessions/${this.id(id)}/voice-token`, { roleId, participantId }, this.timeoutMs);
+    if (!isObject(d) || !isJwt(d.token) || typeof d.expiresAt !== "number" || !Number.isSafeInteger(d.expiresAt) || d.expiresAt <= 0) throw new LauncherError("unavailable");
+    return { token: d.token, expiresAt: d.expiresAt };
   }
 
   /** The last intents of one AI player. A role id that is not an id never reaches the network. */

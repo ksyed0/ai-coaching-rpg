@@ -324,7 +324,7 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
 // must use only these keys, with the required ones present. A drift on either side fails this test or the typecheck.
 type Exhaustive<T, K extends readonly (keyof T)[]> = Exclude<keyof T, K[number]> extends never ? K : never;
 const keys = <T,>() => <const K extends readonly (keyof T)[]>(k: Exhaustive<T, K>) => k;
-const JOINED_KEYS = keys<JoinedFrame>()(["type", "roleId", "brief", "privateFacts", "reconnectToken", "state", "replay", "credential", "scenes", "logIdentity", "consent", "hiddenFacts"]);
+const JOINED_KEYS = keys<JoinedFrame>()(["type", "roleId", "brief", "privateFacts", "reconnectToken", "state", "replay", "credential", "scenes", "logIdentity", "consent", "hiddenFacts", "voice"]);
 /** A player's joined frame never carries the facilitator-only hiddenFacts. */
 const PLAYER_JOINED_KEYS = JOINED_KEYS.filter((k) => k !== "hiddenFacts");
 const REPLAY_KEYS = keys<ReplaySummary>()(["afterSeq", "toSeq", "events", "complete"]);
@@ -400,6 +400,9 @@ const SENT: Record<ClientMessage["type"], ClientMessage> = {
   withdraw_consent: { type: "withdraw_consent" },
   leave: { type: "leave" },
   say: { type: "say", text: "hi", expectSceneId: "sc" },
+  voice_opt_in: { type: "voice_opt_in", noticeVersion: "v3" },
+  voice_opt_out: { type: "voice_opt_out" },
+  voice_mute: { type: "voice_mute", muted: true },
   command: { type: "command", command: { command: "pause" }, expectSceneId: "sc", by: "Kim", ref: "ref-1" },
   end_now: { type: "end_now", message: "Thanks", by: "Kim", ref: "ref-2" },
 };

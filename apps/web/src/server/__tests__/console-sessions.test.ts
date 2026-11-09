@@ -1138,6 +1138,10 @@ describe("console session API", () => {
       superseded: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       needs_amend: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       refused: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      // US-0071: the voice token reasons are answered by the player's voice token route; any console route reads them as unreachable.
+      voice_refused: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      voice_off: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      voice_unavailable: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,
