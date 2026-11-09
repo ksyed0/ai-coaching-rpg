@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import { createRoomAdmin, LiveKitAdminError, type RoomServiceClientLike } from "../index.js";
+
+// US-0071 (EPIC-0003 voice A1b, Task 4): the room admin behind a port. A fake client stands in for the server; "not found" is success.
+const ROOM = `v${"1b".repeat(16)}`;
+const IDENTITY = "tech_lead.g0123abcd";
+const HOST = new URL("http://127.0.0.1:7880");
+
+function fake(o: { fail?: unknown } = {}) {
+  const calls: unknown[][] = [];
+  const client: RoomServiceClientLike = {
+    async removeParticipant(room, identity) { calls.push(["remove", room, identity]); if (o.fail) throw o.fail; },
+    async listParticipants(room) { calls.push(["list", room]); if (o.fail) throw o.fail; return [{ identity: IDENTITY, name: "Pat Secret", metadata: "x" }, { identity: "SPEECH.deadbeef" }]; },
+    async deleteRoom(room) { calls.push(["delete", room]); if (o.fail) throw o.fail; },
+  };
+  return { client, calls };
+}
+const notFound = Object.assign(new Error(`twirp error not_found: room ${ROOM} does not exist`), { status: 404, code: "not_found" });
+
+describe("createRoomAdmin (US-0071)", () => {
+  it("removeParticipant passes room and identity", async () => {
+    const f = fake();
+    const admin = createRoomAdmin({ host: HOST, apiKey: "k", apiSecret: "s".repeat(32), client: f.client });
+    await admin.removeParticipant(ROOM, IDENTITY);
+    expect(f.calls).toEqual([["remove", ROOM, IDENTITY]]);
+  });
+
+  it("listParticipants returns identities only", async () => {
+    const f = fake();
+    const admin = createRoomAdmin({ host: HOST, apiKey: "k", apiSecret: "s".repeat(32), client: f.client });
+    expect(await admin.listParticipants(ROOM)).toEqual([IDENTITY, "SPEECH.deadbeef"]);
+  });
+
+  it("deleteRoom passes the room", async () => {
+    const f = fake();
+    const admin = createRoomAdmin({ host: HOST, apiKey: "k", apiSecret: "s".repeat(32), client: f.client });
+    await admin.deleteRoom(ROOM);
+    expect(f.calls).toEqual([["delete", ROOM]]);
+  });
+
+  it("a not-found answer resolves (an empty list for listParticipants)", async () => {
+    const f = fake({ fail: notFound });
+    const admin = createRoomAdmin({ host: HOST, apiKey: "k", apiSecret: "s".repeat(32), client: f.client });
+    await expect(admin.removeParticipant(ROOM, IDENTITY)).resolves.toBeUndefined();
+    await expect(admin.listParticipants(ROOM)).resolves.toEqual([]);
+    await expect(admin.deleteRoom(ROOM)).resolves.toBeUndefined();
+  });
+
+  it("another failure rejects LiveKitAdminError whose message has no room or identity", async () => {
+    const boom = Object.assign(new Error(`connect ECONNREFUSED for ${ROOM} ${IDENTITY}`), { status: 500 });
+    const f = fake({ fail: boom });
+    const admin = createRoomAdmin({ host: HOST, apiKey: "k", apiSecret: "s".repeat(32), client: f.client });
+    for (const p of [admin.removeParticipant(ROOM, IDENTITY), admin.listParticipants(ROOM), admin.deleteRoom(ROOM)]) {
+      const err = await p.then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(LiveKitAdminError);
+      expect((err as Error).message).not.toContain(ROOM);
+      expect((err as Error).message).not.toContain(IDENTITY);
+      expect((err as Error).message).not.toContain("ECONNREFUSED");
+      expect((err as Error & { cause?: unknown }).cause).toBe(boom); // kept for the caller, out of the message
+    }
+  });
+
+  it("refuses a host that is not loopback http without quoting it", () => {
+    for (const h of ["https://127.0.0.1:7880", "http://10.0.0.5:7880", "http://user:pw@127.0.0.1:7880", "http://127.0.0.1:7880/path"]) {
+      let msg = "";
+      try { createRoomAdmin({ host: new URL(h), apiKey: "k", apiSecret: "s".repeat(32), client: fake().client }); } catch (err) { msg = (err as Error).message; }
+      expect(msg, h).not.toBe("");
+      expect(msg).not.toContain(new URL(h).host);
+    }
+  });
+});

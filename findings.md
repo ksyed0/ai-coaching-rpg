@@ -28,6 +28,14 @@ All pinned to exact versions. Release dates are the publish date of the pinned v
 
 No new package (AGENTS.md section 19). WAV encoding and parsing are written by hand (16-bit PCM), the Whisper client uses Node 22's global `fetch`, `FormData` and `Blob`, the speech worker is a `fork()` child over Node's IPC channel, and the tests' HTTP server is `node:http`. The new `@acr/speech` workspace package depends only on workspace packages (`@acr/adapters`, `@acr/events`) and the versions of `zod`, `vitest` and `typescript` the workspace already pins.
 
+## Voice slice A1b (`packages/adapters/src/livekit`, US-0071): LiveKit server SDK
+
+Pinned to an exact version, installed into `packages/adapters` only (`pnpm --filter @acr/adapters add -E`), reachable only through the `@acr/adapters/livekit` subpath (the root index does not load it: `src/__tests__/root-index-imports.test.ts`); `lint:sdk` refuses it anywhere else. Pure JavaScript (no native code); its own dependencies are `jose` 5.10.0, `@livekit/protocol` 1.51.0 and `@bufbuild/protobuf` 1.10.1. `pnpm audit --audit-level high` on 2026-11-08: no high or critical advisory (the 1 low and 4 moderate reported are in the root dev tools, jest and eslint, not in this package's tree). The adapters package also gains the workspace link `@acr/events` (for `isScenarioId` in the identity helpers): no download.
+
+| Package | Version | Purpose | Licence | Released | Last active |
+| --- | --- | --- | --- | --- | --- |
+| livekit-server-sdk | 2.19.2 | Control mints the per-seat microphone-only and worker LiveKit tokens and calls `removeParticipant` / `listParticipants` / `deleteRoom` | Apache-2.0 | 2026-10-22 | 2026-10-22 |
+
 ## Exceptions to the two-week rule
 
 - next 16.4.1 was released 13 days before the pick. Every earlier 16.x (up to 16.4.0) and every 15.x is flagged by the npm advisory database (GHSA-673q-mjm6-r5xr and GHSA-2464-fhr4-w9xw, critical remote code execution; GHSA-p3m5-59mp-jv5r, denial of service), and `next build` refuses to run on them. 16.4.1 is the oldest release without an advisory.

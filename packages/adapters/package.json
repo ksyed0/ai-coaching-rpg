@@ -7,7 +7,9 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./livekit": "./src/livekit/index.ts",
+    "./livekit/identity": "./src/livekit/identity.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
@@ -15,6 +17,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0"
+    "@acr/events": "workspace:*",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "livekit-server-sdk": "2.19.2"
   }
 }
