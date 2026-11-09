@@ -191,6 +191,9 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     ["STT_URL=http://0.0.0.0:9000", "STT_URL=http://0.0.0.0:9000\n", "bad_stt_url"],
     ["STT_URL=http://[::1]:9000/abc", "STT_URL=http://[::1]:9000/abc\n", "bad_stt_url"],
     ["STT_URL without a port", "STT_URL=http://127.0.0.1/abc\n", "bad_stt_url"],
+    ["STT_URL with port 0", "STT_URL=http://127.0.0.1:0/abc\n", "bad_stt_url"],
+    ["STT_URL ending in //", "STT_URL=http://127.0.0.1:9000/a//\n", "bad_stt_url"],
+    ["STT_URL with a percent-encoded path", "STT_URL=http://127.0.0.1:9000/a%20b\n", "bad_stt_url"],
   ];
   it.each(table)("refuses and leaves the file byte-identical for %s", async (_label, text, code) => {
     const file = envFile(text);
@@ -554,6 +557,26 @@ describe("planSecrets (US-0072)", () => {
   it("refuses a random source that returns the wrong length", () => {
     expect(() => planSecrets("", {}, { random: () => Buffer.alloc(1), freePort: 24680 })).toThrow(/random/);
   });
+});
+
+// Review A F7: a hand-set STT_URL must be one whisper-server and the adapter client agree on. `/a//` would give whisper-server the request
+// path `/a` (sttRequestPath) while the client strips ONE slash and posts `/a//inference`; a percent-encoded path would reach the
+// server's argument list raw.
+describe("hand-set STT_URL (US-0072, review A F7)", () => {
+  const sttProblem = (u: string) => {
+    const r = planSecrets("", { LIVEKIT_API_KEY: KEY, LIVEKIT_API_SECRET: SECRET, STT_URL: u }, { random: counterRandom(), freePort: 24680 });
+    return r.ok ? null : r.code;
+  };
+  it.each([
+    "http://127.0.0.1:9000", "http://127.0.0.1:9000/", "http://127.0.0.1:9000/abc", "http://127.0.0.1:9000/abc/", "http://127.0.0.1:9000/a/b-c_d.e~f",
+    "http://127.0.0.1:1/x", "http://127.0.0.1:65535/x", STT,
+  ])("accepts %s", (u) => { expect(sttProblem(u)).toBeNull(); });
+  it.each([
+    "http://127.0.0.1:0/abc", "http://127.0.0.1:65536/abc", "http://127.0.0.1:9000/a//", "http://127.0.0.1:9000//", "http://127.0.0.1:9000//a",
+    "http://127.0.0.1:9000/a//b", "http://127.0.0.1:9000/a%20b", "http://127.0.0.1:9000/%61", "http://127.0.0.1:9000/a;b", "http://127.0.0.1:9000/a:b",
+    "http://127.0.0.1:9000/a@b", "http://127.0.0.1:9000/é", "http://127.0.0.1:9000/a?x=1", "http://127.0.0.1:9000/a#f", "http://u:p@127.0.0.1:9000/a",
+    "http://[::1]:9000/a", "https://127.0.0.1:9000/a",
+  ])("refuses %s", (u) => { expect(sttProblem(u)).toBe("bad_stt_url"); });
 });
 
 describe("readPrivateEnv (US-0072)", () => {

@@ -114,3 +114,22 @@ export function isLiveKitToken(v: string, min: number, max: number): boolean {
   }
   return true;
 }
+
+/** RFC 3986 unreserved: a letter, a digit, `-`, `.`, `_` or `~`. */
+const isUnreserved = (c: number): boolean => isDigit(c) || isLower(c) || isUpper(c) || c === HYPHEN || c === 0x2e || c === UNDERSCORE || c === 0x7e;
+
+/**
+ * A request path whisper-server and the adapter client agree on (review A F7): empty, `/`, or `/`-separated non-empty segments of
+ * unreserved characters (no `.` or `..` segment) with at most one trailing slash. No percent-encoding, so the path in whisper-server's
+ * argument list is exactly the one the client sends.
+ */
+export function isRequestPath(p: string): boolean {
+  if (p === "" || p === "/") return true;
+  if (p.charCodeAt(0) !== 0x2f) return false;
+  const body = p.endsWith("/") ? p.slice(1, -1) : p.slice(1);
+  for (const seg of body.split("/")) {
+    if (seg.length === 0 || seg === "." || seg === "..") return false;
+    for (let i = 0; i < seg.length; i++) if (!isUnreserved(seg.charCodeAt(i))) return false;
+  }
+  return true;
+}

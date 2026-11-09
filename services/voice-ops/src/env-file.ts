@@ -3,7 +3,7 @@ import { closeSync, constants as fsConstants, fchmodSync, fstatSync, fsyncSync, 
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { parseSttUrl } from "@acr/adapters";
-import { isLiveKitToken } from "./text.js";
+import { isLiveKitToken, isRequestPath } from "./text.js";
 
 /**
  * US-0072 (EPIC-0003 voice A1c, Task 2): `pnpm voice:up` generates the LiveKit key and secret and `STT_URL` into the ROOT `.env` (the
@@ -46,7 +46,7 @@ const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => str
   half_pair: () => ".env sets only one of LIVEKIT_API_KEY and LIVEKIT_API_SECRET: set both, or remove both so voice:up generates them",
   empty_assignment: (name) => `.env assigns an empty value to ${name ?? "a managed name"}: remove that line or give it a value, then pnpm voice:up`,
   bad_keys: (name) => `.env sets a ${name ?? "LiveKit key or secret"} that LiveKit's key list cannot hold: use printable characters without space, quotes, backslash or any of : , # $ { } [ ] & * ! | > % @ ? (key 1 to 256, secret 32 to 512), or remove LIVEKIT_API_KEY and LIVEKIT_API_SECRET so voice:up generates them`,
-  bad_stt_url: () => ".env sets an STT_URL whisper-server cannot serve: use http://127.0.0.1:<port>[/<path>] (whisper-server binds 127.0.0.1 only), or remove it so voice:up picks one",
+  bad_stt_url: () => ".env sets an STT_URL whisper-server cannot serve: use http://127.0.0.1:<port>[/<path>] with a port from 1 to 65535 and a path of letters, digits, - . _ ~ and single slashes (whisper-server binds 127.0.0.1 only), or remove it so voice:up picks one",
   changed: () => ".env changed while voice:up was writing it: run pnpm voice:up again",
   env_override: (name) => `unset ${name ?? "the managed names"} in this shell: voice:up and control must read it from .env`,
   tracked: () => "remove .env from git (git rm --cached .env) before voice:up writes secrets into it",
@@ -154,7 +154,11 @@ function managedProblem(text: string, values: Record<string, string>): { code: E
   }
   if (has("STT_URL")) {
     const u = parseSttUrl(values.STT_URL);
+    // Beyond parseSttUrl (review A F7): host 127.0.0.1 only (whisper-server binds no other), port 1..65535 (the parser lets 0 through),
+    // and a path both sides agree on (isRequestPath: no `//`, no percent-encoding).
     if (!u.ok || u.url.hostname !== "127.0.0.1") return { code: "bad_stt_url" };
+    const port = Number(u.url.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535 || !isRequestPath(u.url.pathname)) return { code: "bad_stt_url" };
   }
   return null;
 }
