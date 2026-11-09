@@ -336,6 +336,49 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     }
   });
 
+  // Review A F3: a failing file-system call never lets a raw Node error (which names both paths) escape.
+  const noPathIn = (err: unknown, dir: string) => {
+    expect(err).toBeInstanceOf(EnvFileError);
+    const e = err as EnvFileError;
+    for (const shown of [e.message, String(e), e.stack ?? "", JSON.stringify(e), JSON.stringify(Object.values(e)), String((e as { cause?: unknown }).cause)]) {
+      expect(shown).not.toContain(dir);
+      expect(shown).not.toContain(".env.voice-ops.");
+    }
+  };
+  const thrown = (fn: () => void): unknown => { try { fn(); } catch (err) { return err; } throw new Error("expected a throw"); };
+
+  it.runIf(typeof process.getuid !== "function" || process.getuid() !== 0)("a read-only directory is unwritable, the file unchanged, no path shown (non-root)", () => {
+    const file = envFile("A=1\n");
+    const dir = path.dirname(file);
+    const r = readPrivateEnv(file);
+    chmodSync(dir, 0o500);
+    try {
+      const err = thrown(() => appendBlock(file, r.bytes, "X=1\n", r.id));
+      expect((err as EnvFileError).code).toBe("unwritable");
+      noPathIn(err, dir);
+    } finally { chmodSync(dir, 0o700); }
+    expect(readFileSync(file, "utf8")).toBe("A=1\n");
+    expect(leftovers(dir)).toEqual([]);
+  });
+
+  it("a directory removed before the write is unwritable, no path shown", () => {
+    const file = envFile("A=1\n");
+    const dir = path.dirname(file);
+    const r = readPrivateEnv(file);
+    rmSync(dir, { recursive: true });
+    const err = thrown(() => appendBlock(file, r.bytes, "X=1\n", r.id));
+    expect((err as EnvFileError).code).toBe("unwritable");
+    noPathIn(err, dir);
+    expect(new EnvFileError("unwritable").message).toBe(".env could not be written: check that its folder is writable and the disk has room, then pnpm voice:up (it adds only what is still missing)");
+  });
+
+  it.runIf(typeof process.getuid !== "function" || process.getuid() !== 0)("an unreadable .env (no read permission) is unreadable, no path shown (non-root)", () => {
+    const file = envFile("A=1\n", 0o200);
+    const err = thrown(() => readPrivateEnv(file));
+    expect((err as EnvFileError).code).toBe("unreadable");
+    noPathIn(err, path.dirname(file));
+  });
+
   it("a file swapped while the port is being picked is left alone (end to end)", async () => {
     const file = envFile("A=1\n");
     const freePort = vi.fn(async () => {
@@ -467,9 +510,10 @@ describe("readPrivateEnv (US-0072)", () => {
     expect(r.id).toEqual({ dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs });
   });
 
-  it("refuses a file over 1 MiB as unreadable", () => {
+  it("refuses a file over 1 MiB as too_large, with its own sentence (review A F3)", () => {
     const file = envFile("A=" + "x".repeat(1024 * 1024) + "\n");
-    expect(() => readPrivateEnv(file)).toThrow(expect.objectContaining({ code: "unreadable" }));
+    expect(() => readPrivateEnv(file)).toThrow(expect.objectContaining({ code: "too_large" }));
+    expect(new EnvFileError("too_large").message).toBe(".env is larger than 1 MiB: voice:up reads only a smaller .env; check it by hand, then pnpm voice:up");
   });
 });
 

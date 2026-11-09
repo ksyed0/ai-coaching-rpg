@@ -29,7 +29,7 @@ export const MANAGED_NAMES = ["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "STT_URL"
 export type ManagedName = (typeof MANAGED_NAMES)[number];
 
 export type EnvFileErrorCode =
-  | "missing" | "symlink" | "not_regular" | "not_owner" | "too_open" | "unreadable" | "dev_keys" | "half_pair" | "empty_assignment"
+  | "missing" | "symlink" | "not_regular" | "not_owner" | "too_open" | "unreadable" | "too_large" | "unwritable" | "dev_keys" | "half_pair" | "empty_assignment"
   | "bad_keys" | "bad_stt_url" | "changed" | "env_override" | "tracked";
 
 const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => string> = {
@@ -38,7 +38,9 @@ const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => str
   not_regular: () => ".env is not a regular file: replace it with a regular file (mode 600), then pnpm voice:up",
   not_owner: () => ".env belongs to another user: voice:up writes only a .env that you own",
   too_open: () => ".env is readable by other users: run chmod 600 .env, then pnpm voice:up",
-  unreadable: () => ".env cannot be read: check it by hand, then pnpm voice:up",
+  unreadable: () => ".env cannot be opened, read or parsed: check its permissions and its syntax by hand, then pnpm voice:up",
+  too_large: () => ".env is larger than 1 MiB: voice:up reads only a smaller .env; check it by hand, then pnpm voice:up",
+  unwritable: () => ".env could not be written: check that its folder is writable and the disk has room, then pnpm voice:up (it adds only what is still missing)",
   dev_keys: () => ".env holds LiveKit development keys (devkey/secret, or a secret under 32 characters): remove LIVEKIT_API_KEY and LIVEKIT_API_SECRET so voice:up generates real ones",
   half_pair: () => ".env sets only one of LIVEKIT_API_KEY and LIVEKIT_API_SECRET: set both, or remove both so voice:up generates them",
   empty_assignment: (name) => `.env assigns an empty value to ${name ?? "a managed name"}: remove that line or give it a value, then pnpm voice:up`,
@@ -55,6 +57,14 @@ export class EnvFileError extends Error {
     super(SENTENCES[code](name));
     this.name = "EnvFileError";
   }
+}
+
+/**
+ * Runs a file-system step; any error that is not already an EnvFileError becomes `EnvFileError(code)`. The raw Node error is dropped on
+ * purpose (no `cause`): its message names the path, and a rename error names both paths (review A F3).
+ */
+function guard<T>(code: EnvFileErrorCode, fn: () => T): T {
+  try { return fn(); } catch (err) { if (err instanceof EnvFileError) throw err; throw new EnvFileError(code); }
 }
 
 /** The identity of the file the read descriptor saw; compared with an lstat of the path right before the rename. */
@@ -82,20 +92,22 @@ export function readPrivateEnv(file: string): { bytes: Buffer; text: string; val
     throw new EnvFileError("unreadable");
   }
   try {
-    const st = fstatSync(fd);
+    const st = guard("unreadable", () => fstatSync(fd));
     if (!st.isFile()) throw new EnvFileError("not_regular");
     if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new EnvFileError("not_owner");
     if ((st.mode & 0o077) !== 0) throw new EnvFileError("too_open");
-    if (st.size > MAX_ENV_BYTES) throw new EnvFileError("unreadable");
+    if (st.size > MAX_ENV_BYTES) throw new EnvFileError("too_large");
     const buf = Buffer.alloc(st.size);
     let off = 0;
-    while (off < buf.length) { const n = readSync(fd, buf, off, buf.length - off, off); if (n === 0) break; off += n; }
+    while (off < buf.length) { const n = guard("unreadable", () => readSync(fd, buf, off, buf.length - off, off)); if (n === 0) break; off += n; }
     if (off !== st.size) throw new EnvFileError("changed"); // it shrank while being read
     const text = buf.toString("utf8");
     let values: Record<string, string>;
     try { values = parseEnv(text) as Record<string, string>; } catch { throw new EnvFileError("unreadable"); }
     return { bytes: buf, text, values, id: { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs } };
-  } finally { closeSync(fd); }
+  } finally {
+    try { closeSync(fd); } catch { /* a read-only descriptor: a failed close loses nothing that was read */ }
+  }
 }
 
 /** The length of a leading `export` plus blanks (after leading blanks), or 0 when the line has none. */
@@ -173,7 +185,7 @@ export function planSecrets(text: string, values: Record<string, string>, o: { r
 function fsyncDir(dir: string): void {
   let fd: number | null = null;
   try { fd = openSync(dir, fsConstants.O_RDONLY); fsyncSync(fd); }
-  catch (err) { if (!["EISDIR", "EINVAL", "EPERM", "EBADF", "ENOTSUP", "EACCES"].includes((err as NodeJS.ErrnoException).code ?? "")) throw err; }
+  catch (err) { if (!["EISDIR", "EINVAL", "EPERM", "EBADF", "ENOTSUP", "EACCES"].includes((err as NodeJS.ErrnoException).code ?? "")) throw new EnvFileError("unwritable"); }
   finally { if (fd !== null) closeSync(fd); }
 }
 
@@ -187,19 +199,22 @@ export function appendBlock(file: string, bytes: Buffer, block: string, readId: 
   const tmp = path.join(dir, `.env.voice-ops.${randomBytes(6).toString("hex")}.tmp`);
   const needsNewline = bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a;
   const data = Buffer.concat([bytes, Buffer.from((needsNewline ? "\n" : "") + block, "utf8")]);
-  const fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+  // Not created when this throws (EEXIST included): nothing to remove, and a file of that name that is not ours is left alone.
+  const fd = guard("unwritable", () => openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600));
   try {
     try {
-      let off = 0;
-      while (off < data.length) off += writeSync(fd, data, off, data.length - off);
-      fsyncSync(fd);
-    } finally { closeSync(fd); }
+      guard("unwritable", () => {
+        let off = 0;
+        while (off < data.length) off += writeSync(fd, data, off, data.length - off);
+        fsyncSync(fd);
+      });
+    } finally { guard("unwritable", () => closeSync(fd)); }
     let now: ReturnType<typeof lstatSync>;
     try { now = lstatSync(file); } catch { throw new EnvFileError("changed"); }
     if (!now.isFile() || now.dev !== readId.dev || now.ino !== readId.ino || now.size !== readId.size || now.mtimeMs !== readId.mtimeMs) {
       throw new EnvFileError("changed");
     }
-    renameSync(tmp, file);
+    guard("unwritable", () => renameSync(tmp, file));
   } catch (err) {
     try { unlinkSync(tmp); } catch { /* already renamed or never created */ }
     throw err;
