@@ -7,6 +7,11 @@ import type { LiveKitConfig } from "./livekit-config.js";
 
 /** How long a token request waits for the seats that make the caller a voice holder (the request after a reload can beat them). */
 export const SEATS_WAIT_MS = 1000;
+/**
+ * Batch 3 review F3: while a session has seat rooms (and a runtime's seats), every seat room is swept this often even without a seat
+ * change, so a removed browser that reconnects with its still-valid token (TTL 600 s) is removed again within one period. Not a setting.
+ */
+export const SWEEP_INTERVAL_MS = 20_000;
 
 export type VoiceTokenCode = "voice_refused" | "voice_off" | "voice_unavailable";
 /** A token (or a worker join) is refused. The message is fixed: never a room, an identity or a participant id. */
@@ -38,6 +43,8 @@ type Session = {
   /** One waiting token request per role. */
   waiters: Map<string, Waiter>;
   sweeps: Map<string, Sweep>;
+  /** Cancels the armed periodic sweep (SWEEP_INTERVAL_MS); absent while none is armed. */
+  periodic?: () => void;
 };
 /** The identity a seat room may hold: exactly one, none, or (an open seat: its holder may come back) whatever is there. */
 type Expected = { kind: "one"; identity: string } | { kind: "none" } | { kind: "keep" };
@@ -55,8 +62,9 @@ const errorName = (err: unknown): string => (err instanceof Error && isSafeId(er
  *  - **Removal**: on every seat change each seat room is swept (`listParticipants`, then `removeParticipant` for every identity other
  *    than the expected one, never the worker's). Expected: the holder's identity when they chose voice; nothing after a leave,
  *    withdrawal, reissue, removal, AI fill or opt-out; anything for an open seat (a socket close: the same person may come back). A
- *    removed browser that reconnects with its still-valid token is removed again by the next sweep. Sweeps are serialised per room and
- *    coalesced (one in flight, one pending). `endSession` deletes every seat room.
+ *    removed browser that reconnects with its still-valid token is removed again by the periodic sweep (every SWEEP_INTERVAL_MS while
+ *    the session has rooms and a runtime's seats; batch 3 review F3) or by the next seat change, whichever comes first. Sweeps are
+ *    serialised per room and coalesced (one in flight, one pending). `endSession` deletes every seat room.
  * Admin failures are logged by error name only and never thrown. Nothing here logs a room, an identity, a participant id or a token.
  */
 export class VoiceTokens {
@@ -82,6 +90,7 @@ export class VoiceTokens {
       room = `v${this.o.random(16).toString("hex")}`;
       if (!isVoiceRoomName(room)) throw new RangeError("roomOf: the random source gave too few bytes");
       s.rooms.set(roleId, room);
+      this.arm(sessionId, s);
     }
     return room;
   }
@@ -138,12 +147,15 @@ export class VoiceTokens {
       else if (this.isVoiceHolder(s, roleId, w.participantId)) w.settle({ ok: true });
     }
     for (const roleId of s.rooms.keys()) this.sweep(sessionId, s, roleId);
+    if (next.ended) this.disarm(s); else this.arm(sessionId, s);
   }
 
   /** The session's runtime exited: its seats are gone with it (no sweep: the next runtime's seats decide). */
   runtimeExited(sessionId: string): void {
     const s = this.sessions.get(sessionId);
-    if (s) delete s.seats;
+    if (!s) return;
+    delete s.seats;
+    this.disarm(s);
   }
 
   /** A code reissue (or a removal) gave the seat to someone new: its identity goes at once, before the next seats report. */
@@ -168,6 +180,7 @@ export class VoiceTokens {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     this.sessions.delete(sessionId);
+    this.disarm(s);
     for (const w of [...s.waiters.values()]) w.settle({ ok: false, code: "voice_unavailable" });
     for (const room of s.rooms.values()) {
       this.o.admin.deleteRoom(room).catch((err: unknown) => this.o.log(`session ${sessionId} voice room delete failed (${errorName(err)})`));
@@ -192,6 +205,25 @@ export class VoiceTokens {
     if (h?.voiceChosen) return { kind: "one", identity: participantIdentity(roleId, this.generation(sessionId, roleId, h.participantId)) };
     if (!h && seats.open.includes(roleId)) return { kind: "keep" };
     return { kind: "none" };
+  }
+
+  /** Arms the periodic sweep once: only while the session has a seat room and a live runtime's seats. */
+  private arm(sessionId: string, s: Session): void {
+    if (s.periodic || s.rooms.size === 0 || !s.seats || s.seats.ended || this.sessions.get(sessionId) !== s) return;
+    const cancel = this.o.setTimer(() => {
+      if (s.periodic !== cancel) return;
+      delete s.periodic;
+      if (this.sessions.get(sessionId) !== s) return;
+      for (const roleId of s.rooms.keys()) this.sweep(sessionId, s, roleId);
+      this.arm(sessionId, s);
+    }, SWEEP_INTERVAL_MS);
+    s.periodic = cancel;
+  }
+
+  private disarm(s: Session): void {
+    const cancel = s.periodic;
+    delete s.periodic;
+    cancel?.();
   }
 
   /** Serialised per room and coalesced: one sweep in flight; changes meanwhile make ONE more run with the state as it then is. */

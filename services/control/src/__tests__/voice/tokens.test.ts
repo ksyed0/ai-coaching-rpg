@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { LiveKitAdminError, parseParticipantIdentity, type RoomAdmin } from "@acr/adapters/livekit";
 import { isVoiceRoomName } from "@acr/speech/protocol";
 import type { LiveKitConfig } from "../../voice/livekit-config.js";
-import { SEATS_WAIT_MS, VoiceTokenRefused, VoiceTokens, type TokenSeats } from "../../voice/tokens.js";
+import { SEATS_WAIT_MS, SWEEP_INTERVAL_MS, VoiceTokenRefused, VoiceTokens, type TokenSeats } from "../../voice/tokens.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 5, K9, R6, R7): one LiveKit room per seat, seat generations, the token rules and identity removal.
 const S1 = "a".repeat(32);
@@ -185,7 +185,7 @@ describe("VoiceTokens.issue: who gets a token (US-0071, A1b Task 5, K1)", () => 
     expect(h.minted).toEqual([]);
     h.tokens.seatsChanged(S1, seats([holder("cfo", "p2"), holder("tech_lead", "p1")]));
     expect(await refusal(p)).toBe("resolved");
-    expect(h.timers.every((t) => t.cancelled)).toBe(true);
+    expect(h.timers.filter((t) => t.ms === SEATS_WAIT_MS).every((t) => t.cancelled)).toBe(true);
   });
 
   it("is refused after 1000 ms without seats", async () => {
@@ -464,5 +464,81 @@ describe("VoiceTokens: logging (US-0071, A1b Task 5, batch 2 review F7)", () => 
     await settle();
     const all = h.logs.join("\n");
     for (const secret of [room, "participant-secret", "jwt-", ...h.minted.map((m) => m.identity), ...h.minted.map((m) => m.token)]) expect(all).not.toContain(secret);
+  });
+});
+
+describe("VoiceTokens: the periodic sweep (US-0071, A1b batch 3 review F3)", () => {
+  const live = (h: ReturnType<typeof harness>) => h.timers.filter((t) => t.ms === SWEEP_INTERVAL_MS && !t.cancelled);
+  async function seated() {
+    const h = harness();
+    h.tokens.openSession(S1);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    await h.tokens.issue(S1, "tech_lead", "p1");
+    const room = h.tokens.roomOf(S1, "tech_lead");
+    h.admin.join(room, h.minted[0]!.identity);
+    await settle();
+    h.admin.calls = [];
+    return { h, room, p1: h.minted[0]!.identity };
+  }
+
+  it("a removed browser that reconnects with its still-valid token is removed again within one period, with no seat change", async () => {
+    const { h, room, p1 } = await seated();
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p2")]));
+    await settle();
+    expect(h.admin.in(room)).toEqual([]);
+    h.admin.join(room, p1); // reconnects (TTL 600 s); no seat change follows
+    h.admin.calls = [];
+    expect(live(h)).toHaveLength(1);
+    h.fire(SWEEP_INTERVAL_MS);
+    await settle();
+    expect(h.admin.calls).toEqual([`list ${room}`, `remove ${room} ${p1}`]);
+    expect(live(h)).toHaveLength(1); // armed again for the next period
+  });
+
+  it("one timer per session however many seat reports arrive; it keeps the current holder", async () => {
+    const { h, room, p1 } = await seated();
+    for (let i = 0; i < 5; i++) h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    await settle();
+    expect(live(h)).toHaveLength(1);
+    h.admin.calls = [];
+    h.fire(SWEEP_INTERVAL_MS);
+    await settle();
+    expect(h.admin.calls).toEqual([`list ${room}`]);
+    expect(h.admin.in(room)).toEqual([p1]);
+  });
+
+  it("the timer stops at endSession", async () => {
+    const { h } = await seated();
+    expect(live(h)).toHaveLength(1);
+    h.tokens.endSession(S1);
+    expect(live(h)).toEqual([]);
+  });
+
+  it("the timer stops when the runtime exits and starts again with the next runtime's seats", async () => {
+    const { h } = await seated();
+    h.tokens.runtimeExited(S1);
+    expect(live(h)).toEqual([]);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    expect(live(h)).toHaveLength(1);
+  });
+
+  it("no periodic sweep without rooms (seats alone arm nothing)", async () => {
+    const h = harness();
+    h.tokens.openSession(S1);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    expect(live(h)).toEqual([]);
+  });
+
+  it("a periodic sweep while one is in flight is coalesced into the room's pending run", async () => {
+    const { h, room } = await seated();
+    h.admin.hold = true;
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p2")]));
+    h.fire(SWEEP_INTERVAL_MS);
+    await settle();
+    expect(h.admin.calls).toEqual([`list ${room}`]);
+    h.admin.hold = false;
+    h.admin.held.shift()!.resolve();
+    await settle();
+    expect(h.admin.calls.filter((c) => c.startsWith("list"))).toHaveLength(2);
   });
 });
