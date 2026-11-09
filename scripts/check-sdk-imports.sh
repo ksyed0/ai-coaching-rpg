@@ -51,5 +51,26 @@ if [ "$livekit_status" -ne 0 ]; then
   echo "LiveKit package used outside its allowed package" >&2
   status=1
 fi
+
+# Third rule (US-0071, review F10): `@acr/adapters/livekit` (and any subpath but `/identity`, which loads no SDK) mints tokens and
+# administers rooms, so only control may import it, plus the package itself and the speech worker's opt-in live checks
+# (services/speech/src/__tests__/livekit.live*.test.ts, Task 18). Source files only: the package.json dependency is on @acr/adapters.
+adapters_livekit_rule() {
+  local code_re="(from|import|require)[[:space:]]*\\(?[[:space:]]*['\"]@acr/adapters/livekit(/[^'\"]*)?['\"]"
+  local hits
+  hits=$( { find . \( -name node_modules -o -name dist -o -name .superpowers -o -name .git -o -name coverage -o -path ./packages/adapters -o -path ./services/control \) -prune -o \
+      -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.mts' -o -name '*.cts' -o -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) \
+      ! -path './services/speech/src/__tests__/livekit.live*.test.ts' -print \
+      | xargs grep -noE "$code_re" 2>/dev/null | grep -vE "@acr/adapters/livekit/identity['\"]\$"; } || true)
+  if [ -n "$hits" ]; then
+    echo "$hits"
+    return 1
+  fi
+  return 0
+}
+if ! adapters_livekit_rule; then
+  echo "@acr/adapters/livekit used outside services/control (only /identity may be imported elsewhere)" >&2
+  status=1
+fi
 [ "$status" -eq 0 ] && echo "sdk-imports: ok"
 exit "$status"
