@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  acquireLock, clearState, loadState, openPrivateSubdir, openStateDir, readState, releaseLock, StateDirError, writeState, type VoiceOpsState,
+  acquireLock, clearState, loadState, openPrivateSubdir, openStateDir, readState, releaseLock, StateDirError, writePrivateFileAtomic, writeState, type VoiceOpsState,
 } from "../state.js";
 
 // US-0072 (EPIC-0003 voice A1c, Task 3): the private state directory, `state.json` and the lock. Every test works in a private mkdtemp
@@ -340,5 +340,40 @@ describe("the lock (US-0072, A1c Task 3)", () => {
     releaseLock(d, 1234);
     expect(existsSync(path.join(d, "lock"))).toBe(false);
     expect(() => releaseLock(d, 1234)).not.toThrow();
+  });
+});
+
+// Batch 2 review B F13: the raw Node errors of the state files (a removed or read-only folder, a file system without hard links, a
+// directory where a file should be) name the path; they are wrapped in fixed sentences, with no `cause` kept.
+describe("state file errors name no path (US-0072, review B F13)", () => {
+  const stateDir = (): string => { const d = path.join(newDir(), "voice"); openStateDir(d, { repoRoot: fakeRepo() }); return d; };
+  function expectNoPath(fn: () => unknown, want: string, dir: string): void {
+    let err: unknown;
+    try { fn(); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(StateDirError);
+    expect((err as StateDirError).code).toBe(want);
+    const e = err as Error;
+    for (const text of [e.message, String(e.stack), JSON.stringify(e)]) { expect(text).not.toContain(dir); expect(text).not.toContain(path.basename(path.dirname(dir))); }
+    expect((e as Error & { cause?: unknown }).cause).toBeUndefined();
+  }
+
+  it("writeState and writePrivateFileAtomic in a removed folder: unwritable", () => {
+    const d = stateDir();
+    rmSync(d, { recursive: true, force: true });
+    expectNoPath(() => writeState(d, STATE), "unwritable", d);
+    expectNoPath(() => writePrivateFileAtomic(path.join(d, "livekit.env"), "x\n"), "unwritable", d);
+  });
+
+  it("clearState where state.json is a directory: unwritable", () => {
+    const d = stateDir();
+    mkdirSync(path.join(d, "state.json"));
+    writeFileSync(path.join(d, "state.json", "x"), "x");
+    expectNoPath(() => clearState(d), "unwritable", d);
+  });
+
+  it("acquireLock in a removed folder: lock_failed", () => {
+    const d = stateDir();
+    rmSync(d, { recursive: true, force: true });
+    expectNoPath(() => acquireLock(d, 1234, () => true), "lock_failed", d);
   });
 });

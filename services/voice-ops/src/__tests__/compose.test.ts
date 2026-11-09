@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type os from "node:os";
 import nodeOs from "node:os";
 import path from "node:path";
@@ -8,7 +8,7 @@ import {
 } from "../compose.js";
 import type { Run } from "../run.js";
 import { loadRootEnv, parseVoiceOpsSettings, type VoiceOpsSettings } from "../settings.js";
-import { openStateDir } from "../state.js";
+import { openStateDir, StateDirError } from "../state.js";
 
 // US-0072 (EPIC-0003 voice A1c, Task 5): compose arguments and environment, the LiveKit env file, the Docker checks and the node
 // address. No Docker command runs here: `run` is a fake that answers like the docker CLI. Keys are fabricated placeholders.
@@ -184,6 +184,16 @@ describe("writeLiveKitEnv (US-0072, A1c Task 5)", () => {
       for (const v of Object.values(env)) if (v && v.length > 3) expect(msg).not.toContain(v);
       expect(existsSync(path.join(d, "livekit.env"))).toBe(false);
     }
+  });
+
+  it("removeLiveKitEnv that cannot remove the file throws a fixed sentence naming no path (review B F13)", () => {
+    const d = stateDir();
+    mkdirSync(path.join(d, "livekit.env"));
+    writeFileSync(path.join(d, "livekit.env", "x"), "x");
+    let err: unknown;
+    try { removeLiveKitEnv(d); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(StateDirError);
+    for (const text of [(err as Error).message, String((err as Error).stack), JSON.stringify(err)]) expect(text).not.toContain(path.basename(path.dirname(d)));
   });
 
   it("removeLiveKitEnv removes the file and is idempotent", () => {

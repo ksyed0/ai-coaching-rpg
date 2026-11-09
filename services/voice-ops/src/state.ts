@@ -25,7 +25,7 @@ import { parseIPv4 } from "./text.js";
  * Errors are StateDirError with a fixed sentence per code, naming the variable, never a path.
  */
 
-export type StateDirErrorCode = "inside_repo" | "symlink" | "not_directory" | "not_owner" | "too_open" | "not_empty" | "unusable";
+export type StateDirErrorCode = "inside_repo" | "symlink" | "not_directory" | "not_owner" | "too_open" | "not_empty" | "unusable" | "unwritable" | "lock_failed";
 
 const SENTENCES: Record<StateDirErrorCode, string> = {
   inside_repo: "VOICE_STATE_DIR must be outside the repository (also through a symbolic link or another letter case): it holds livekit.env and whisper.log",
@@ -35,6 +35,8 @@ const SENTENCES: Record<StateDirErrorCode, string> = {
   too_open: "VOICE_STATE_DIR (or a folder in it) is open to other users: run chmod 700 on it, then try again",
   not_empty: "the public folder in VOICE_STATE_DIR is not empty: whisper-server would serve what is in it; empty it, then pnpm voice:up",
   unusable: "VOICE_STATE_DIR cannot be created or read: check the folder and its permissions",
+  unwritable: "a file in VOICE_STATE_DIR could not be written or removed: check the folder, its permissions and the free space",
+  lock_failed: "the lock in VOICE_STATE_DIR could not be made: the folder must be writable and its file system must support hard links",
 };
 
 export class StateDirError extends Error {
@@ -223,8 +225,15 @@ function fsyncDir(dir: string): void {
   finally { if (fd !== null) { try { closeSync(fd); } catch { /* read-only */ } } }
 }
 
-/** Writes `data` to a new O_EXCL 0600 temp file beside `target` and renames it over `target`; the temp is removed on any failure. */
+/**
+ * Writes `data` to a new O_EXCL 0600 temp file beside `target` and renames it over `target`; the temp is removed on any failure. Any
+ * failure is StateDirError("unwritable") (batch 2 review B F13: Node's own errors name the path; no `cause` is kept).
+ */
 export function writePrivateFileAtomic(target: string, data: string | Buffer): void {
+  try { writeAtomic(target, data); }
+  catch (err) { throw err instanceof StateDirError ? err : new StateDirError("unwritable"); }
+}
+function writeAtomic(target: string, data: string | Buffer): void {
   const dir = path.dirname(target);
   const tmp = path.join(dir, `.${path.basename(target)}.${randomBytes(6).toString("hex")}.tmp`);
   const fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
@@ -251,8 +260,13 @@ export function writeState(dir: string, s: VoiceOpsState): void {
 }
 
 export function clearState(dir: string): void {
-  try { unlinkSync(path.join(dir, STATE_FILE)); }
-  catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
+  removePrivateFile(path.join(dir, STATE_FILE));
+}
+
+/** Removes a file of the state directory; a missing one is fine; any other failure is StateDirError("unwritable") (no path, F13). */
+export function removePrivateFile(file: string): void {
+  try { unlinkSync(file); }
+  catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new StateDirError("unwritable"); }
 }
 
 // ---- the lock ----
@@ -278,14 +292,22 @@ function lockHolder(file: string): number | null | "link" {
   } finally { try { closeSync(fd); } catch { /* read-only */ } }
 }
 
-/** Creates `lock` holding `pid`, complete before it exists (temp, then link); false when `lock` already exists. */
+/**
+ * Creates `lock` holding `pid`, complete before it exists (temp, then link); false when `lock` already exists. Any other failure (a
+ * removed or read-only folder, a file system without hard links: EPERM or ENOTSUP from `link`) is StateDirError("lock_failed"), never
+ * Node's own error, which names the path (batch 2 review B F13).
+ */
 function tryLink(dir: string, pid: number): boolean {
   const tmp = path.join(dir, `.lock.${randomBytes(6).toString("hex")}.tmp`);
-  const fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+  let fd: number;
+  try { fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600); }
+  catch { throw new StateDirError("lock_failed"); }
   try {
-    try { fchmodSync(fd, 0o600); writeSync(fd, `${pid}\n`); fsyncSync(fd); } finally { closeSync(fd); }
+    try { fchmodSync(fd, 0o600); writeSync(fd, `${pid}\n`); fsyncSync(fd); }
+    catch { throw new StateDirError("lock_failed"); }
+    finally { try { closeSync(fd); } catch { /* reported above or harmless */ } }
     try { linkSync(tmp, path.join(dir, LOCK_FILE)); return true; }
-    catch (err) { if ((err as NodeJS.ErrnoException).code === "EEXIST") return false; throw err; }
+    catch (err) { if ((err as NodeJS.ErrnoException).code === "EEXIST") return false; throw new StateDirError("lock_failed"); }
   } finally { try { unlinkSync(tmp); } catch { /* gone */ } }
 }
 

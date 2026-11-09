@@ -1,9 +1,8 @@
-import { unlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Run } from "./run.js";
 import type { VoiceOpsSettings } from "./settings.js";
-import { writePrivateFileAtomic } from "./state.js";
+import { removePrivateFile, writePrivateFileAtomic } from "./state.js";
 import { isLiveKitToken, isPrivateAddress, parseIPv4 } from "./text.js";
 
 /**
@@ -115,10 +114,9 @@ export function writeLiveKitEnv(stateDir: string, merged: NodeJS.ProcessEnv): vo
   writePrivateFileAtomic(path.join(stateDir, LIVEKIT_ENV_FILE), `LIVEKIT_KEYS=${key}: ${secret}\n`);
 }
 
-/** Removes `<stateDir>/livekit.env` (voice:down and every rollback); a missing file is fine. */
+/** Removes `<stateDir>/livekit.env` (voice:down and every rollback); a missing file is fine; else StateDirError("unwritable"). */
 export function removeLiveKitEnv(stateDir: string): void {
-  try { unlinkSync(path.join(stateDir, LIVEKIT_ENV_FILE)); }
-  catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
+  removePrivateFile(path.join(stateDir, LIVEKIT_ENV_FILE));
 }
 
 // ---- Docker ----
