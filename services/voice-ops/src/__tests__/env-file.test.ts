@@ -35,7 +35,7 @@ const untracked: GitRun = async () => ({ code: 1, stdout: "", stderr: "" });
 const freePortStub = (port = 24680) => vi.fn(async () => port);
 
 function newDir(): string { return mkdtempSync(path.join(root, "d-")); }
-function envFile(text: string, mode = 0o600): string {
+function envFile(text: string | Buffer, mode = 0o600): string {
   const dir = newDir();
   const file = path.join(dir, ".env");
   writeFileSync(file, text, { mode });
@@ -107,6 +107,22 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     expect([v.LIVEKIT_API_KEY, v.LIVEKIT_API_SECRET]).toEqual([KEY, SECRET]);
     expect(after.split("LIVEKIT_API_KEY=").length).toBe(2); // exactly one assignment of each, the original
     expect(after.split("LIVEKIT_API_SECRET=").length).toBe(2);
+  });
+
+  // Review A F1: the file is copied as BYTES. Decoding it as UTF-8 and encoding it again would turn every byte that is not valid UTF-8
+  // into U+FFFD (EF BF BD), changing existing bytes.
+  it.each([
+    ["Latin-1 bytes in a comment and a value", Buffer.concat([Buffer.from("# caf"), Buffer.from([0xe9]), Buffer.from("\nPW=p"), Buffer.from([0xa3]), Buffer.from("x\n")])],
+    ["0x80, 0xFF, an overlong NUL and an encoded surrogate", Buffer.concat([Buffer.from("A="), Buffer.from([0x80, 0xff, 0xc0, 0x80, 0xed, 0xa0, 0x80]), Buffer.from("\n")])],
+    ["CRLF lines with an invalid byte", Buffer.concat([Buffer.from("A=1\r\n# x"), Buffer.from([0xfe]), Buffer.from("\r\n")])],
+    ["no final newline after an invalid byte", Buffer.concat([Buffer.from("A=1\nB=x"), Buffer.from([0xe9])])],
+  ])("keeps every existing byte that is not valid UTF-8: %s", async (_label, bytes) => {
+    const file = envFile(bytes);
+    expect((await ensure(file)).added).toHaveLength(3);
+    const after = readFileSync(file);
+    expect(after.subarray(0, bytes.length).equals(bytes)).toBe(true);
+    const rest = after.subarray(bytes.length).toString("utf8");
+    expect(rest.startsWith(bytes[bytes.length - 1] === 0x0a ? "# Added by pnpm voice:up" : "\n# Added by pnpm voice:up")).toBe(true);
   });
 
   it("a file without a final newline gets one before the block", async () => {
@@ -271,7 +287,7 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       const swap = path.join(path.dirname(file), "swap");
       writeFileSync(swap, "B=2\n", { mode: 0o600 });
       renameSync(swap, file);
-      expect(() => appendBlock(file, r.text, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
+      expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
       expect(readFileSync(file, "utf8")).toBe("B=2\n");
       expect(leftovers(path.dirname(file))).toEqual([]);
     }
@@ -280,7 +296,7 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       const file = envFile("A=1\n");
       const r = readPrivateEnv(file);
       appendFileSync(file, "B=2\n");
-      expect(() => appendBlock(file, r.text, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
+      expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
       expect(readFileSync(file, "utf8")).toBe("A=1\nB=2\n");
       expect(leftovers(path.dirname(file))).toEqual([]);
     }
@@ -289,7 +305,7 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       const file = envFile("A=1\n");
       const r = readPrivateEnv(file);
       utimesSync(file, new Date(Date.UTC(2020, 0, 1)), new Date(Date.UTC(2020, 0, 1)));
-      expect(() => appendBlock(file, r.text, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
+      expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
       expect(readFileSync(file, "utf8")).toBe("A=1\n");
     }
     // Replaced by a symlink.
@@ -300,7 +316,7 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       writeFileSync(target, "T=1\n", { mode: 0o600 });
       rmSync(file);
       symlinkSync(target, file);
-      expect(() => appendBlock(file, r.text, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
+      expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
       expect(readFileSync(target, "utf8")).toBe("T=1\n");
       expect(lstatSync(file).isSymbolicLink()).toBe(true);
     }
@@ -309,7 +325,7 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       const file = envFile("A=1\n");
       const r = readPrivateEnv(file);
       rmSync(file);
-      expect(() => appendBlock(file, r.text, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
+      expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
       expect(readdirSync(path.dirname(file))).toEqual([]);
     }
   });
@@ -406,6 +422,7 @@ describe("readPrivateEnv (US-0072)", () => {
     const r = readPrivateEnv(file);
     const st = statSync(file);
     expect(r.text).toBe("A=1\nB=\"two\"\n");
+    expect(r.bytes.equals(Buffer.from("A=1\nB=\"two\"\n"))).toBe(true);
     expect(r.values).toEqual({ A: "1", B: "two" });
     expect(r.id).toEqual({ dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs });
   });

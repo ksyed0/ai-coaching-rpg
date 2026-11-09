@@ -8,7 +8,8 @@ import { parseSttUrl } from "@acr/adapters";
  * US-0072 (EPIC-0003 voice A1c, Task 2): `pnpm voice:up` generates the LiveKit key and secret and `STT_URL` into the ROOT `.env` (the
  * only file control reads, R2) once, and never prints, logs or passes them in an argument list.
  *
- * - Only names that are absent are added, as one appended block; an existing byte is never changed.
+ * - Only names that are absent are added, as one appended block; an existing byte is never changed: the file is copied as the bytes the
+ *   read saw (a decoded copy is used only to decide), so a byte that is not valid UTF-8 survives (review A F1).
  * - The file is read through one descriptor opened with O_NOFOLLOW and judged by fstat: a regular file owned by this user with no group
  *   or other permission bits. A symlink, a directory, another owner, mode 0644 and a missing file are refused (a missing `.env` is NOT
  *   created: `run.sh` gives a facilitator token only to a NEW `.env`, so a `.env` made here would leave the server open).
@@ -66,7 +67,7 @@ const KEY_PREFIX = "API";
 const SECRET_MIN_CHARS = 32;
 
 /** Reads `.env` through ONE descriptor (O_RDONLY | O_NOFOLLOW) and judges it by fstat. Throws EnvFileError. */
-export function readPrivateEnv(file: string): { text: string; values: Record<string, string>; id: FileId } {
+export function readPrivateEnv(file: string): { bytes: Buffer; text: string; values: Record<string, string>; id: FileId } {
   let fd: number;
   try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); }
   catch (err) {
@@ -88,7 +89,7 @@ export function readPrivateEnv(file: string): { text: string; values: Record<str
     const text = buf.toString("utf8");
     let values: Record<string, string>;
     try { values = parseEnv(text) as Record<string, string>; } catch { throw new EnvFileError("unreadable"); }
-    return { text, values, id: { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs } };
+    return { bytes: buf, text, values, id: { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs } };
   } finally { closeSync(fd); }
 }
 
@@ -170,13 +171,15 @@ function fsyncDir(dir: string): void {
 }
 
 /**
- * Writes `text` (plus a newline if it does not end with one) and `block` to a new O_EXCL 0600 temp file beside `file`, fsyncs it, then
- * replaces `file` with it only if the path is still the file the read saw (`readId`). The temp is removed on every failure.
+ * Writes `bytes` (the file as read, unchanged; plus a newline if it does not end with one) and `block` to a new O_EXCL 0600 temp file
+ * beside `file`, fsyncs it, then replaces `file` with it only if the path is still the file the read saw (`readId`). The temp is removed
+ * on every failure.
  */
-export function appendBlock(file: string, text: string, block: string, readId: FileId): void {
+export function appendBlock(file: string, bytes: Buffer, block: string, readId: FileId): void {
   const dir = path.dirname(file);
   const tmp = path.join(dir, `.env.voice-ops.${randomBytes(6).toString("hex")}.tmp`);
-  const data = Buffer.from(text + (text === "" || text.endsWith("\n") ? "" : "\n") + block, "utf8");
+  const needsNewline = bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a;
+  const data = Buffer.concat([bytes, Buffer.from((needsNewline ? "\n" : "") + block, "utf8")]);
   const fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
   try {
     try {
@@ -231,6 +234,6 @@ export async function ensureVoiceSecrets(o: {
   // The block holds no quote character, so it can never close a quote the existing text left open (parseEnv reads such a quote literally).
   const block = `# Added by pnpm voice:up on ${date} (US-0072). Secrets: keep this file private (mode 600), never commit it.\n`
     + plan.add.map((a) => `${a.name}=${a.value}\n`).join("");
-  appendBlock(o.file, r.text, block, r.id);
+  appendBlock(o.file, r.bytes, block, r.id);
   return { added: plan.add.map((a) => a.name) };
 }
