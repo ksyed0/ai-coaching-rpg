@@ -46,7 +46,7 @@ type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: st
  * What a child said right after `ready`, before goLive installed its handler (awaitReady sees it; nothing else does): BUG-0016's `ended`,
  * and US-0070's first `voice_seats` (the runtime sends it in the same turn as `ready`, so without this it was lost).
  */
-type Early = { ended: boolean; voiceSeats?: Extract<ChildMessage, { type: "voice_seats" }> };
+type Early = { ended: boolean; voiceSeats?: Extract<ChildMessage, { type: "voice_seats" }>; /** F9c: goLive took it: the early listener stops. */ handedOver?: true };
 type ExitState = { done: boolean; promise?: Promise<void> };
 type Proc = { child: ChildHandle; exit: ExitState };
 type Live = {
@@ -220,6 +220,7 @@ export class Supervisor {
         // this promise's continuation runs, so the message is recorded here and applied by goLive. US-0070: the same holds for the first
         // `voice_seats` (the latest one is kept). After ready nothing else matters here, so every other message is dropped unparsed.
         if (settled) {
+          if (early.handedOver) return; // F9c: goLive's handler has every later message; nothing is parsed here again
           const type = typeof raw === "object" && raw !== null ? (raw as { type?: unknown }).type : undefined;
           if (type !== "ended" && type !== "voice_seats") return;
           const late = ChildMessageSchema.safeParse(raw);
@@ -350,6 +351,9 @@ export class Supervisor {
   /** Registers a started child as the session's live process and installs its handlers. */
   private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: ReadyInfo, early: Early = { ended: false }): void {
     const endedEarly = early.ended;
+    const earlySeats = early.voiceSeats;
+    early.handedOver = true;
+    delete early.voiceSeats;
     this.live.get(id)?.graceCancel?.();
     if (ready.codes) this.roleOrder.set(id, ready.codes.map((c) => c.roleId));
     this.uncertain.delete(id); // a ready's aiRoles is the truth again
@@ -366,7 +370,7 @@ export class Supervisor {
     child.onExit(() => this.onChildExit(id, child));
     // A child already gone or ended gets no attach (it would join a dead port or an ended runtime); the end/detach below stops any bots.
     if (!exit.done && !endedEarly) this.attachBots(id, ready);
-    if (early.voiceSeats) this.onVoiceMessage(id, child, early.voiceSeats);
+    if (earlySeats) this.onVoiceMessage(id, child, earlySeats);
     if (!exit.done && !endedEarly && ready.voice === true) this.attachVoice(id, scenarioId, child);
     if (exit.done) this.onChildExit(id, child);
     else if (endedEarly) this.onEnded(id, child, exit);

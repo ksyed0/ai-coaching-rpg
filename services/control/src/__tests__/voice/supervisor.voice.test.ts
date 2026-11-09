@@ -1,10 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ControlToWorker } from "@acr/speech/protocol";
 import type { BotHost } from "../../bots/bot-host.js";
 import type { ControlConfig } from "../../config.js";
+import { ChildMessageSchema } from "../../protocol.js";
 import { SessionList } from "../../session-list.js";
 import { Supervisor, type SetTimer, type SpawnFn } from "../../supervisor.js";
 import { VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
@@ -75,6 +76,20 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     expect(workers).toHaveLength(1);
     workers[0]!.emit({ type: "worker_ready", stt: "ok" });
     expect(workers[0]!.sent).toEqual([STATE]);
+  });
+
+  // F9c (review fix wave): once the held message is handed over, the early listener no longer parses anything for the child's life.
+  it("after the hand-over, a later voice_seats is parsed by the live handler only", async () => {
+    const sup = make();
+    const { c } = await boot(sup);
+    workers[0]!.emit({ type: "worker_ready", stt: "ok" });
+    const parse = vi.spyOn(ChildMessageSchema, "safeParse");
+    try {
+      c.emit({ ...SEATS, paused: true });
+      c.emit({ type: "ended" });
+      expect(parse).toHaveBeenCalledTimes(2); // one parse per message: the live handler's
+    } finally { parse.mockRestore(); }
+    expect(workers[0]!.sent.at(-2)).toEqual({ ...STATE, paused: true });
   });
 
   it("no worker for a runtime whose ready has no voice", async () => {
