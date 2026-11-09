@@ -7952,9 +7952,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-09T04:38:34.461Z",
-  "commitSha": "ec7bb8c",
-  "buildNumber": "577",
+  "generatedAt": "2026-11-09T05:07:55.457Z",
+  "commitSha": "a423d14",
+  "buildNumber": "587",
   "branch": "feature/EPIC-0003-US-0071-voice-livekit-consent",
   "sessionTimeline": [
     {
@@ -8217,7 +8217,7 @@
       "2026-11-09T01:59:36.634Z",
       "2026-11-09T03:02:23.129Z",
       "2026-11-09T04:00:10.727Z",
-      "2026-11-09T04:38:34.542Z"
+      "2026-11-09T05:07:55.551Z"
     ],
     "doneCounts": [
       0,
@@ -8412,15 +8412,18 @@
     "velocityByWeek": {
       "labels": [
         "2026-W40",
-        "2026-W45"
+        "2026-W45",
+        "2026-W46"
       ],
       "points": [
         0,
-        29
+        29,
+        0
       ],
       "rollingAvg": [
         0,
-        14.5
+        14.5,
+        9.7
       ]
     }
   }
