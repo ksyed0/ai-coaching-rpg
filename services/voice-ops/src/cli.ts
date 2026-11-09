@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import dgram from "node:dgram";
 import dns from "node:dns";
 import { existsSync, realpathSync, statSync, statfsSync } from "node:fs";
 import net from "node:net";
@@ -11,10 +10,11 @@ import { httpAnswers } from "@acr/adapters";
 import { voiceCheck, type CheckDeps } from "./check.js";
 import { voiceDown } from "./down.js";
 import { STT_PORT_MAX, STT_PORT_MIN } from "./env-file.js";
-import type { OpsDeps, PortProbe } from "./ops.js";
+import type { OpsDeps } from "./ops.js";
 import { realRun, realSpawnDetached, type SetTimer } from "./run.js";
 import { makeResolver } from "./checks/dns.js";
 import { trustStore } from "./trust.js";
+import { portFree } from "./port-probe.js";
 import { exitCodeOf, installSignals, lastLine, type RollbackOutcome } from "./signals.js";
 import { voiceUpOutcome } from "./up.js";
 import { whisperHealth, whisperWarm } from "./whisper.js";
@@ -47,21 +47,6 @@ function repoRoot(): string | null {
 
 /** A timer that keeps the process alive while voice:up waits (realSetTimer is unref'd, which would let the CLI exit mid-wait). */
 const refSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); };
-
-function portFree(host: string, port: number, proto: "tcp" | "udp"): Promise<PortProbe> {
-  const mapErr = (err: NodeJS.ErrnoException): PortProbe => (err.code === "EACCES" ? "denied" : "taken");
-  return new Promise((resolve) => {
-    if (proto === "tcp") {
-      const srv = net.createServer();
-      srv.once("error", (err) => resolve(mapErr(err)));
-      srv.listen({ host, port, exclusive: true }, () => srv.close(() => resolve("free")));
-    } else {
-      const sock = dgram.createSocket("udp4");
-      sock.once("error", (err) => { sock.close(); resolve(mapErr(err)); });
-      sock.bind(port, host, () => sock.close(() => resolve("free")));
-    }
-  });
-}
 
 async function freePort(): Promise<number> {
   for (let i = 0; i < 20; i++) {
