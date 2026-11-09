@@ -1,0 +1,131 @@
+import { execFile, spawn } from "node:child_process";
+import { closeSync, constants as fsConstants, fchmodSync, fstatSync, openSync } from "node:fs";
+import path from "node:path";
+
+/**
+ * US-0072 (EPIC-0003 voice A1c, Task 3): the command runner, the detached spawn and the process identity of `voice-ops`. Every other
+ * module takes these as injected seams (tests fake them); `cli.ts` (Task 7) passes the real ones below.
+ *
+ * - `realRun`: `execFile`, never a shell, exactly the given environment (the command is looked up in ITS `PATH`), a default timeout of
+ *   120 s, output capped at 1 MiB per stream. A non-zero exit is a result, not a throw; a run that was killed (the timeout, or the cap)
+ *   is `code: null`; a command that cannot be started (ENOENT) throws. Assignable to the `.env` writer's `GitRun`.
+ * - `realSpawnDetached`: `spawn` with `detached: true` (its own process group, so a Ctrl-C to the terminal does not reach it), the
+ *   given `cwd` and exactly the given environment; **stdout is discarded** (whisper-server may print segment text there, K16) and only
+ *   stderr goes to a log opened O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW and set to 0600; `unref()`, so `voice:up` can exit.
+ * - `isOurWhisper`: before `voice:down` signals a recorded pid, all three of: its `ps -o comm=` basename is the one recorded right after
+ *   voice:up's own spawn, its `ps -o lstart=` start time is within 5 s of the recorded `startedAt`, and its `ps -o args=` holds
+ *   `--port <port>` as two words. The arguments also hold the STT request path (K14): they are compared and dropped, never printed,
+ *   logged or kept. `ps` runs with a fixed PATH (`/usr/bin:/bin`) and the C locale (so `lstart` is in English).
+ */
+
+export type SetTimer = (fn: () => void, ms: number) => () => void;
+/** Control's shape: the timer is unref'd, so a pending one never keeps the process alive. */
+export const realSetTimer: SetTimer = (fn, ms) => {
+  const t = setTimeout(fn, ms);
+  t.unref();
+  return () => clearTimeout(t);
+};
+
+export type RunResult = { code: number | null; stdout: string; stderr: string };
+export type Run = (cmd: string, args: readonly string[], o?: { env?: NodeJS.ProcessEnv; timeoutMs?: number }) => Promise<RunResult>;
+
+export const RUN_DEFAULT_TIMEOUT_MS = 120_000;
+export const RUN_MAX_OUTPUT_BYTES = 1024 * 1024;
+
+export const realRun: Run = (cmd, args, o = {}) => new Promise<RunResult>((resolve, reject) => {
+  execFile(cmd, [...args], {
+    env: o.env ?? process.env, timeout: o.timeoutMs ?? RUN_DEFAULT_TIMEOUT_MS, maxBuffer: RUN_MAX_OUTPUT_BYTES, shell: false, windowsHide: true, encoding: "utf8",
+  }, (err, stdout, stderr) => {
+    const out = { stdout: String(stdout ?? ""), stderr: String(stderr ?? "") };
+    if (!err) { resolve({ code: 0, ...out }); return; }
+    const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean; signal?: string | null };
+    if (typeof e.code === "number") { resolve({ code: e.code, ...out }); return; }
+    // Killed by the timeout or the output cap, or by any other signal: no exit code.
+    if (e.killed || e.signal || e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") { resolve({ code: null, ...out }); return; }
+    // Could not be started (ENOENT, EACCES): a fixed message, never the command line or a path.
+    reject(new Error(`could not run ${path.basename(cmd)} (${typeof e.code === "string" ? e.code : "error"})`));
+  });
+});
+
+export type SpawnDetached = (cmd: string, args: readonly string[], o: { logFile: string; env: NodeJS.ProcessEnv; cwd: string }) => { pid: number };
+
+export const realSpawnDetached: SpawnDetached = (cmd, args, o) => {
+  const fd = openSync(o.logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
+  try {
+    const st = fstatSync(fd);
+    const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+    if (!st.isFile() || (uid !== undefined && st.uid !== uid)) throw new Error("the log is not a regular file of this user");
+    fchmodSync(fd, 0o600); // an existing log may have been wider; the umask may have narrowed the owner bits
+    const child = spawn(cmd, [...args], { detached: true, cwd: o.cwd, env: o.env, stdio: ["ignore", "ignore", fd], windowsHide: true });
+    child.on("error", () => { /* reported by the missing pid below; an unhandled 'error' event would crash the CLI */ });
+    if (child.pid === undefined) throw new Error(`could not start ${path.basename(cmd)}`);
+    child.unref();
+    return { pid: child.pid };
+  } finally { closeSync(fd); }
+};
+
+// ---- process identity ----
+
+/** How far the `ps` start time may be from the recorded `startedAt` (lstart has whole seconds; Linux derives it from boot time). */
+export const START_TOLERANCE_MS = 5_000;
+const PS_TIMEOUT_MS = 10_000;
+
+function psEnv(): NodeJS.ProcessEnv {
+  return { PATH: "/usr/bin:/bin", LC_ALL: "C", ...(process.env.TZ !== undefined ? { TZ: process.env.TZ } : {}) };
+}
+
+async function ps(field: "comm=" | "lstart=" | "args=", pid: number, run: Run): Promise<string | null> {
+  if (!Number.isInteger(pid) || pid < 1) return null;
+  try {
+    const r = await run("ps", ["-o", field, "-p", String(pid)], { env: psEnv(), timeoutMs: PS_TIMEOUT_MS });
+    if (r.code !== 0) return null;
+    const v = r.stdout.trim();
+    return v === "" ? null : v;
+  } catch { return null; }
+}
+
+/** The basename of `ps -o comm= -p <pid>` (macOS prints the full path, Linux the name), or null for a dead pid or a failed ps. */
+export async function readComm(pid: number, run: Run): Promise<string | null> {
+  const v = await ps("comm=", pid, run);
+  if (v === null) return null;
+  const base = v.split("/").pop() ?? "";
+  return base === "" ? null : base;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const allDigits = (s: string): boolean => s.length > 0 && [...s].every((c) => c >= "0" && c <= "9");
+
+/** `ps -o lstart=` in the C locale (`Mon Nov  9 12:00:05 2026`, local time) as epoch ms, or null when it is not exactly that shape. */
+export function parseLstart(v: string): number | null {
+  const parts = v.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [, mon, day, time, year] = parts as [string, string, string, string, string];
+  const m = MONTHS.indexOf(mon);
+  const hms = time.split(":");
+  if (m < 0 || !allDigits(day) || !allDigits(year) || year.length !== 4 || hms.length !== 3 || !hms.every((x) => allDigits(x) && x.length === 2)) return null;
+  const [h, mi, s] = hms.map(Number) as [number, number, number];
+  const d = Number(day);
+  if (d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) return null;
+  return new Date(Number(year), m, d, h, mi, s).getTime();
+}
+
+/** `--port <port>` as two consecutive words of the argument line. */
+function hasPortWords(args: string, port: number): boolean {
+  const words = args.split(/\s+/);
+  for (let i = 0; i + 1 < words.length; i++) if (words[i] === "--port" && words[i + 1] === String(port)) return true;
+  return false;
+}
+
+/**
+ * Whether the recorded pid is still the whisper-server `voice:up` started (pid reuse after a crash or a reboot): the comm, the start time
+ * within START_TOLERANCE_MS and `--port <port>`. Never throws, never logs; false for a dead pid or when `ps` cannot answer.
+ */
+export async function isOurWhisper(w: { pid: number; port: number; startedAt: number; comm: string }, run: Run): Promise<boolean> {
+  const comm = await readComm(w.pid, run);
+  if (comm === null || comm !== w.comm) return false;
+  const lstart = await ps("lstart=", w.pid, run);
+  const t = lstart === null ? null : parseLstart(lstart);
+  if (t === null || Math.abs(t - w.startedAt) > START_TOLERANCE_MS) return false;
+  const args = await ps("args=", w.pid, run);
+  return args !== null && hasPortWords(args, w.port);
+}
