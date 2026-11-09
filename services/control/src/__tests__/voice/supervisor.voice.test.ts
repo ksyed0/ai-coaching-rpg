@@ -122,17 +122,25 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     expect(w.sent.at(-1)).toEqual({ ...STATE, paused: true });
   });
 
-  it("worker exit leaves the session running: one worker_down alert, no respawn, typed lines unaffected", async () => {
+  it("a killed worker is restarted and voice lines flow again; the session keeps running throughout (US-0071, A1b Task 8)", async () => {
     const sup = make();
     const { id, c } = await boot(sup);
     workers[0]!.emit({ type: "worker_ready", stt: "ok" });
-    workers[0]!.exit(1);
+    workers[0]!.exit(null); // SIGKILL
     expect(sup.get(id)!.status).toBe("running");
-    expect(c.voice).toEqual([{ type: "voice_alert", code: "worker_down" }]);
+    expect(c.voice.filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_restarting" }]);
     expect(c.killed).toBe(0);
-    c.emit(SEATS);
-    await settle();
-    expect(workers).toHaveLength(1);
+    const restart = timers.find((t) => t.ms === 500 && !t.cancelled)!;
+    restart.cancelled = true; restart.fn();
+    expect(workers).toHaveLength(2);
+    expect(sup.get(id)!.status).toBe("running");
+    const w2 = workers[1]!;
+    w2.emit({ type: "worker_ready", stt: "ok" });
+    expect(w2.sent.filter((m) => m.type === "voice_state")).toEqual([STATE]); // the seats it missed, without the runtime's help
+    w2.emit({ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello again.", startMs: 1, endMs: 2 });
+    expect(c.voice.filter((m) => m.type === "voice_line")).toEqual([{ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello again." }]);
+    c.emit({ type: "voice_line_ack", segmentId: "0123456789abcdef", seq: 8 });
+    expect(w2.sent.at(-1)).toEqual({ type: "voice_line_result", segmentId: "0123456789abcdef", seq: 8 });
   });
 
   it("the runtime's exit detaches (the worker stays, records nothing); a restart's ready re-attaches it and pushes the new seats", async () => {

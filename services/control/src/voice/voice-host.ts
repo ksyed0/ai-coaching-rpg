@@ -4,6 +4,7 @@ import { WorkerMessageSchema, type ControlToWorker, type WorkerMessage } from "@
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
+import { RESTART_TRIES, RESTART_STABLE_MS, restartDelay } from "./restart.js";
 import { buildSpeechEnv } from "./speech-env.js";
 import { STT_GLOBAL_IN_FLIGHT, SttSlots, sttLeaseMs } from "./stt-slots.js";
 import { VoiceTokenRefused, type VoiceTokens } from "./tokens.js";
@@ -33,11 +34,18 @@ export type SpeechSpawnFn = (o: { env: NodeJS.ProcessEnv; logFile: string }) => 
 export type VoiceFromRuntime = Extract<ChildMessage, { type: "voice_seats" | "voice_turn" | "voice_choice" | "voice_line_ack" | "voice_line_refused" }>;
 type Seats = Extract<ChildMessage, { type: "voice_seats" }>;
 
-type Worker = { handle: WorkerHandle; ready: boolean; exited: boolean; stopping: boolean };
+/** `stable` cancels the RESTART_STABLE_MS timer armed at `worker_ready` (it resets the session's failure count). */
+type Worker = { handle: WorkerHandle; ready: boolean; exited: boolean; stopping: boolean; stable?: () => void };
 type Session = {
   worker?: Worker;
-  /** A1a: once a worker has stopped unexpectedly the session gets none again (restart with backoff is A1b). */
-  workerLost: boolean;
+  /** US-0071 (A1b Task 8): unexpected worker exits (and failed spawns) in a row; reset after a worker was ready for RESTART_STABLE_MS. */
+  failures: number;
+  /** US-0071: voice is off for the session after RESTART_TRIES failed restarts in a row: no worker is ever started again. */
+  voiceOff: boolean;
+  /** US-0071: the player roles of the last attach (a timer respawn uses them). */
+  roles: string[];
+  /** US-0071: cancels the pending restart timer; absent when none is pending. */
+  restart?: () => void;
   runtimeUp: boolean;
   ended: boolean;
   /** The latest seats the runtime reported (cleared when that runtime exits). */
@@ -54,8 +62,9 @@ type Session = {
  *  - `attach` (a runtime said `ready` with `voice: true`): forks the worker if none runs; a runtime restart keeps the worker (C6).
  *  - The seats are sent only once the worker said `worker_ready` (before that it may not listen yet), and then on every change.
  *  - `detach` (the runtime exited): pending lines are answered `failed` and the worker is told nobody records until the next seats.
- *  - A worker exit while the session runs: ONE `worker_down` alert to the facilitator; the session keeps running (people continue by
- *    text) and no worker is started again in A1a (A1b adds restart with bounded backoff).
+ *  - US-0071 (A1b Task 8): a worker exit while the session runs (or a spawn that throws) is restarted with a bounded consecutive
+ *    backoff (restart.ts), each one announced `worker_restarting`; after RESTART_TRIES failed restarts in a row voice is off for the
+ *    session (one `voice_off` alert, tokens refused). The session keeps running throughout (people continue by text).
  *  - `end`: a final `ended` state (the worker flushes), then the worker is stopped after `graceMs` (forced after another); once it has
  *    stopped (or when there was none) the session's entry is removed.
  * Every handler is fire-and-forget and never throws. Logs carry the session id and an error name at most: never a text, a participant
@@ -86,7 +95,7 @@ export class VoiceHost {
 
   private session(id: string): Session {
     let s = this.sessions.get(id);
-    if (!s) { s = { workerLost: false, runtimeUp: false, ended: false, pending: new Map() }; this.sessions.set(id, s); }
+    if (!s) { s = { failures: 0, voiceOff: false, roles: [], runtimeUp: false, ended: false, pending: new Map() }; this.sessions.set(id, s); }
     return s;
   }
 
@@ -100,14 +109,22 @@ export class VoiceHost {
         if (s.seats) this.o.tokens.seatsChanged(sessionId, s.seats); // a report that came before the attach
       } catch (err) { this.failed(sessionId, err); }
     }
-    if (ready.voice !== true || s.ended || s.workerLost || s.worker) return;
+    if (ready.voice !== true || s.ended) return;
+    s.roles = [...ready.roles];
+    // US-0071 (Task 8): the worker re-attaches without the runtime's help: a ready worker gets the current state at every runtime ready.
+    if (s.worker) { this.pushState(sessionId, s); return; }
+    if (s.voiceOff || s.restart) return; // off for good, or a restart is already waiting for its backoff (it uses these roles)
+    this.spawnWorker(sessionId, s);
+  }
+
+  /** Forks the session's worker with the last attach's roles; a spawn that throws counts as a failure (US-0071, Task 8). */
+  private spawnWorker(sessionId: string, s: Session): void {
     let handle: WorkerHandle;
     try {
-      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, ready.roles), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
+      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
     } catch (err) {
       this.o.log(`session ${sessionId} speech worker could not start (${err instanceof Error ? err.name : "error"})`);
-      s.workerLost = true;
-      this.alert(sessionId, "worker_down");
+      this.workerFailed(sessionId, s);
       return;
     }
     const w: Worker = { handle, ready: false, exited: false, stopping: false };
@@ -115,6 +132,39 @@ export class VoiceHost {
     handle.onMessage((raw) => { try { this.fromWorker(sessionId, w, raw); } catch (err) { this.failed(sessionId, err); } });
     handle.onExit(() => { try { this.workerExited(sessionId, w); } catch (err) { this.failed(sessionId, err); } });
     this.o.log(`session ${sessionId} speech worker started`);
+  }
+
+  /**
+   * US-0071 (A1b Task 8, AC-0410): the worker stopped unexpectedly (any exit code: 3, a lost LiveKit room, included) or could not be
+   * spawned. Up to RESTART_TRIES restarts in a row, each after restartDelay(n), each announced `worker_restarting` (the runtime closes
+   * an open voice turn on every one and rate-limits the facilitator alert); when the worker of the last restart fails too, voice is off
+   * for the session: ONE `voice_off` alert, every seat's LiveKit identity goes and every later token is refused `voice_off`.
+   */
+  private workerFailed(sessionId: string, s: Session): void {
+    if (s.ended || this.closed || s.voiceOff) return;
+    s.failures += 1;
+    if (s.failures <= RESTART_TRIES) {
+      this.alert(sessionId, "worker_restarting");
+      const cancel = this.o.setTimer(() => {
+        if (s.restart !== cancel) return;
+        delete s.restart;
+        if (this.closed || s.ended || s.voiceOff || s.worker || this.sessions.get(sessionId) !== s) return;
+        this.spawnWorker(sessionId, s);
+      }, restartDelay(s.failures));
+      s.restart = cancel;
+      return;
+    }
+    s.voiceOff = true;
+    this.o.log(`session ${sessionId} voice is off after repeated speech worker faults`);
+    this.alert(sessionId, "voice_off");
+    try { this.o.tokens?.voiceOff(sessionId); } catch (err) { this.failed(sessionId, err); }
+  }
+
+  /** Cancels a pending restart (end, shutdown). */
+  private cancelRestart(s: Session): void {
+    const cancel = s.restart;
+    delete s.restart;
+    cancel?.();
   }
 
   fromRuntime(sessionId: string, m: VoiceFromRuntime): void {
@@ -161,6 +211,7 @@ export class VoiceHost {
       const s = this.sessions.get(sessionId);
       if (!s || s.ended) return;
       s.ended = true;
+      this.cancelRestart(s); // US-0071: an ended session is never respawned
       const w = s.worker;
       if (!w || w.exited) { this.drop(sessionId, s); return; } // F9b: nothing to stop: forget the session now
       this.toWorker(s, { type: "voice_state", paused: s.seats?.paused ?? false, ended: true, holders: s.seats?.holders ?? [] });
@@ -177,6 +228,7 @@ export class VoiceHost {
   /** Disconnects every worker (they exit on their own), waits up to graceMs, then force-kills what is left. Never alerts. */
   async shutdown(): Promise<void> {
     this.closed = true;
+    for (const s of this.sessions.values()) this.cancelRestart(s);
     const live = [...this.sessions.values()].flatMap((s) => (s.worker && !s.worker.exited ? [s.worker] : []));
     for (const w of live) { w.stopping = true; try { w.handle.disconnect(); } catch { /* channel already closed */ } }
     if (live.length === 0) return;
@@ -218,7 +270,10 @@ export class VoiceHost {
     const m: WorkerMessage = parsed.data;
     switch (m.type) {
       case "worker_ready":
+        if (w.ready) return; // once per worker
         w.ready = true;
+        // US-0071 (Task 8): a worker ready for RESTART_STABLE_MS resets the session's failure count (cancelled at its exit).
+        w.stable = this.o.setTimer(() => { if (s.worker === w && !w.exited) s.failures = 0; }, RESTART_STABLE_MS);
         if (m.stt === "unavailable") this.alert(sessionId, "stt_unavailable");
         this.pushState(sessionId, s);
         return;
@@ -279,7 +334,9 @@ export class VoiceHost {
   }
 
   private workerExited(sessionId: string, w: Worker): void {
+    if (w.exited) return; // one exit per worker
     w.exited = true;
+    w.stable?.();
     const s = this.sessions.get(sessionId);
     if (!s || s.worker !== w) return;
     delete s.worker;
@@ -287,10 +344,9 @@ export class VoiceHost {
     for (const cancel of s.pending.values()) cancel(); // the worker is gone: nobody to answer
     s.pending.clear();
     if (s.ended) { this.drop(sessionId, s); return; } // F9b: the session is over and its worker has stopped
-    if (w.stopping || this.closed) return;
-    s.workerLost = true;
+    if (w.stopping || this.closed) return; // a clean stop (the end, control's shutdown) is not a failure
     this.o.log(`session ${sessionId} speech worker stopped unexpectedly`);
-    this.alert(sessionId, "worker_down");
+    this.workerFailed(sessionId, s);
   }
 
   /** F9b: forgets an ended session whose worker has stopped (or that never had one). */
@@ -334,7 +390,7 @@ export class VoiceHost {
     try { w.handle.send(m); } catch { /* the worker is going away; its exit is handled there */ }
   }
 
-  private alert(sessionId: string, code: "worker_down" | "stt_unavailable" | "stt_failed"): void {
+  private alert(sessionId: string, code: "stt_unavailable" | "stt_failed" | "worker_restarting" | "voice_off"): void {
     const s = this.sessions.get(sessionId);
     if (s && !s.runtimeUp) return;
     try { this.o.toRuntime(sessionId, { type: "voice_alert", code }); } catch { /* reported nowhere: the runtime is gone */ }

@@ -179,17 +179,16 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     expect(toRuntime).toEqual([]);
   });
 
-  it("a worker exit while the session runs: one worker_down alert, pending lines forgotten, no restart", () => {
+  it("a worker exit while the session runs: one worker_restarting alert, pending lines forgotten, a restart scheduled (A1b Task 8)", () => {
     const v = make();
     const w = live(v);
     w.emit(line());
     w.exit(1);
-    expect(toRuntime.map((x) => x.m).filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_down" }]);
+    expect(toRuntime.map((x) => x.m).filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_restarting" }]);
     expect(timers.filter((t) => t.ms === VOICE_LINE_TIMEOUT_MS && !t.cancelled)).toEqual([]);
     expect(v.workerPid(ID)).toBeUndefined();
-    v.fromRuntime(ID, seats());
-    v.attach(ID, { voice: true, roles: ["tech_lead"] }); // even a later ready does not bring it back in A1a
-    expect(workers).toHaveLength(1);
+    expect(workers).toHaveLength(1); // the restart waits for its backoff (restart.test.ts)
+    expect(timers.filter((t) => t.ms === 500 && !t.cancelled)).toHaveLength(1);
     expect(logs).toContain(`session ${ID} speech worker stopped unexpectedly`);
   });
 
@@ -285,7 +284,7 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     });
     v.attach(ID, { voice: true, roles: [] });
     expect(logs).toEqual([`session ${ID} speech worker could not start (TypeError)`]);
-    expect(toRuntime.map((x) => x.m)).toEqual([{ type: "voice_alert", code: "worker_down" }]);
+    expect(toRuntime.map((x) => x.m).filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_restarting" }]);
   });
 
   it("shutdown disconnects every worker and force-kills one that stays", async () => {
