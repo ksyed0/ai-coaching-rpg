@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { applyPlayerEvent, initPlayerView, type PlayerScene, type PlayerView, type PlayerSnapshot, type SessionEvent } from "@acr/events";
 import { postJson, type ActionResult } from "./api";
-import { MESSAGES } from "./messages";
+import { isVoiceNoticeCode, MESSAGES, type VoiceNoticeCode } from "./messages";
 
 // One participant's live session in the browser. The stream is the browser's native EventSource on /api/v1/stream: it reconnects by
 // itself after the server's `retry:` and keeps Last-Event-ID, so this hook never runs a reconnect loop of its own. It only closes the
@@ -25,7 +25,12 @@ export type SessionDeps = { EventSource: EventSourceCtor; fetch: typeof fetch };
 export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; ai?: true };
 export type Consent = { noticeVersion: string; notice: string; given: boolean };
 /** The joined fields the page uses (the BFF already picked them; the credential never reaches the browser). */
-export type Joined = { roleId: string; brief?: string; privateFacts?: string[]; consent?: Consent; scenes: PlayerScene[]; logIdentity?: string };
+export type Joined = { roleId: string; brief?: string; privateFacts?: string[]; consent?: Consent; scenes: PlayerScene[]; logIdentity?: string; voice?: SeatVoice };
+
+/** US-0071: this seat's voice state as the runtime sends it (`joined.voice`, a `voice` answer). */
+export type VoiceState = "none" | "voice" | "text_only" | "off";
+export type SeatVoice = { state: VoiceState; muted: boolean };
+export type VoiceChoiceValue = "voice" | "text_only";
 
 export type FinalKind = "superseded" | "signed_out" | "removed" | "ended" | "expired" | "left" | "closed" | "ai_filled";
 export type SessionUi = {
@@ -36,6 +41,12 @@ export type SessionUi = {
   view: PlayerView | null;
   roster: PeerRosterEntry[];
   notice: string | null;
+  /** US-0071: this seat's voice state; null when the runtime sent none (voice not enabled, or an AI seat): the page shows no voice UI. */
+  voice: SeatVoice | null;
+  /** The latest private voice notice; `n` counts up on every notice, so a repeated code is announced again. */
+  voiceNotice: { code: VoiceNoticeCode; n: number } | null;
+  /** The latest of voice_unavailable / voice_available: whether the runtime can capture speech at all (state, not a toast). */
+  voiceUnavailable: boolean;
 };
 
 const FINAL_MESSAGES: Record<FinalKind, string> = {
@@ -59,9 +70,11 @@ type Action =
   | { type: "notice"; text: string }
   | { type: "dropped" }
   | { type: "final"; kind: FinalKind }
-  | { type: "consented" };
+  | { type: "consented" }
+  | { type: "voice"; voice: SeatVoice }
+  | { type: "voice_notice"; code: VoiceNoticeCode };
 
-export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null };
+export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null, voice: null, voiceNotice: null, voiceUnavailable: false };
 
 const capped = (v: PlayerView): PlayerView => (v.transcript.length > MAX_TRANSCRIPT_LINES ? { ...v, transcript: v.transcript.slice(-MAX_TRANSCRIPT_LINES) } : v);
 
@@ -70,11 +83,14 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
     case "open":
       return { ...s, conn: "connecting", final: null };
     case "joined": {
+      // A fresh joined is the runtime's truth for this seat's voice: its state and mute (a released holder comes back unmuted), and
+      // "available" (the runtime tells a voice holder who binds while voice is unavailable right after joined).
+      const voice = a.joined.voice ?? null;
       // A first join, or another log: start from the snapshot. A rejoin of the same log keeps the view; the replayed events follow
       // (and a reset follows when the replay could not be complete).
       const sameLog = s.joined !== null && s.joined.logIdentity === a.joined.logIdentity;
       const view = s.view !== null && sameLog ? s.view : capped(initPlayerView(a.state));
-      return { ...s, conn: "live", joined: a.joined, view, notice: null };
+      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false };
     }
     case "reset":
       return { ...s, conn: "live", view: capped(a.view), notice: null };
@@ -91,6 +107,12 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       return s.final ? s : { ...s, final: { kind: a.kind, message: FINAL_MESSAGES[a.kind] } };
     case "consented":
       return s.joined?.consent ? { ...s, joined: { ...s.joined, consent: { ...s.joined.consent, given: true } } } : s;
+    case "voice":
+      return { ...s, voice: a.voice };
+    case "voice_notice": {
+      const voiceUnavailable = a.code === "voice_unavailable" ? true : a.code === "voice_available" ? false : s.voiceUnavailable;
+      return { ...s, voiceNotice: { code: a.code, n: (s.voiceNotice?.n ?? 0) + 1 }, voiceUnavailable };
+    }
   }
 }
 
@@ -102,6 +124,13 @@ const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) =
 function parse(data: unknown): unknown {
   if (typeof data !== "string") return null;
   try { return JSON.parse(data) as unknown; } catch { return null; }
+}
+
+const VOICE_STATES: readonly string[] = ["none", "voice", "text_only", "off"] satisfies VoiceState[];
+/** Only the four states; `muted` only when it is a boolean (false otherwise). Anything else gives no voice: the page shows no voice UI. */
+function toVoice(v: unknown): SeatVoice | null {
+  if (!isObj(v) || typeof v.state !== "string" || !VOICE_STATES.includes(v.state)) return null;
+  return { state: v.state as VoiceState, muted: v.muted === true };
 }
 
 function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null {
@@ -121,6 +150,8 @@ function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null 
     ...(consent ? { consent } : {}),
     ...(typeof d.logIdentity === "string" ? { logIdentity: d.logIdentity } : {}),
   };
+  const voice = toVoice(d.voice);
+  if (voice) joined.voice = voice;
   return { joined, state: st as unknown as PlayerSnapshot };
 }
 
@@ -175,6 +206,8 @@ export function useSession(sessionId: string, deps: SessionDeps) {
     on("error", (d) => { if (isObj(d)) dispatch({ type: "notice", text: MESSAGES.serverError }); });
     // The BFF ends a stream with `reconnecting` when the runtime is away: the browser comes back after `retry` by itself.
     on("reconnecting", () => dispatch({ type: "dropped" }));
+    // US-0071: this player's private voice notice; only the page's own known codes (an unknown one is never shown).
+    on("voice_notice", (d) => { if (isObj(d) && isVoiceNoticeCode(d.code)) dispatch({ type: "voice_notice", code: d.code }); });
     for (const kind of CLOSING_EVENTS) on(kind, () => finish(kind));
     es.onerror = (e) => {
       if (finished) return;
@@ -216,10 +249,30 @@ export function useSession(sessionId: string, deps: SessionDeps) {
     return r;
   }, [fetchImpl, closeWith]);
 
+  const voicePost = useCallback(async (body: Record<string, unknown>): Promise<ActionResult> => {
+    const r = await postJson("/api/v1/voice", body, fetchImpl);
+    if (r.ok) {
+      const v = toVoice(r.data);
+      if (v) dispatch({ type: "voice", voice: v });
+    }
+    return actionResult(r);
+  }, [fetchImpl]);
+
   const say = useCallback(async (text: string): Promise<ActionResult> => {
     const sceneId = uiRef.current.view?.scene?.id;
     return actionResult(await postJson("/api/v1/say", sceneId ? { text, expectSceneId: sceneId } : { text }, fetchImpl));
   }, [fetchImpl]);
 
-  return { state: ui, consent, withdraw, leave, say };
+  /** US-0071: the voice choice. `voice` sends the notice version this seat consented to (the runtime checks it names voice). */
+  const chooseVoice = useCallback(async (choice: VoiceChoiceValue): Promise<ActionResult> => {
+    const { joined } = uiRef.current;
+    if (!joined?.voice) return { ok: false, message: MESSAGES.generic };
+    if (choice === "voice" && !joined.consent) return { ok: false, message: MESSAGES.generic };
+    return voicePost(choice === "voice" ? { choice, noticeVersion: joined.consent!.noticeVersion } : { choice });
+  }, [voicePost]);
+
+  /** US-0071: tells the runtime this seat is muted (it then records nothing) or not; the page's own microphone is VoiceClient's. */
+  const setMuted = useCallback((muted: boolean): Promise<ActionResult> => voicePost({ mute: muted }), [voicePost]);
+
+  return { state: ui, consent, withdraw, leave, say, chooseVoice, setMuted };
 }

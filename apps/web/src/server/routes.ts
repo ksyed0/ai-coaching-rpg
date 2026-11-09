@@ -93,6 +93,15 @@ export function hasSeat(token: string | undefined, sessionId: string, getDeps: (
   }
 }
 
+/**
+ * US-0071 (A1b Task 14): for the /session page (server side only): whether this web server has LiveKit (`config.livekitUrl`, validated).
+ * The page gets this boolean and nothing else of the config. False on a configuration error.
+ */
+export function voiceTransport(getDeps: () => Deps = sharedDeps): boolean {
+  try { return getDeps().config.livekitUrl !== undefined; }
+  catch { return false; }
+}
+
 /** For the /console page (server side only): the console's state for this cookie value. A configuration error reads as disabled. */
 export type ConsoleView = { kind: "disabled" } | { kind: "signed_out" } | { kind: "signed_in"; name: string };
 export function consoleView(token: string | undefined, getDeps: () => Deps = sharedDeps): ConsoleView {

@@ -74,13 +74,13 @@ const SEND_ANSWERS: Record<string, Answer> = {
   internal: A.unavailable,
 };
 /** US-0071 (A1b Task 11): the voice route's own answers; the runtime's text never reaches the page. */
-const VOICE_ANSWERS: Record<string, Answer> = {
+export const VOICE_ANSWERS: Record<string, Answer> = {
   voice_notice_required: { status: 409, code: "voice_notice_required", message: "Voice needs the current consent notice, which you did not agree to before the start. You can take part by text." },
   voice_off: { status: 409, code: "voice_off", message: "Voice is not available in this session." },
 };
 const UNCONFIRMED: Answer = { status: 504, code: "unconfirmed", message: "Your choice was not confirmed. Reload the page to see it." };
 /** US-0071: the token route's answers. Control's text, a room and an identity never reach the page. */
-const TOKEN_ANSWERS = {
+export const TOKEN_ANSWERS = {
   voice_refused: { status: 409, code: "voice_refused", message: "Voice is not available for your seat. Choose voice first, or use the text box." },
   voice_off: { status: 409, code: "voice_off", message: "Voice is off for this session. Use the text box." },
   voice_unavailable: { status: 503, code: "voice_unavailable", message: "Voice is not available right now. Use the text box." },

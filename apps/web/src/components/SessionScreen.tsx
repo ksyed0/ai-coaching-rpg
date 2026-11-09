@@ -4,7 +4,7 @@ import { useState } from "react";
 import { realClock, type Clock } from "../lib/clock";
 import { MESSAGES } from "../lib/messages";
 import { roleLabel } from "../lib/names";
-import { useSession, type EventSourceCtor, type SessionDeps } from "../lib/use-session";
+import { useSession, type EventSourceCtor, type SessionDeps, type SessionUi, type VoiceChoiceValue } from "../lib/use-session";
 import type { ActionResult } from "../lib/api";
 import { AppHeader } from "./AppHeader";
 import { BriefPanel } from "./BriefPanel";
@@ -15,22 +15,39 @@ import { SceneStatus } from "./SceneStatus";
 import type { StatusKind } from "./StatusChip";
 import { TitleBlock } from "./TitleBlock";
 import { Transcript } from "./Transcript";
+import { VoiceChoice } from "./VoiceChoice";
+import { VoiceNotices } from "./VoiceNotices";
 
 // The participant's page for one session: lobby (consent and the room), then the scene, then the end. It opens the stream first;
 // consent and every other action go over that stream's runtime connection, so they are offered only once `joined` has arrived.
 
-export type SessionScreenProps = { sessionId: string; deps?: Partial<SessionDeps> & { clock?: Clock } };
+/** US-0071: what the voice UI needs from the browser, injectable for tests. */
+export type VoiceDeps = {
+  /** Whether this page can open a microphone at all: a secure context (https, or a loopback address) with mediaDevices. */
+  secure: () => boolean;
+};
+export type SessionScreenProps = {
+  sessionId: string;
+  /** US-0071: whether the web server has LiveKit (`config.livekitUrl !== undefined`, from the server component); nothing else of the config. */
+  voiceTransport?: boolean;
+  deps?: Partial<SessionDeps> & { clock?: Clock; voice?: Partial<VoiceDeps> };
+};
 
 const browserDeps = (): SessionDeps => ({
   EventSource: globalThis.EventSource as unknown as EventSourceCtor,
   fetch: (input, init) => globalThis.fetch(input, init),
 });
 
-export function SessionScreen({ sessionId, deps = {} }: SessionScreenProps) {
+const browserVoice = (): VoiceDeps => ({
+  secure: () => typeof window !== "undefined" && window.isSecureContext === true && typeof navigator.mediaDevices?.getUserMedia === "function",
+});
+
+export function SessionScreen({ sessionId, voiceTransport = false, deps = {} }: SessionScreenProps) {
   // Fixed for the page's life: a new EventSource constructor would reopen the stream.
-  const [resolved] = useState(() => ({ ...browserDeps(), ...deps, clock: deps.clock ?? realClock }));
+  const [resolved] = useState(() => ({ ...browserDeps(), ...deps, clock: deps.clock ?? realClock, voice: { ...browserVoice(), ...deps.voice } }));
   const s = useSession(sessionId, resolved);
   const { conn, final, joined, view, roster, notice } = s.state;
+  const voiceUi: VoiceUi = { ui: s.state, voiceTransport, secure: resolved.voice.secure, onChoose: s.chooseVoice };
 
   const status: StatusKind = conn === "reconnecting" ? "reconnecting"
     : !view ? "connecting"
@@ -42,9 +59,11 @@ export function SessionScreen({ sessionId, deps = {} }: SessionScreenProps) {
     <>
       <AppHeader status={final && final.kind !== "ended" ? undefined : status} roleId={joined?.roleId} />
       <main className="page">
+        {/* US-0071: one polite region for the private voice notices, mounted once for the page (lobby, scene and end alike). */}
+        {s.state.voice ? <VoiceNotices notice={s.state.voiceNotice} /> : null}
         {/* The end keeps what was said readable (Scene shows the end notice above the transcript); other finals replace the page. */}
         {final && (final.kind === "ended" && joined && view) ? (
-          <Scene state={s.state} clock={resolved.clock} onSay={s.say} />
+          <Scene state={s.state} clock={resolved.clock} onSay={s.say} voice={voiceUi} />
         ) : final ? (
           <FinalScreen kind={final.kind} message={final.message} />
         ) : (
@@ -57,9 +76,9 @@ export function SessionScreen({ sessionId, deps = {} }: SessionScreenProps) {
                 <p className="body muted" role="status">{MESSAGES.connecting}</p>
               </>
             ) : view.status === "idle" ? (
-              <Lobby joined={joined} roster={roster} onConsent={s.consent} onWithdraw={s.withdraw} onLeave={s.leave} />
+              <Lobby joined={joined} roster={roster} onConsent={s.consent} onWithdraw={s.withdraw} onLeave={s.leave} voice={voiceUi} />
             ) : (
-              <Scene state={s.state} clock={resolved.clock} onSay={s.say} />
+              <Scene state={s.state} clock={resolved.clock} onSay={s.say} voice={voiceUi} />
             )}
           </>
         )}
@@ -84,7 +103,19 @@ function FinalScreen({ kind, message }: { kind: string; message: string }) {
 type Joined = NonNullable<ReturnType<typeof useSession>["state"]["joined"]>;
 type Action = () => Promise<ActionResult>;
 
-function Lobby({ joined, roster, onConsent, onWithdraw, onLeave }: { joined: Joined; roster: ReturnType<typeof useSession>["state"]["roster"]; onConsent: Action; onWithdraw: Action; onLeave: Action }) {
+type VoiceUi = { ui: SessionUi; voiceTransport: boolean; secure: () => boolean; onChoose: (c: VoiceChoiceValue) => Promise<ActionResult> };
+
+/**
+ * US-0071: the voice part of the lobby and the scene: only when the runtime sent this seat a voice state that is not `off`, and only once
+ * the seat has consented (the opt-in needs the notice the seat agreed to). With voice not enabled this renders nothing.
+ */
+function VoiceArea({ v }: { v: VoiceUi }) {
+  const voice = v.ui.voice;
+  if (!voice || voice.state === "off" || v.ui.joined?.consent?.given !== true) return null;
+  return <VoiceChoice state={voice.state} voiceTransport={v.voiceTransport} secure={v.secure()} onChoose={v.onChoose} />;
+}
+
+function Lobby({ joined, roster, onConsent, onWithdraw, onLeave, voice }: { joined: Joined; roster: ReturnType<typeof useSession>["state"]["roster"]; onConsent: Action; onWithdraw: Action; onLeave: Action; voice: VoiceUi }) {
   const me = roster.find((e) => e.roleId === joined.roleId);
   const given = joined.consent?.given ?? false;
   return (
@@ -101,6 +132,7 @@ function Lobby({ joined, roster, onConsent, onWithdraw, onLeave }: { joined: Joi
           {joined.consent ? (
             <ConsentPanel noticeVersion={joined.consent.noticeVersion} notice={joined.consent.notice} given={given} onConsent={onConsent} onWithdraw={onWithdraw} />
           ) : null}
+          <VoiceArea v={voice} />
           {!given ? <LeaveButton onLeave={onLeave} /> : null}
         </div>
         <section className="col" aria-labelledby="room-h">
@@ -131,7 +163,7 @@ function LeaveButton({ onLeave }: { onLeave: Action }) {
   );
 }
 
-function Scene({ state, clock, onSay }: { state: ReturnType<typeof useSession>["state"]; clock: Clock; onSay: (text: string) => Promise<ActionResult> }) {
+function Scene({ state, clock, onSay, voice }: { state: ReturnType<typeof useSession>["state"]; clock: Clock; onSay: (text: string) => Promise<ActionResult>; voice: VoiceUi }) {
   const joined = state.joined!;
   const view = state.view!;
   const ended = view.status === "ended" || state.final?.kind === "ended";
@@ -161,6 +193,7 @@ function Scene({ state, clock, onSay }: { state: ReturnType<typeof useSession>["
               <p className="muted small">This seat agreed to a consent notice earlier. The text above is the current notice.</p>
             </details>
           ) : null}
+          {ended ? null : <VoiceArea v={voice} />}
           <BriefPanel roleId={joined.roleId} brief={joined.brief} privateFacts={joined.privateFacts} injects={view.injects} />
           <section aria-labelledby="room-h2">
             <h2 className="s" id="room-h2">Who is in the room</h2>

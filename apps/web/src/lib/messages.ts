@@ -101,7 +101,37 @@ export const MESSAGES = {
   consoleLede: "Get the room ready, start, then follow the session live.",
   consoleNothingYet: "Nothing has been said yet.",
   consoleServerError: "The server reported a problem with the live view. It keeps updating if it can.",
+  // US-0071 (A1b Task 14): the participant's voice choice (VoiceChoice). Shown only when the runtime sent this seat a voice state.
+  voiceChoiceTitle: "How do you want to take part?",
+  voiceWith: "Take part with voice",
+  voiceText: "Take part by text only",
+  voiceSave: "Save choice",
+  voiceInsecure: "Voice needs a secure connection to this page. Use the text box.",
+  voiceNoTransport: "Voice is not available in this session.",
+  // Equals VOICE_ANSWERS.voice_notice_required in src/server/handlers.ts (the BFF writes it; a test keeps them together).
+  voiceNoticeRequired: "Voice needs the current consent notice, which you did not agree to before the start. You can take part by text.",
+  voiceStateOn: "Voice: on",
+  voiceStateText: "Voice: off (text only)",
+  voiceStateNone: "Voice: not chosen",
 } as const;
+
+/**
+ * US-0071 (A1b Task 14): the private voice notices, one fixed sentence per code. The keys are this page's own copy of the runtime's
+ * VOICE_NOTICE_CODES (the BFF forwards exactly those, src/server/stream-hub.ts; a client module imports no server module, and a test
+ * keeps the two lists equal). An unknown code is never shown.
+ */
+export const VOICE_NOTICES = {
+  stt_failed: "Your last spoken line could not be turned into text. Please say it again or type it.",
+  empty: "We did not catch that. Please say it again or type it.",
+  paused: "The scene is paused; what you said was not recorded.",
+  not_in_scene: "You are not in this scene, so what you said was not recorded.",
+  ended: "The session has ended; what you said was not recorded.",
+  not_recording: "Voice is off for your seat; what you said was not recorded.",
+  voice_unavailable: "Voice is unavailable right now. Use the text box.",
+  voice_available: "Voice is available again, you can speak.",
+} as const;
+export type VoiceNoticeCode = keyof typeof VOICE_NOTICES;
+export const isVoiceNoticeCode = (c: unknown): c is VoiceNoticeCode => typeof c === "string" && Object.hasOwn(VOICE_NOTICES, c);
 
 /**
  * The facilitator's evaluate and review refusals: one fixed sentence per closed code (the codes are control's, services/control/src/moderation-routes.ts,

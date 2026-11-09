@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { initialState } from "@acr/events";
 import JoinPage from "../app/join/page";
 import SessionPage from "../app/session/[id]/page";
 import { MESSAGES } from "../lib/messages";
@@ -54,6 +55,45 @@ describe("pages validate the ids in the link", () => {
     } finally {
       g.EventSource = before;
     }
+  });
+});
+
+describe("US-0071: the session page passes voiceTransport from the config", () => {
+  const joinedWithVoice = JSON.stringify({ roleId: "account_manager", scenes: [], consent: { noticeVersion: "v3", notice: "n", given: true }, voice: { state: "none", muted: false }, state: { ...initialState() } });
+  type L = (e: MessageEvent) => void;
+  async function voiceRadio(livekitUrl: string | undefined): Promise<HTMLInputElement> {
+    const g = globalThis as { EventSource?: unknown; [k: symbol]: unknown };
+    const before = { es: g.EventSource, lk: process.env.LIVEKIT_URL };
+    const listeners: Record<string, L> = {};
+    g.EventSource = class { constructor() {} addEventListener(t: string, fn: L) { listeners[t] = fn; } close() {} readyState = 1; onerror = null; };
+    if (livekitUrl === undefined) delete process.env.LIVEKIT_URL; else process.env.LIVEKIT_URL = livekitUrl;
+    delete g[Symbol.for("scenecoach.web.deps")];
+    try {
+      await session("web-smoke");
+      act(() => listeners.joined!(new MessageEvent("joined", { data: joinedWithVoice })));
+      return screen.getByRole("radio", { name: MESSAGES.voiceWith }) as HTMLInputElement;
+    } finally {
+      g.EventSource = before.es;
+      if (before.lk === undefined) delete process.env.LIVEKIT_URL; else process.env.LIVEKIT_URL = before.lk;
+      delete g[Symbol.for("scenecoach.web.deps")];
+    }
+  }
+
+  it("without LIVEKIT_URL the voice option is disabled with the not-available sentence", async () => {
+    const r = await voiceRadio(undefined);
+    expect(r.disabled).toBe(true);
+    expect(screen.getByText(MESSAGES.voiceNoTransport)).toBeTruthy();
+  });
+
+  it("with a valid LIVEKIT_URL the page knows the transport (nothing else of the config reaches it)", async () => {
+    await voiceRadio("ws://127.0.0.1:7880");
+    expect(screen.queryByText(MESSAGES.voiceNoTransport)).toBeNull();
+    expect(document.body.textContent).not.toContain("127.0.0.1");
+  });
+
+  it("an invalid configuration reads as no transport (the page still renders)", async () => {
+    const r = await voiceRadio("http://not-livekit");
+    expect(r.disabled).toBe(true);
   });
 });
 
