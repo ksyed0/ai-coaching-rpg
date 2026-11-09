@@ -164,4 +164,21 @@ describe("the root voice scripts as real processes (US-0072, A1c Tasks 7 and 9)"
     expect(r.out).toContain("voice:up: interrupted: rolling back what this run started");
     for (const v of secrets(s)) expect(r.out).not.toContain(v);
   });
+  it("pnpm -s voice:check from the repository root with nothing running exits 1 and prints no secret", async (ctx) => {
+    if (skip) { ctx.skip(); return; }
+    const s = setup();
+    const marker = { key: "APImarkerprocess000000000001", secret: "marker-process-secret-0123456789abcdef012345", path: "/markerprocesspath0123456789abcd", dns: "marker-process-dns-token-01" };
+    const free = await new Promise<number>((resolve) => { const srv = net.createServer(); srv.listen(0, "127.0.0.1", () => { const p = (srv.address() as net.AddressInfo).port; srv.close(() => resolve(p)); }); });
+    const envFile = path.join(s.root, ".env");
+    writeFileSync(envFile, readFileSync(envFile, "utf8") + `LIVEKIT_API_KEY=${marker.key}\nLIVEKIT_API_SECRET=${marker.secret}\nSTT_URL=http://127.0.0.1:${free}${marker.path}\nVOICE_DNS_API_TOKEN=${marker.dns}\nVOICE_WEB_PORT=${free}\n`, { mode: 0o600 });
+    const before = readFileSync(envFile);
+    const r = await runRoot(s, "voice:check");
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("FAIL whisper-server does not answer on 127.0.0.1: run pnpm voice:up");
+    expect(r.out).toContain("FAIL LiveKit does not answer on 127.0.0.1:7880: run pnpm voice:up");
+    expect(r.out).toMatch(/voice:check: \d+ ok, \d+ warn, \d+ fail, \d+ skip/);
+    for (const v of [...Object.values(marker), marker.path.slice(1), PLACEHOLDER_TOKEN]) expect(r.out).not.toContain(v);
+    expect(readFileSync(envFile).equals(before)).toBe(true);
+    expect(existsSync(s.stateDir)).toBe(false);
+  });
 });

@@ -1,12 +1,14 @@
 import { randomBytes } from "node:crypto";
 import dgram from "node:dgram";
-import { existsSync } from "node:fs";
+import dns from "node:dns";
+import { existsSync, realpathSync, statSync, statfsSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import tls from "node:tls";
 import { fileURLToPath } from "node:url";
 import { httpAnswers } from "@acr/adapters";
+import { voiceCheck, type CheckDeps } from "./check.js";
 import { voiceDown } from "./down.js";
 import { STT_PORT_MAX, STT_PORT_MIN } from "./env-file.js";
 import type { OpsDeps, PortProbe } from "./ops.js";
@@ -120,6 +122,38 @@ function deps(root: string): OpsDeps {
   };
 }
 
+/** A TCP connect with a 2 s bound: open, refused (any error) or timeout. */
+function tcpConnect(host: string, port: number): Promise<"open" | "refused" | "timeout"> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    const finish = (v: "open" | "refused" | "timeout"): void => { sock.destroy(); resolve(v); };
+    sock.setTimeout(2_000, () => finish("timeout"));
+    sock.once("connect", () => finish("open"));
+    sock.once("error", () => finish("refused"));
+  });
+}
+
+/** whisper-server on PATH, resolved through links (Homebrew: .../Cellar/<formula>/<version>/bin/whisper-server), or null. */
+function whisperPath(): string | null {
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (dir === "") continue;
+    const f = path.join(dir, "whisper-server");
+    try { if (statSync(f).isFile()) return realpathSync(f); } catch { /* next */ }
+  }
+  return null;
+}
+
+function checkDeps(root: string): CheckDeps {
+  const resolver = new dns.promises.Resolver();
+  return {
+    ...deps(root),
+    resolve4: (h) => resolver.resolve4(h), resolve6: (h) => resolver.resolve6(h),
+    lookup: (h) => dns.promises.lookup(h, { all: true }),
+    statfs: (p) => { const st = statfsSync(p); return { bavail: Number(st.bavail), bsize: Number(st.bsize) }; },
+    tcpConnect, platform: process.platform, whisperPath,
+  };
+}
+
 async function main(): Promise<number> {
   const cmd = process.argv[2];
   const root = repoRoot();
@@ -127,7 +161,7 @@ async function main(): Promise<number> {
   switch (cmd) {
     case "up": return voiceUp(deps(root));
     case "down": return voiceDown(deps(root));
-    case "check": say("voice:check: not available in this build yet"); return 2;
+    case "check": return voiceCheck(checkDeps(root));
     case "timings": say("voice:timings: not available yet (the room-test timing record comes with a later task)"); return 2;
     default: say("usage: voice-ops up | down | check | timings"); return 2;
   }
