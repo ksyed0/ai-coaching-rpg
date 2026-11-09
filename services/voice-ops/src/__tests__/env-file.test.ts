@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, chownSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, appendFileSync } from "node:fs";
+import { chmodSync, chownSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, appendFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
@@ -219,6 +219,18 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     symlinkSync(path.join(dir, "nowhere"), file);
     expect((await refusal(ensure(file))).code).toBe("symlink");
     expect(readdirSync(dir)).toEqual([".env"]);
+  });
+
+  it("refuses a .env with a second hard link, both names unchanged (review A F5)", async () => {
+    const file = envFile("A=1\n");
+    const other = path.join(path.dirname(file), "other-name");
+    linkSync(file, other);
+    const err = await refusal(ensure(file));
+    expect(err.code).toBe("linked");
+    expect(err.message).toBe(".env has more than one hard link: voice:up would replace only this name; make .env a single file (cp .env .env.new, chmod 600 .env.new, mv .env.new .env), then pnpm voice:up");
+    expect(readFileSync(file, "utf8")).toBe("A=1\n");
+    expect(statSync(file).ino).toBe(statSync(other).ino);
+    expect(leftovers(path.dirname(file))).toEqual([]);
   });
 
   it("refuses a directory", async () => {

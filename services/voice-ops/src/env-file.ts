@@ -12,7 +12,7 @@ import { isLiveKitToken } from "./text.js";
  * - Only names that are absent are added, as one appended block; an existing byte is never changed: the file is copied as the bytes the
  *   read saw (a decoded copy is used only to decide), so a byte that is not valid UTF-8 survives (review A F1).
  * - The file is read through one descriptor opened with O_NOFOLLOW and judged by fstat: a regular file owned by this user with no group
- *   or other permission bits. A symlink, a directory, another owner, mode 0644 and a missing file are refused (a missing `.env` is NOT
+ *   or other permission bits and one hard link. A symlink, a second hard link, a directory, another owner, mode 0644 and a missing file are refused (a missing `.env` is NOT
  *   created: `run.sh` gives a facilitator token only to a NEW `.env`, so a `.env` made here would leave the server open).
  * - It is replaced atomically: an O_EXCL 0600 temp beside it, fsync; then the path is lstat'ed and its dev, ino, size and mtimeMs are
  *   compared with what the read descriptor saw (any change, or a link now, aborts with the file left alone); rename; fsync the directory.
@@ -29,7 +29,7 @@ export const MANAGED_NAMES = ["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "STT_URL"
 export type ManagedName = (typeof MANAGED_NAMES)[number];
 
 export type EnvFileErrorCode =
-  | "missing" | "symlink" | "not_regular" | "not_owner" | "too_open" | "unreadable" | "too_large" | "unwritable" | "dev_keys" | "half_pair" | "empty_assignment"
+  | "missing" | "symlink" | "not_regular" | "not_owner" | "linked" | "too_open" | "unreadable" | "too_large" | "unwritable" | "dev_keys" | "half_pair" | "empty_assignment"
   | "bad_keys" | "bad_stt_url" | "changed" | "env_override" | "tracked" | "git_timeout";
 
 const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => string> = {
@@ -37,6 +37,7 @@ const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => str
   symlink: () => ".env is a symbolic link: voice:up never writes through a link; replace it with a regular file (mode 600), then pnpm voice:up",
   not_regular: () => ".env is not a regular file: replace it with a regular file (mode 600), then pnpm voice:up",
   not_owner: () => ".env belongs to another user: voice:up writes only a .env that you own",
+  linked: () => ".env has more than one hard link: voice:up would replace only this name; make .env a single file (cp .env .env.new, chmod 600 .env.new, mv .env.new .env), then pnpm voice:up",
   too_open: () => ".env is readable by other users: run chmod 600 .env, then pnpm voice:up",
   unreadable: () => ".env cannot be opened, read or parsed: check its permissions and its syntax by hand, then pnpm voice:up",
   too_large: () => ".env is larger than 1 MiB: voice:up reads only a smaller .env; check it by hand, then pnpm voice:up",
@@ -96,6 +97,7 @@ export function readPrivateEnv(file: string): { bytes: Buffer; text: string; val
     const st = guard("unreadable", () => fstatSync(fd));
     if (!st.isFile()) throw new EnvFileError("not_regular");
     if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new EnvFileError("not_owner");
+    if (st.nlink > 1) throw new EnvFileError("linked"); // the rename would leave the other name with the old bytes (as readSecureJson refuses)
     if ((st.mode & 0o077) !== 0) throw new EnvFileError("too_open");
     if (st.size > MAX_ENV_BYTES) throw new EnvFileError("too_large");
     const buf = Buffer.alloc(st.size);
