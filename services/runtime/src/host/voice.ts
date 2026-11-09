@@ -5,8 +5,14 @@
  */
 import type { VoiceAlertCode } from "./parent-channel.js";
 
-export type VoiceHolder = { roleId: string; participantId: string; recording: boolean };
-export type VoiceSeats = { paused: boolean; ended: boolean; holders: VoiceHolder[] };
+/**
+ * US-0071 (A1b Task 5): `voiceChosen` is the seat's choice alone (state `voice`), whatever started, pause, mute and availability say:
+ * control derives the seat's expected LiveKit identity from it. `open` lists the human player roles with no holder that were NOT given up
+ * (no leave, withdrawal, reissue or removal since the last bind; never an AI seat): the same person may come back, so control keeps their
+ * LiveKit identity in the seat's room. Every other way of losing a holder removes it (R7).
+ */
+export type VoiceHolder = { roleId: string; participantId: string; recording: boolean; voiceChosen: boolean };
+export type VoiceSeats = { paused: boolean; ended: boolean; holders: VoiceHolder[]; open: string[] };
 export type VoiceState = "none" | "voice" | "text_only" | "off";
 /**
  * US-0070 (overview section 2): why a speaker's segment did not become a line, told to that speaker alone as `voice_notice` (never logged,
@@ -44,15 +50,19 @@ export function buildVoiceSeats(o: {
   playerRoles: readonly string[]; holderOf: (roleId: string) => string | undefined; isAi: (roleId: string) => boolean;
   stateOf: (roleId: string) => VoiceState; paused: boolean; ended: boolean;
   started: boolean; isMuted: (roleId: string) => boolean; unavailable: boolean;
+  /** US-0071: the role's last holder gave the seat up (leave, withdrawal, reissue, removal) and nobody has bound it since. */
+  isVacated: (roleId: string) => boolean;
 }): VoiceSeats {
   const holders: VoiceHolder[] = [];
+  const open: string[] = [];
   for (const roleId of o.playerRoles) {
     if (o.isAi(roleId)) continue;
     const participantId = o.holderOf(roleId);
-    if (participantId === undefined) continue;
-    holders.push({ roleId, participantId, recording: o.started && !o.unavailable && o.stateOf(roleId) === "voice" && !o.isMuted(roleId) });
+    if (participantId === undefined) { if (!o.isVacated(roleId)) open.push(roleId); continue; }
+    const voiceChosen = o.stateOf(roleId) === "voice";
+    holders.push({ roleId, participantId, recording: o.started && !o.unavailable && voiceChosen && !o.isMuted(roleId), voiceChosen });
   }
-  return { paused: o.paused, ended: o.ended, holders };
+  return { paused: o.paused, ended: o.ended, holders, open };
 }
 
 /** An injected one-shot timer (the Supervisor's shape): schedules `fn` after `ms` and returns its cancel function. */

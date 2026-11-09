@@ -109,6 +109,12 @@ export class SessionHost {
   private voiceKnownFrom = 0;
   /** US-0071 (K5): the seats whose holder muted, in memory only (never written, never audited); cleared when the holder is released. */
   private readonly voiceMuted = new Set<string>();
+  /**
+   * US-0071 (A1b Task 5, R7): human seats whose last holder gave them up (leave, withdrawal, a reissue or removal) and that nobody has
+   * bound since; in memory only. They are left out of `voice_seats.open`, so control removes the old LiveKit identity from the seat's
+   * room. A plain socket close does not vacate (the same person may come back).
+   */
+  private readonly voiceVacated = new Set<string>();
   /** US-0071 (K7): control's last `voice_availability` said voice cannot work (worker or speech-to-text down, or off): nobody records. */
   private voiceUnavailable = false;
   /** US-0071 (K6): the speaking roles last told to the listeners, so a listener hears only a real change. */
@@ -243,6 +249,7 @@ export class SessionHost {
       void this.noteFacilitator(`consent for ${roleId} rebound after a code reissue`);
     }
     this.assignments[roleId] = participantId;
+    this.voiceVacated.delete(roleId);
     this.noteVoiceSeats();
     return { brief: role.brief, privateFacts: role.private_facts, rebound };
   }
@@ -307,6 +314,7 @@ export class SessionHost {
       if (this.seats) this.seatsDirty = true;
       this.seats?.credentials.revoke(roleId);
       this.seats?.consent.withdraw(roleId);
+      this.voiceVacated.add(roleId);
       this.release(roleId, participantId);
     }
     this.flushSeats();
@@ -349,6 +357,7 @@ export class SessionHost {
       if (this.seats) this.seatsDirty = true;
       this.seats?.consent.withdraw(roleId);
       this.seats?.credentials.revoke(roleId);
+      this.voiceVacated.add(roleId);
       this.release(roleId, participantId);
     } else if (!this.seatsDirty) throw new HostError("not_joined");
     this.flushSeats();
@@ -455,6 +464,7 @@ export class SessionHost {
   /** US-0070: a reissue gives the seat to someone new: the role's voice entry is deleted (a failed write is reported by name only). Never throws. */
   forgetVoice(roleId: string): void {
     this.voiceMuted.delete(roleId);
+    this.voiceVacated.add(roleId); // US-0071: the seat goes to someone new: control removes the old LiveKit identity
     const choices = this.voiceChoices;
     if (!this.voice.enabled || !choices) return;
     if (choices.remove(roleId)) {
@@ -541,7 +551,7 @@ export class SessionHost {
     return buildVoiceSeats({
       playerRoles: this.playerRoleIds(), holderOf: (r) => this.holderOf(r), isAi: (r) => this.isAiRole(r), stateOf: (r) => this.voiceStateOf(r),
       paused: this.engine.state.paused, ended: this.engine.state.status === "ended",
-      started: this.started, isMuted: (r) => this.voiceMuted.has(r), unavailable: this.voiceUnavailable,
+      started: this.started, isMuted: (r) => this.voiceMuted.has(r), unavailable: this.voiceUnavailable, isVacated: (r) => this.voiceVacated.has(r),
     });
   }
 

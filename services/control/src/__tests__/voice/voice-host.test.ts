@@ -27,9 +27,9 @@ type T = { fn: () => void; ms: number; cancelled: boolean };
 const ID = "a".repeat(32);
 const SEG = "0123456789abcdef";
 const TEXT = "We can ship in May, the secret plan";
-const holders = [{ roleId: "tech_lead", participantId: "p-secret-1", recording: true }];
-const seats = (o: { paused?: boolean; ended?: boolean; holders?: typeof holders } = {}) =>
-  ({ type: "voice_seats" as const, paused: o.paused ?? false, ended: o.ended ?? false, holders: o.holders ?? holders });
+const holders = [{ roleId: "tech_lead", participantId: "p-secret-1", recording: true, voiceChosen: true }];
+const seats = (o: { paused?: boolean; ended?: boolean; holders?: typeof holders; open?: string[] } = {}) =>
+  ({ type: "voice_seats" as const, paused: o.paused ?? false, ended: o.ended ?? false, holders: o.holders ?? holders, open: o.open ?? [] });
 
 let timers: T[], workers: FakeWorker[], toRuntime: { id: string; m: ParentMessage }[], logs: string[], turns: [string, boolean][], runtimeUp: boolean;
 const config = { graceMs: 700, logDir: "/data/child-logs" } as ControlConfig;

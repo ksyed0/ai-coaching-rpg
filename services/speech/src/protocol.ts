@@ -102,7 +102,13 @@ export const WorkerMessageSchema = z.discriminatedUnion("type", [
 ]);
 export type WorkerMessage = z.infer<typeof WorkerMessageSchema>;
 
-const Holder = z.strictObject({ roleId: RoleId, participantId: ParticipantId, recording: z.boolean() });
+/** A seat generation: 8 lower-case hex (control's HMAC of role and participant under a per-session key, A1b Task 5). */
+export const GenerationSchema = z.string().refine((v) => isLowerHex(v, 8), { message: "invalid generation" });
+/**
+ * US-0071 (A1b Task 5): `voiceChosen` is carried along and ignored by the worker. `generation` is present only when control runs with
+ * SPEECH_INGEST=livekit: a frame is then attributed only to the generation whose track produced it (a file-ingest run never gets one).
+ */
+const Holder = z.strictObject({ roleId: RoleId, participantId: ParticipantId, recording: z.boolean(), voiceChosen: z.boolean().optional(), generation: GenerationSchema.optional() });
 export type VoiceHolder = z.infer<typeof Holder>;
 /** The seats as the runtime last reported them (`voice_seats`). Until the first one arrives the worker treats every track as not recording. */
 const VoiceState = z.strictObject({ type: z.literal("voice_state"), paused: z.boolean(), ended: z.boolean(), holders: z.array(Holder).max(MAX_HOLDERS) });

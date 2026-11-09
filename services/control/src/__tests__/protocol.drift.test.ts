@@ -29,14 +29,17 @@ describe("protocol copy", () => {
   });
 
   const seg = "0123456789abcdef";
-  const holder = (i: number) => ({ roleId: `r${i}`, participantId: `p${i}`, recording: i % 2 === 0 });
+  const holder = (i: number) => ({ roleId: `r${i}`, participantId: `p${i}`, recording: i % 2 === 0, voiceChosen: i % 3 === 0 });
   const valid: unknown[] = [
     // US-0070: voice (overview section 2).
     { type: "ready", port: 4000, status: "new", modelLabel: "local", voice: true },
     { type: "voice_line_ack", segmentId: seg, seq: 1 },
     ...RUNTIME_VOICE_REFUSALS.map((code) => ({ type: "voice_line_refused", segmentId: seg, code })),
-    { type: "voice_seats", paused: false, ended: false, holders: [] },
-    { type: "voice_seats", paused: true, ended: true, holders: Array.from({ length: 256 }, (_, i) => holder(i)) },
+    { type: "voice_seats", paused: false, ended: false, holders: [], open: [] },
+    { type: "voice_seats", paused: true, ended: true, holders: Array.from({ length: 256 }, (_, i) => holder(i)), open: [] },
+    // US-0071 (A1b Task 5): the open seats (released by a socket close, the same person may come back).
+    { type: "voice_seats", paused: false, ended: false, holders: [holder(0)], open: ["tech_lead", "cfo"] },
+    { type: "voice_seats", paused: false, ended: false, holders: [], open: Array.from({ length: 256 }, (_, i) => `r${i}`) },
     { type: "voice_turn", open: true }, { type: "voice_turn", open: false },
     { type: "voice_choice", roleId: "tech_lead", participantId: "p-1", choice: "voice", at: 0 },
     { type: "voice_choice", roleId: "tech_lead", participantId: "p-1", choice: "text_only", at: 1731050000000 },
@@ -81,10 +84,18 @@ describe("protocol copy", () => {
     { type: "voice_line_ack", segmentId: seg, seq: 0 }, { type: "voice_line_ack", segmentId: seg, seq: 1.5 }, { type: "voice_line_ack", segmentId: "a/b", seq: 1 },
     { type: "voice_line_ack", segmentId: seg, seq: 1, extra: 1 }, { type: "voice_line_ack", seq: 1 },
     { type: "voice_line_refused", segmentId: seg, code: "other" }, { type: "voice_line_refused", segmentId: seg }, { type: "voice_line_refused", segmentId: seg, code: "failed", message: "m" },
-    { type: "voice_seats", paused: false, ended: false, holders: Array.from({ length: 257 }, (_, i) => holder(i)) },
-    { type: "voice_seats", paused: false, ended: false, holders: [{ ...holder(0), roleId: "facilitator" }] },
-    { type: "voice_seats", paused: false, ended: false, holders: [{ ...holder(0), participantId: "rebind-pending" }] },
-    { type: "voice_seats", paused: false, ended: false, holders: [{ ...holder(0), extra: 1 }] }, { type: "voice_seats", paused: false, holders: [] },
+    { type: "voice_seats", paused: false, ended: false, holders: Array.from({ length: 257 }, (_, i) => holder(i)), open: [] },
+    { type: "voice_seats", paused: false, ended: false, holders: [{ ...holder(0), roleId: "facilitator" }], open: [] },
+    { type: "voice_seats", paused: false, ended: false, holders: [{ ...holder(0), participantId: "rebind-pending" }], open: [] },
+    { type: "voice_seats", paused: false, ended: false, holders: [{ ...holder(0), extra: 1 }], open: [] }, { type: "voice_seats", paused: false, holders: [], open: [] },
+    // US-0071: voiceChosen and open are required; an open role is a role id.
+    { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "r0", participantId: "p0", recording: true }], open: [] },
+    { type: "voice_seats", paused: false, ended: false, holders: [{ ...holder(0), voiceChosen: "true" }], open: [] },
+    { type: "voice_seats", paused: false, ended: false, holders: [] },
+    { type: "voice_seats", paused: false, ended: false, holders: [], open: ["a.b"] },
+    { type: "voice_seats", paused: false, ended: false, holders: [], open: ["facilitator"] },
+    { type: "voice_seats", paused: false, ended: false, holders: [], open: Array.from({ length: 257 }, (_, i) => `r${i}`) },
+    { type: "voice_seats", paused: false, ended: false, holders: [], open: "tech_lead" },
     { type: "voice_turn", open: "true" }, { type: "voice_turn" }, { type: "voice_turn", open: true, extra: 1 },
     { type: "voice_choice", roleId: "tech_lead", participantId: "p", choice: "voice_only", at: 0 },
     { type: "voice_choice", roleId: "tech_lead", participantId: "p", choice: "voice", at: -1 },

@@ -80,7 +80,7 @@ describe("bootstrap and VOICE_ENABLED (US-0070)", () => {
     if (!r.ok) throw new Error(r.errors.join("; "));
     const types = sent.map((m) => m.type);
     expect(types.indexOf("voice_seats")).toBe(types.indexOf("ready") + 1);
-    expect(sent.find((m) => m.type === "voice_seats")).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [] });
+    expect(sent.find((m) => m.type === "voice_seats")).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [], open: ["account_manager", "delivery_lead", "tech_lead"] });
     const host = r.runtime.host;
     host.join("tech_lead", "p1");
     host.giveConsent("tech_lead", "p1", "v3");
@@ -89,7 +89,7 @@ describe("bootstrap and VOICE_ENABLED (US-0070)", () => {
     const seats = sent.filter((m) => m.type === "voice_seats");
     expect(seats).toHaveLength(2);
     // US-0071 (R8): an opt-in in the lobby is reported, but nothing records before the start.
-    expect(seats[1]).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: false }] });
+    expect(seats[1]).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: false, voiceChosen: true }], open: ["account_manager", "delivery_lead"] });
     expect(sent.filter((m) => m.type === "voice_choice")).toEqual([{ type: "voice_choice", roleId: "tech_lead", participantId: "p1", choice: "voice", at: expect.any(Number) }]);
   });
 

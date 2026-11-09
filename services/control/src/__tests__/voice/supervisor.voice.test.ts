@@ -32,7 +32,7 @@ let root: string, config: ControlConfig, list: SessionList, children: FakeChild[
 const setTimer: SetTimer = (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
 const settle = async (): Promise<void> => { for (let i = 0; i < 6; i++) await flush(); };
 const speechSpawn: SpeechSpawnFn = () => { const w = new FakeWorker(); workers.push(w); return w; };
-const SEATS = { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "cfo", participantId: "p1", recording: true }] } as const;
+const SEATS = { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "cfo", participantId: "p1", recording: true, voiceChosen: true }], open: [] } as const;
 const STATE = { type: "voice_state", paused: false, ended: false, holders: SEATS.holders };
 
 const make = (withVoice = true) => new Supervisor({

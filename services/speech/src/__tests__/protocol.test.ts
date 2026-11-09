@@ -63,6 +63,9 @@ describe("control -> worker messages", () => {
   const valid: unknown[] = [
     { type: "voice_state", paused: false, ended: false, holders: [] },
     { type: "voice_state", paused: true, ended: false, holders: Array.from({ length: 256 }, (_, i) => holder(i)) },
+    // US-0071 (A1b Task 5): voiceChosen (ignored by the worker) and the seat generation (only with SPEECH_INGEST=livekit).
+    { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), voiceChosen: true }] },
+    { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), voiceChosen: false, generation: "0123abcd" }] },
     { type: "voice_line_result", segmentId: seg, seq: 1 },
     { type: "voice_line_result", segmentId: seg, refused: "not_holder" },
     ...VOICE_REFUSALS.map((refused) => ({ type: "voice_line_result", segmentId: seg, refused })),
@@ -75,6 +78,10 @@ describe("control -> worker messages", () => {
     { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), roleId: "facilitator" }] },
     { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), participantId: "rebind-pending" }] },
     { type: "voice_state", paused: false, ended: false, holders: [{ roleId: "r", participantId: "p" }] },
+    { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), generation: "XYZ" }] },
+    { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), generation: "0123ABCD" }] },
+    { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), generation: "0123abc" }] },
+    { type: "voice_state", paused: false, ended: false, holders: [{ ...holder(0), voiceChosen: "yes" }] },
     { type: "voice_line_result", segmentId: seg, seq: 1, refused: "not_holder" },
     { type: "voice_line_result", segmentId: seg },
     { type: "voice_line_result", segmentId: seg, seq: 0 },

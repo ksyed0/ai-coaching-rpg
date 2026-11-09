@@ -62,10 +62,12 @@ const VoiceAlertSchema = z.strictObject({ type: z.literal("voice_alert"), code: 
  * Fire-and-forget: never answered. The runtime applies it before anything else, with no rate limit.
  */
 const VoiceAvailabilitySchema = z.strictObject({ type: z.literal("voice_availability"), available: z.boolean(), off: z.boolean() });
-const VoiceHolderSchema = z.strictObject({ roleId: RoleId, participantId: ParticipantId, recording: z.boolean() });
+/** US-0071 (A1b Task 5): `voiceChosen` is the seat's choice alone (state `voice`); control derives the expected LiveKit identity from it. */
+const VoiceHolderSchema = z.strictObject({ roleId: RoleId, participantId: ParticipantId, recording: z.boolean(), voiceChosen: z.boolean() });
 const VoiceLineAckSchema = z.strictObject({ type: z.literal("voice_line_ack"), segmentId: SegmentId, seq: z.number().int().min(1).max(MAX_SEQ) });
 const VoiceLineRefusedSchema = z.strictObject({ type: z.literal("voice_line_refused"), segmentId: SegmentId, code: z.enum(VOICE_REFUSALS) });
-const VoiceSeatsSchema = z.strictObject({ type: z.literal("voice_seats"), paused: z.boolean(), ended: z.boolean(), holders: z.array(VoiceHolderSchema).max(MAX_CODES) });
+/** US-0071: `open` lists the human seats with no holder that were not given up (a socket close): control keeps their LiveKit identity. */
+const VoiceSeatsSchema = z.strictObject({ type: z.literal("voice_seats"), paused: z.boolean(), ended: z.boolean(), holders: z.array(VoiceHolderSchema).max(MAX_CODES), open: z.array(RoleId).max(MAX_CODES) });
 const VoiceTurnSchema = z.strictObject({ type: z.literal("voice_turn"), open: z.boolean() });
 const VoiceChoiceSchema = z.strictObject({ type: z.literal("voice_choice"), roleId: RoleId, participantId: ParticipantId, choice: z.enum(["voice", "text_only"]), at: z.number().int().min(0).max(MAX_SEQ) });
 export const ParentMessageSchema = z.discriminatedUnion("type", [ReissueSchema, SetAiRolesSchema, BotAlertSchema, VoiceLineSchema, SpeechActivitySchema, VoiceNoticeSchema, VoiceAlertSchema, VoiceAvailabilitySchema]);
