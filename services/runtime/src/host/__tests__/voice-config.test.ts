@@ -28,12 +28,24 @@ describe("parseVoiceConfig (US-0070)", () => {
       expect(r.errors[0]).toMatch(/^TURN_END_MS /);
       expect(r.errors[0]).not.toContain(bad);
     }
-    // Checked even while voice is off, like every other setting: a typo is never silently ignored.
-    expect(parseVoiceConfig({ TURN_END_MS: "abc" }, ok).ok).toBe(false);
+  });
+
+  // F6 (review fix wave): TURN_END_MS reaches every managed runtime, so a stray value must not stop text-only sessions from starting.
+  it("TURN_END_MS is not read while voice is off: any value, valid or not, leaves a text-only session startable", () => {
+    for (const v of ["abc", "5", "99999", "", "800"]) {
+      expect(parseVoiceConfig({ TURN_END_MS: v }, ok), v).toEqual({ ok: true, enabled: false });
+      expect(parseVoiceConfig({ VOICE_ENABLED: "0", TURN_END_MS: v }, { managed: false, noticeVersion: "v1" }), v).toEqual({ ok: true, enabled: false });
+    }
+  });
+
+  it("VOICE_ENABLED is still strict while TURN_END_MS is bad: only the VOICE_ENABLED error is given", () => {
+    expect(parseVoiceConfig({ VOICE_ENABLED: "yes", TURN_END_MS: "abc" }, ok)).toEqual({ ok: false, errors: ["VOICE_ENABLED is invalid: use 0 or 1"] });
   });
 
   it("VOICE_ENABLED other than 0 or 1 is an error naming the variable only", () => {
-    for (const bad of ["2", "yes", "true", "-1"]) {
+    // Decided (F6): "true", "on" and "yes" are refused, not read as on or off: switching voice on must be the one documented value, and
+    // a value that looks like "on" must never silently leave voice off either.
+    for (const bad of ["2", "yes", "true", "TRUE", "on", "false", "-1"]) {
       const r = parseVoiceConfig({ VOICE_ENABLED: bad }, ok);
       expect(r.ok, bad).toBe(false);
       if (!r.ok) { expect(r.errors[0]).toMatch(/^VOICE_ENABLED /); expect(r.errors[0]).not.toContain(bad); }

@@ -19,13 +19,17 @@ export const VOICE_NEEDS_NOTICE_V3 = "VOICE_ENABLED=1 needs a consent notice tha
 const VOICE_ENABLED_RULE = "VOICE_ENABLED is invalid: use 0 or 1";
 const TURN_END_MS_RULE = `TURN_END_MS is invalid: use a whole number of milliseconds from ${MIN_TURN_END_MS} to ${MAX_TURN_END_MS}`;
 
-/** Reads VOICE_ENABLED (0 or 1, default 0) and TURN_END_MS (300..3000, default 800; checked even while voice is off, like every setting). */
+/**
+ * Reads VOICE_ENABLED (exactly 0 or 1, default 0; anything else, "true" included, is refused) and, only with VOICE_ENABLED=1, TURN_END_MS
+ * (300..3000, default 800). F6 (review fix wave): TURN_END_MS reaches every control-managed runtime, so it is not read while voice is off;
+ * a stray value cannot stop a text-only session from starting.
+ */
 export function parseVoiceConfig(env: NodeJS.ProcessEnv, o: { managed: boolean; noticeVersion: string }): VoiceConfigParse {
   const enabled = parseRetryEnv({ name: "VOICE_ENABLED", min: 0, max: 1, fallback: 0 }, env.VOICE_ENABLED);
-  const turnEnd = parseRetryEnv({ name: "TURN_END_MS", min: MIN_TURN_END_MS, max: MAX_TURN_END_MS, fallback: DEFAULT_TURN_END_MS }, env.TURN_END_MS);
-  const errors = [...(enabled.ok ? [] : [VOICE_ENABLED_RULE]), ...(turnEnd.ok ? [] : [TURN_END_MS_RULE])];
-  if (!enabled.ok || !turnEnd.ok) return { ok: false, errors };
+  if (!enabled.ok) return { ok: false, errors: [VOICE_ENABLED_RULE] };
   if (enabled.value === 0) return { ok: true, enabled: false };
+  const turnEnd = parseRetryEnv({ name: "TURN_END_MS", min: MIN_TURN_END_MS, max: MAX_TURN_END_MS, fallback: DEFAULT_TURN_END_MS }, env.TURN_END_MS);
+  if (!turnEnd.ok) return { ok: false, errors: [TURN_END_MS_RULE] };
   if (!o.managed) return { ok: false, errors: [VOICE_NEEDS_MANAGED] };
   if (!noticeNamesVoice(o.noticeVersion)) return { ok: false, errors: [VOICE_NEEDS_NOTICE_V3] };
   return { ok: true, enabled: true, turnEndMs: turnEnd.value };

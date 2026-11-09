@@ -58,6 +58,13 @@ describe("bootstrap and VOICE_ENABLED (US-0070)", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("F6: a text-only managed session starts whatever TURN_END_MS says (it is read only with VOICE_ENABLED=1)", async () => {
+    const { parent, sent } = fakeParent();
+    const { r } = await boot({ CONTROL_MANAGED: "1", CONSENT_NOTICE_VERSION: "v2", TURN_END_MS: "not-a-number" }, parent);
+    expect(r.ok).toBe(true);
+    expect((sent.find((m) => m.type === "ready") as Extract<ChildMessage, { type: "ready" }>).voice).toBeUndefined();
+  });
+
   it("with notice v3 it starts and ready carries voice: true", async () => {
     const { parent, sent } = fakeParent();
     const { r } = await boot({ VOICE_ENABLED: "1", CONTROL_MANAGED: "1", CONSENT_NOTICE_VERSION: "v3" }, parent);
