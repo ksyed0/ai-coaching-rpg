@@ -668,3 +668,41 @@ describe("LiveKitIngest: a throwing room call never escapes into the room's even
     expect(h.state()).toBe("pending"); // unsubscribe failures are tolerated (the publication is going away)
   });
 });
+
+describe("LiveKitIngest: a lost room is disconnected (US-0071, A1b batch 3 review F6)", () => {
+  it("a server-side drop of a room whose role is not allowed (quiet) still disconnects it (rtc-node frees its listener only there)", async () => {
+    const h = harness();
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.ingest.setAllowed(new Map());
+    h.conn(0).drop();
+    await settle();
+    expect(h.state()).toBe("pending");
+    expect(h.conn(0).calls).toContain("disconnect");
+  });
+
+  it("a server-side drop of an allowed room (fatal) disconnects it too", async () => {
+    const h = harness();
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.conn(0).drop();
+    await settle();
+    expect(h.state()).toBe("rejected");
+    expect(h.conn(0).calls).toContain("disconnect");
+  });
+
+  it("a disconnect that throws or rejects is swallowed", async () => {
+    const h = harness();
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    c.disconnect = () => { throw new Error("ffi"); };
+    h.ingest.setAllowed(new Map());
+    expect(() => c.drop()).not.toThrow();
+    await settle();
+    expect(h.state()).toBe("pending");
+  });
+});

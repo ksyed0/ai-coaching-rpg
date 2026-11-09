@@ -179,6 +179,9 @@ export class LiveKitIngest implements AudioIngest {
     room.gone = true;
     for (const sub of [...room.subs.values()]) this.endSub(room, sub);
     this.rooms.delete(room.roleId);
+    // Batch 3 review F6: always disconnect, also after a server-side drop: rtc-node removes its FFI listener only in disconnect().
+    const conn = room.conn;
+    if (conn) { try { void conn.disconnect().catch(() => undefined); } catch { /* already gone */ } }
     if (!this.allowed.has(room.roleId)) return;
     this.o.onStatus(why);
     this.fail();
