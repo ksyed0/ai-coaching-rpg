@@ -11,7 +11,8 @@ import path from "node:path";
  *   is `code: null`; a command that cannot be started (ENOENT) throws. Assignable to the `.env` writer's `GitRun`.
  * - `realSpawnDetached`: `spawn` with `detached: true` (its own process group, so a Ctrl-C to the terminal does not reach it), the
  *   given `cwd` and exactly the given environment; **stdout is discarded** (whisper-server may print segment text there, K16) and only
- *   stderr goes to a log opened O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW and set to 0600; `unref()`, so `voice:up` can exit.
+ *   stderr goes to a log opened O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW and set to 0600; `unref()`, so `voice:up` can exit. It
+ *   returns the pid and `exited()`, read from the child's handle.
  * - `isOurWhisper`: before `voice:down` signals a recorded pid, all three of: its `ps -o comm=` basename is the one recorded right after
  *   voice:up's own spawn, its `ps -o lstart=` start time is within 5 s of the recorded `startedAt`, and its `ps -o args=` holds
  *   `--port <port>` as two words. The arguments also hold the STT request path (K14): they are compared and dropped, never printed,
@@ -47,7 +48,12 @@ export const realRun: Run = (cmd, args, o = {}) => new Promise<RunResult>((resol
   });
 });
 
-export type SpawnDetached = (cmd: string, args: readonly string[], o: { logFile: string; env: NodeJS.ProcessEnv; cwd: string }) => { pid: number };
+/**
+ * `exited()` reads the spawn's own handle (batch 2 review B F5): while it is false the pid is still the child this run started (an
+ * unreaped child keeps its pid), so a failed start can signal it directly, without asking `ps` who it is.
+ */
+export type SpawnedChild = { pid: number; exited: () => boolean };
+export type SpawnDetached = (cmd: string, args: readonly string[], o: { logFile: string; env: NodeJS.ProcessEnv; cwd: string }) => SpawnedChild;
 
 export const realSpawnDetached: SpawnDetached = (cmd, args, o) => {
   const fd = openSync(o.logFile, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
@@ -59,8 +65,10 @@ export const realSpawnDetached: SpawnDetached = (cmd, args, o) => {
     const child = spawn(cmd, [...args], { detached: true, cwd: o.cwd, env: o.env, stdio: ["ignore", "ignore", fd], windowsHide: true });
     child.on("error", () => { /* reported by the missing pid below; an unhandled 'error' event would crash the CLI */ });
     if (child.pid === undefined) throw new Error(`could not start ${path.basename(cmd)}`);
+    let ended = false;
+    child.once("exit", () => { ended = true; });
     child.unref();
-    return { pid: child.pid };
+    return { pid: child.pid, exited: () => ended || child.exitCode !== null || child.signalCode !== null };
   } finally { closeSync(fd); }
 };
 

@@ -130,6 +130,19 @@ describe("realSpawnDetached (US-0072, A1c Task 3)", () => {
     expect(pgidOf(pid)).not.toBe(own);
   });
 
+  // Batch 2 review B F5: the handle tells whether the child this run spawned has exited (no `ps`, no pid reuse question).
+  it("exited() is false while the child runs and true once it has exited", async () => {
+    const dir = newDir();
+    const long = realSpawnDetached(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], { logFile: path.join(dir, "l.log"), env: {}, cwd: dir });
+    started.push(long.pid);
+    const short = realSpawnDetached(process.execPath, ["-e", ""], { logFile: path.join(dir, "s.log"), env: {}, cwd: dir });
+    started.push(short.pid);
+    await vi.waitFor(() => { expect(short.exited()).toBe(true); }, { timeout: 60_000, interval: 50 });
+    expect(long.exited()).toBe(false);
+    process.kill(long.pid, "SIGTERM");
+    await vi.waitFor(() => { expect(long.exited()).toBe(true); }, { timeout: 60_000, interval: 50 });
+  });
+
   it("refuses a log that is a symbolic link (O_NOFOLLOW) and starts nothing", () => {
     const dir = newDir();
     const target = path.join(dir, "target.log");

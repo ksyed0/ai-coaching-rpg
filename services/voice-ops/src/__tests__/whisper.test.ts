@@ -70,7 +70,8 @@ function lstartOf(ms: number): string {
 }
 
 /** A fake system: one process table answering `ps`, and a `kill` that records signals. */
-function fakeSystem(o: { comm?: string; ignoreTerm?: boolean; startedAt?: () => number; onTerm?: (p: { comm: string; args: string; start: number; alive: boolean }) => void; eperm?: boolean } = {}) {
+function fakeSystem(o: { comm?: string; ignoreTerm?: boolean; startedAt?: () => number; onTerm?: (p: { comm: string; args: string; start: number; alive: boolean }) => void; eperm?: boolean;
+  lstart?: string; refuseSignals?: boolean } = {}) {
   const procs = new Map<number, { comm: string; args: string; start: number; alive: boolean }>();
   const signals: [number, string | 0][] = [];
   const calls: { cmd: string; args: readonly string[] }[] = [];
@@ -79,20 +80,21 @@ function fakeSystem(o: { comm?: string; ignoreTerm?: boolean; startedAt?: () => 
     const pid = nextPid++;
     procs.set(pid, { comm: o.comm ?? "whisper-server", args: [cmd, ...args].join(" "), start: o.startedAt?.() ?? Date.now(), alive: true });
     spawnDetached.last = { cmd, args, o: so };
-    return { pid };
+    return { pid, exited: () => !procs.get(pid)!.alive };
   };
   const run: Run = async (cmd, args) => {
     calls.push({ cmd, args });
     const p = procs.get(Number(args[3]));
     if (cmd !== "ps" || !p || !p.alive) return { code: 1, stdout: "", stderr: "" };
     if (args[1] === "comm=") return { code: 0, stdout: `/opt/homebrew/bin/${p.comm}\n`, stderr: "" };
-    if (args[1] === "lstart=") return { code: 0, stdout: `${lstartOf(p.start)}\n`, stderr: "" };
+    if (args[1] === "lstart=") return { code: 0, stdout: `${o.lstart ?? lstartOf(p.start)}\n`, stderr: "" };
     return { code: 0, stdout: `${p.args}\n`, stderr: "" };
   };
   const kill = (pid: number, sig: NodeJS.Signals | 0): void => {
     signals.push([pid, sig]);
     const p = procs.get(pid);
     if (!p || !p.alive) { const e = new Error("no such process") as NodeJS.ErrnoException; e.code = "ESRCH"; throw e; }
+    if (o.refuseSignals && sig !== 0) { const e = new Error("operation not permitted") as NodeJS.ErrnoException; e.code = "EPERM"; throw e; }
     if (o.eperm) { const e = new Error("operation not permitted") as NodeJS.ErrnoException; e.code = "EPERM"; throw e; }
     if (sig === "SIGTERM") o.onTerm?.(p);
     if (sig === "SIGKILL" || (sig === "SIGTERM" && !o.ignoreTerm)) p.alive = false;
@@ -226,6 +228,44 @@ describe("startWhisper and stopWhisper, with fakes (US-0072, A1c Task 4)", () =>
     expect(await startError(p)).toBe("not_ready");
     expect(timers.advanced()).toBeGreaterThanOrEqual(WHISPER_READY_WAIT_MS);
     expect(sys.signals.some(([, s]) => s === "SIGTERM")).toBe(true);
+    expect([...sys.procs.values()].every((x) => !x.alive)).toBe(true);
+  });
+
+  // Batch 2 review B F5: a failed start stops the process THIS run spawned through the spawn's own handle (`exited()`), not through
+  // `ps`: with a `ps` that cannot parse lstart, the old path called it "not ours", left it running and still said "it was stopped".
+  it("a failed start stops its own process even when ps cannot read its start time", async () => {
+    const timers = autoTimers();
+    const sys = fakeSystem({ startedAt: () => timers.now(), lstart: "garbage" });
+    const { p } = setup({ sys, health: async () => "loading" });
+    expect(await startError(p)).toBe("not_ready");
+    expect(sys.signals.some(([, s]) => s === "SIGTERM")).toBe(true);
+    expect([...sys.procs.values()].every((x) => !x.alive)).toBe(true);
+  });
+
+  it("a failed start whose process cannot be stopped says so instead of claiming it was stopped", async () => {
+    const timers = autoTimers();
+    const sys = fakeSystem({ startedAt: () => timers.now(), refuseSignals: true });
+    const { p } = setup({ sys, health: async () => "ok", warm: async () => { throw new Error("boom"); } });
+    let err: unknown;
+    try { await p; } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(WhisperStartError);
+    expect((err as WhisperStartError).code).toBe("not_stopped");
+    expect((err as WhisperStartError).after).toBe("warm_failed");
+    expect((err as Error).message).toContain("could not be stopped");
+    expect((err as Error).message).toContain("stop it by hand");
+    expect((err as Error).message).not.toContain("it was stopped");
+    expect([...sys.procs.values()].some((x) => x.alive)).toBe(true);
+  });
+
+  it("a process whose comm cannot be read right after the spawn is stopped through its handle", async () => {
+    const timers = autoTimers();
+    const sys = fakeSystem({ startedAt: () => timers.now() });
+    const run: Run = async (cmd, args) => (args[1] === "comm=" ? { code: 1, stdout: "", stderr: "" } : sys.run(cmd, args));
+    const dir = stateDir();
+    await expect(startWhisper({
+      spawnDetached: sys.spawnDetached, run, kill: sys.kill, env: {}, stateDir: dir, sttUrl: sttUrl(), modelFile: "/m.bin",
+      health: async () => "ok", warm: async () => {}, setTimer: timers.setTimer, now: timers.now, onStarted: () => {},
+    })).rejects.toMatchObject({ code: "exited" });
     expect([...sys.procs.values()].every((x) => !x.alive)).toBe(true);
   });
 

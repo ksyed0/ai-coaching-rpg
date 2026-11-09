@@ -4,7 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { encodeWav } from "@acr/adapters";
 import { sttRequestPath } from "./env-file.js";
-import { isOurWhisper, readComm, type Run, type SetTimer, type SpawnDetached } from "./run.js";
+import { isOurWhisper, readComm, type Run, type SetTimer, type SpawnDetached, type SpawnedChild } from "./run.js";
 import { openPrivateSubdir, type WhisperRecord } from "./state.js";
 import { isRequestPath } from "./text.js";
 
@@ -86,7 +86,7 @@ export function healthOf(status: number | null, body: string): HealthAnswer {
   try { return (JSON.parse(body) as { status?: unknown }).status === "ok" ? "ok" : "down"; } catch { return "down"; }
 }
 
-export type WhisperStartErrorCode = "not_ready" | "warm_failed" | "exited" | "interrupted" | "bad_url" | "spawn_failed";
+export type WhisperStartErrorCode = "not_ready" | "warm_failed" | "exited" | "interrupted" | "bad_url" | "spawn_failed" | "not_stopped";
 const START_SENTENCES: Record<WhisperStartErrorCode, string> = {
   not_ready: `whisper-server did not report ready within ${WHISPER_READY_WAIT_MS / 1000} s: it was stopped; see whisper.log in VOICE_STATE_DIR`,
   warm_failed: "whisper-server did not answer the warm-up request: it was stopped; see whisper.log in VOICE_STATE_DIR",
@@ -94,15 +94,39 @@ const START_SENTENCES: Record<WhisperStartErrorCode, string> = {
   interrupted: "interrupted while whisper-server was starting: it was stopped",
   bad_url: "STT_URL is not one whisper-server can serve: http://127.0.0.1:<port>[/<path>] (it binds 127.0.0.1 only)",
   spawn_failed: "whisper-server could not be started: install whisper.cpp (brew install whisper-cpp) so whisper-server is on PATH",
+  not_stopped: "whisper-server failed to start and the process could not be stopped: stop it by hand and remove the state file (state.json in VOICE_STATE_DIR), then pnpm voice:up",
 };
+/** `code` says what happened; for `not_stopped`, `after` says why the start had failed before the stop failed too. */
 export class WhisperStartError extends Error {
-  constructor(readonly code: WhisperStartErrorCode) {
+  constructor(readonly code: WhisperStartErrorCode, readonly after?: WhisperStartErrorCode) {
     super(START_SENTENCES[code]);
     this.name = "WhisperStartError";
   }
 }
 
 type Kill = (pid: number, sig: NodeJS.Signals | 0) => void;
+
+/**
+ * Stops a whisper-server THIS run spawned, through the spawn's handle (batch 2 review B F5): while `exited()` is false the pid is still
+ * that child, so it is signalled directly (SIGTERM, then SIGKILL after `graceMs`), with no `ps` identity check that could fail and
+ * leave it running. "not_stopped" when a signal is refused (anything but ESRCH). For a pid read back from the state file (no handle),
+ * use `stopWhisper`.
+ */
+export async function stopSpawned(child: SpawnedChild, o: { kill: Kill; setTimer: SetTimer; graceMs: number }): Promise<"stopped" | "not_stopped"> {
+  const send = (sig: NodeJS.Signals): "sent" | "gone" | "refused" => {
+    try { o.kill(child.pid, sig); return "sent"; }
+    catch (err) { return (err as NodeJS.ErrnoException).code === "ESRCH" ? "gone" : "refused"; }
+  };
+  if (child.exited()) return "stopped";
+  const term = send("SIGTERM");
+  if (term !== "sent") return term === "gone" ? "stopped" : "not_stopped";
+  for (let waited = 0; waited < o.graceMs; waited += WHISPER_STOP_POLL_MS) {
+    if (child.exited()) return "stopped";
+    await sleep(o.setTimer, WHISPER_STOP_POLL_MS);
+  }
+  if (child.exited()) return "stopped";
+  return send("SIGKILL") === "refused" ? "not_stopped" : "stopped";
+}
 
 /** Whether `kill(pid, 0)` finds the process (EPERM: it exists, under another user). */
 function exists(kill: Kill, pid: number): boolean {
@@ -124,14 +148,16 @@ function sleep(setTimer: SetTimer, ms: number, signal?: AbortSignal): Promise<"s
  * Starts whisper-server and waits until it is healthy and warm. `onStarted` receives the pid, `startedAt` (the injected clock right
  * after the spawn) and the `ps -o comm=` basename read right after the spawn, BEFORE the first health poll: Task 7 writes them into the
  * state then, so a crash or an interrupt during the wait leaves nothing that `voice:down` cannot find. Rejects WhisperStartError after
- * stopping the process: `not_ready` (no ok within WHISPER_READY_WAIT_MS), `warm_failed`, `exited` (it died while starting),
- * `interrupted` (`signal` aborted: Task 7's Ctrl-C), `bad_url` and `spawn_failed` (nothing was started).
+ * stopping the process through its own handle (`stopSpawned`): `not_ready` (no ok within WHISPER_READY_WAIT_MS), `warm_failed`,
+ * `exited` (it died while starting), `interrupted` (`signal` aborted: Task 7's Ctrl-C), `bad_url` and `spawn_failed` (nothing was
+ * started); `not_stopped` (with `after` = the reason the start failed) when the process could not be stopped: then it may still run,
+ * and the caller must keep the state that names it.
  */
 export async function startWhisper(o: {
   spawnDetached: SpawnDetached; run: Run; kill: Kill; env: NodeJS.ProcessEnv; stateDir: string; sttUrl: URL; modelFile: string;
   health: () => Promise<HealthAnswer>; warm: () => Promise<void>; setTimer: SetTimer; now: () => number;
   onStarted: (w: { pid: number; startedAt: number; comm: string }) => void; signal?: AbortSignal; graceMs?: number;
-}): Promise<{ pid: number }> {
+}): Promise<SpawnedChild> {
   const port = Number(o.sttUrl.port);
   const requestPath = sttRequestPath(o.sttUrl);
   if (o.sttUrl.protocol !== "http:" || o.sttUrl.hostname !== "127.0.0.1" || !isPort(port) || o.sttUrl.search !== "" || o.sttUrl.hash !== ""
@@ -139,35 +165,32 @@ export async function startWhisper(o: {
   const publicDir = openPrivateSubdir(o.stateDir, "public", { empty: true });
   const tmpDir = openPrivateSubdir(o.stateDir, "tmp");
   const args = whisperArgs({ port, requestPath, modelFile: o.modelFile, publicDir, tmpDir });
-  let pid: number;
-  try { ({ pid } = o.spawnDetached(WHISPER_BINARY, args, { logFile: path.join(o.stateDir, "whisper.log"), env: whisperEnv(o.env), cwd: o.stateDir })); }
+  let child: SpawnedChild;
+  try { child = o.spawnDetached(WHISPER_BINARY, args, { logFile: path.join(o.stateDir, "whisper.log"), env: whisperEnv(o.env), cwd: o.stateDir }); }
   catch { throw new WhisperStartError("spawn_failed"); }
+  const { pid } = child;
   const startedAt = o.now();
-  const comm = await readComm(pid, o.run);
-  if (comm === null) {
-    // It is gone already, or ps cannot see it: this is the pid we started a moment ago, so a direct stop is safe.
-    try { o.kill(pid, "SIGTERM"); } catch { /* already gone */ }
-    throw new WhisperStartError("exited");
-  }
-  const w: WhisperRecord = { pid, port, startedAt, comm };
-  o.onStarted({ pid, startedAt, comm });
+  // Every failure from here stops the child through its own handle and says so only when it really stopped (review B F5).
   const fail = async (code: WhisperStartErrorCode): Promise<never> => {
-    await stopWhisper(w, { run: o.run, kill: o.kill, setTimer: o.setTimer, graceMs: o.graceMs ?? WHISPER_STOP_GRACE_MS });
-    throw new WhisperStartError(code);
+    const r = await stopSpawned(child, { kill: o.kill, setTimer: o.setTimer, graceMs: o.graceMs ?? WHISPER_STOP_GRACE_MS });
+    throw r === "stopped" ? new WhisperStartError(code) : new WhisperStartError("not_stopped", code);
   };
+  const comm = await readComm(pid, o.run);
+  if (comm === null) return fail("exited"); // gone already, or ps cannot see it: it is never recorded
+  o.onStarted({ pid, startedAt, comm });
   for (;;) {
     if (o.signal?.aborted) return fail("interrupted");
     const answer = await o.health();
     if (o.signal?.aborted) return fail("interrupted");
     if (answer === "ok") break;
-    if (answer === "down" && !exists(o.kill, pid)) throw new WhisperStartError("exited");
+    if (answer === "down" && child.exited()) throw new WhisperStartError("exited");
     if (o.now() - startedAt >= WHISPER_READY_WAIT_MS) return fail("not_ready");
     if ((await sleep(o.setTimer, WHISPER_POLL_MS, o.signal)) === "aborted") return fail("interrupted");
   }
   try { await o.warm(); }
   catch { return fail(o.signal?.aborted ? "interrupted" : "warm_failed"); }
   if (o.signal?.aborted) return fail("interrupted");
-  return { pid };
+  return child; // the handle: a later rollback of this run stops it with stopSpawned
 }
 
 /**
