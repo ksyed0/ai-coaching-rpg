@@ -496,3 +496,33 @@ Rollback trigger: a text-only session behaves differently from the build before 
 ### Rolling forward again
 
 Redeploy; voice stays off until `VOICE_ENABLED=1` is set, which in A1a only the offline demo does. `pnpm demo --voice` (V-01 to V-08, about 25 s, offline, no secrets) is the check, and it runs in the CI Demo Run job.
+
+## US-0071: LiveKit and the web consent flow (EPIC-0003 voice slice A1b)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0071-voice-livekit-consent)
+Date: not deployed
+Rollback trigger: a text-only session or page behaves differently from the build before (join, consent, lines, the console, headers), a LiveKit setting stops the control service or the web app, a voice page records or keeps a microphone it should not, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, `LOG_FORMAT`, any event, the consent file or the voice record's format.** `consent/notice-v3.md` is unchanged (its draft marker stays). Mute is in memory only and never written. The voice record (`<sessionId>.voice.json`) is the A1a file, ignorable by an earlier build; it can be deleted by hand.
+- **New web routes and settings.** The web app gains `POST /api/v1/voice` and `POST /api/v1/voice/token` and reads `LIVEKIT_URL` (the LiveKit server's public origin: `wss://<host>[:port]`, or `ws://127.0.0.1:<port>` / `ws://[::1]:<port>` for local development). Without it the session page offers no voice and the token route answers 503; **an invalid value stops the web app's API routes** (its config check refuses it), so unset it rather than leaving a bad one. With it, `/session/<id>` (only) sends `microphone=(self)` and allows the LiveKit origin in `connect-src`.
+- **New control settings, optional:** `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (both or neither; the secret at least 32 characters) and `LIVEKIT_HOST` (default `http://127.0.0.1:7880`, loopback `http:` only). They are checked whenever they are set, **even with `VOICE_ENABLED=0`**: a bad value stops the control service's start, with the variable names only. `SPEECH_INGEST=livekit` needs the key and the secret (control refuses to start otherwise). Tokens are issued only with the keys AND `SPEECH_INGEST=livekit`. The keys never reach a runtime, a speech worker or the web app.
+- **Internal messages only.** `voice_availability`, `voice_seats.voiceChosen`/`open`, the worker's LiveKit, slot and health messages, `livekit_join_refused` and the new alert codes (`worker_restarting`, `voice_off`, `stt_recovered`) are IPC between processes of one checkout (control, runtime, speech worker), so there is no skew between them. The runtime player protocol gains `voice_mute`, `muted` in the `voice` answer and `joined.voice`, and the `voice_available` notice code (docs/MIGRATION_LOG.md is the place a future client looks); the BFF forwards `joined.voice` and a named `voice_notice` SSE event.
+- **New dependencies:** `livekit-server-sdk` 2.19.2 (`packages/adapters`, reachable only through `@acr/adapters/livekit`), `@livekit/rtc-node` 1.2.1 (`services/speech`, native), `livekit-client` 2.23.0 (`apps/web`, loaded lazily by the first "Join with voice"); `packages/adapters` also gains a workspace link to `@acr/events` (`findings.md`).
+- **The Alpine runtime image is unaffected.** It installs `@acr/runtime` and its workspace packages only, so it gets `livekit-server-sdk` (pure JavaScript, never loaded there: the root `@acr/adapters` index does not import it) and never `@livekit/rtc-node`, whose native binding is glibc only. Only the speech worker loads rtc-node, so a LiveKit worker must run on a glibc host (the pilot laptop); the image was not rebuilt for this slice.
+
+### Rolling back
+
+- **Turn voice off first: `VOICE_ENABLED=0`** (or unset) in the control service's environment, then restart the affected sessions. With voice off no token is issued (the runtime reports no voice seats), no worker is forked and the page shows no voice choice; the text path is the one of the build before. To take LiveKit out completely, also unset `LIVEKIT_URL` in the web app and `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_HOST` in the control service, and set `SPEECH_INGEST=file` (or unset it).
+- **What happens to the rooms.** Control deletes every seat room at the session end. Rooms of sessions that were running when control stopped are not deleted (their names were in its memory); a connected browser leaves when its stream drops, and LiveKit removes an empty room after its own timeout. A LiveKit server started only for this slice can simply be stopped.
+- **Deploy order: the control service before the web app.** The web app's voice routes call control's new `POST /sessions/:id/voice-token`; an old web app with a new control service is safe because the routes are additive (it never calls them and its static header rule still blocks the microphone). A new web app with an old control service answers the token route 503 `voice_unavailable` (the page says "Voice is not available right now. Use the text box.") and keeps the text path. To roll back, deploy the earlier web app first, then the earlier control service and runtime.
+- **Rolling back the code:** stop the control service (its speech workers exit when their IPC channel closes; a hung one is force-killed), deploy the earlier build, start it. An earlier runtime drops an unknown parent message without answering, and an earlier control service never sends one.
+- **Keep `CONSENT_NOTICE_VERSION` unset or `v2`** on any build used with outside participants: v3 still carries its draft marker and describes audio retention that A2 builds.
+- **Smoke test after a rollback:** `pnpm demo --fast` (29 checks), `pnpm demo --fast --security --resume` (42) and `pnpm demo --web` (8) pass; a console session starts, takes typed lines and ends; `/session/<id>` answers `microphone=()`.
+
+### Rolling forward again
+
+Redeploy control, then the web app; voice stays off until `VOICE_ENABLED=1`, LiveKit keys with `SPEECH_INGEST=livekit` in control and `LIVEKIT_URL` in the web app are all set. Checks: `pnpm demo --voice` (8 of 8, file ingest, offline), `pnpm --filter @acr/web exec playwright test voice-lobby` (no LiveKit server needed), and with a throwaway LiveKit server the opt-in live checks (docs/memory/demo-and-testing.md, "Voice live checks").
