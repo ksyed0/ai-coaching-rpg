@@ -36,6 +36,14 @@ Pinned to an exact version, installed into `packages/adapters` only (`pnpm --fil
 | --- | --- | --- | --- | --- | --- |
 | livekit-server-sdk | 2.19.2 | Control mints the per-seat microphone-only and worker LiveKit tokens and calls `removeParticipant` / `listParticipants` / `deleteRoom` | Apache-2.0 | 2026-10-22 | 2026-10-22 |
 
+## Voice slice A1b (`services/speech`, US-0071, batch 3): LiveKit realtime client for the speech worker
+
+Pinned to an exact version, installed into `services/speech` only (`pnpm --filter @acr/speech add -E @livekit/rtc-node@1.2.1`); `lint:sdk` refuses it anywhere else, and inside the worker only `src/ingest/livekit-room.ts` imports it, dynamically and only with `SPEECH_INGEST=livekit` (a file-ingest run never loads it: `imports.test.ts`). It is a **native** package: `@livekit/rtc-ffi-bindings` 0.13.1 ships prebuilt binaries for darwin-arm64, darwin-x64, linux-x64-gnu, linux-arm64-gnu and win32-x64-msvc only (**glibc only: the worker cannot run on Alpine/musl**; the control and runtime images are unaffected because nothing else loads it). Native load checked on this macOS arm64 machine and in the `node:22` (Debian, glibc) container. It pulls `pino` ^9 and `pino-pretty` ^13: its JavaScript logger (`dist/log.cjs`, `pino({ name: "lk-rtc" })`, level `debug` unless `NODE_ENV=production`) is not exported, so the worker reaches the module by its resolved file path and sets it to `silent` before any room is opened (several of its warnings quote a participant identity); the native core runs with `captureLogs: true` and its log records are dropped by the library (never printed), and `RUST_LOG` stays out of `SPEECH_ENV_ALLOWLIST`. `pnpm audit --audit-level high` on 2026-11-08: no high or critical advisory (the 1 low and 4 moderate reported are in the root dev tools, jest and eslint, not in this package's tree).
+
+| Package | Version | Purpose | Licence | Released | Last active |
+| --- | --- | --- | --- | --- | --- |
+| @livekit/rtc-node | 1.2.1 | The speech worker joins each recording seat's LiveKit room hidden, subscribes only to the current holder's microphone track and reads its audio as 16 kHz mono PCM | Apache-2.0 | 2026-10-22 | 2026-10-22 |
+
 ## Exceptions to the two-week rule
 
 - next 16.4.1 was released 13 days before the pick. Every earlier 16.x (up to 16.4.0) and every 15.x is flagged by the npm advisory database (GHSA-673q-mjm6-r5xr and GHSA-2464-fhr4-w9xw, critical remote code execution; GHSA-p3m5-59mp-jv5r, denial of service), and `next build` refuses to run on them. 16.4.1 is the oldest release without an advisory.
