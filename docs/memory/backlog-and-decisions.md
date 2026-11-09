@@ -69,7 +69,7 @@ Deferred from the US-0036 reviews (carried into US-0037/US-0038/US-0039, see the
   - Gap worth an epic: nothing is deployed to a shared environment and there is no hosting/pilot-run epic (the spec's MVP pilot runs on a laptop or tunnel, v1 in the cloud). Consider filing EPIC-0010 "Pilot hosting and operations" (deploy runbook, TLS, backups, monitoring) after voice is decided; not filed. Smaller candidates: US-0068 (planned), the facilitator view of a link at its cap, US-0069 (only on real misuse).
 
 ## Voice A1a: the pipeline on file ingest (EPIC-0003, US-0070, 2026-11-08)
-- **Built** on `feature/EPIC-0003-US-0070-voice-pipeline` (Tasks 0 to 20 of `docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md`, pushed; no PR yet), dark behind `VOICE_ENABLED=0`. US-0070 stays In Progress until its PR merges; AC-0404 is ticked when the PR's Demo Run job passes `pnpm demo --voice`.
+- **Merged** into `develop` on 2026-11-08 by PR #130 (squash commit 76a61c0; all 15 CI checks green, including the Demo Run job's `pnpm demo --voice`), dark behind `VOICE_ENABLED=0`. US-0070 Complete, TASK-0106 Done, AC-0404 ticked, TC-0170 Pass.
 - **Owner decisions (2026-11-08):** Open Question 1 option A (the runtime half of the voice choice, the voice record, `voice_opt_in`/`voice_opt_out` and a DRAFT notice v3 are in A1a); a conservative normaliser that never rewrites words; a global GPU cap (in A1a: 2 in flight per worker, one worker per session, so not yet global); NO speaker notice for an empty segment (`NOTICE_EMPTY_SEGMENTS = false`, one constant to reverse); a line in flight during a reconnect is refused `not_holder`; `TURN_END_MS` 300 to 3000; the whisper-server hardening list of spec section 9 (A1c); `STT_MODEL` = a label plus the model file (not read in A1a); the `SessionLock` pattern copied into `services/speech` for A2; cold-start deadline for local models (`STT_COLD_TIMEOUT_MS` 30 s, `STT_IDLE_COLD_MS` 10 min). Participant access to their own audio: facilitator only (spec section 16 item 1); REC-07 correction deferred (item 2).
 - **Review fix wave (2026-11-08, F1 to F11):** an independent review's findings were fixed test-first on the same branch: no NPC round for a voice turn that recorded no line (F1, `lastAnsweredVoiceSeq`); a worker that dies mid-speech closes the turn (F2, `voiceWorkerDown` on `voice_alert worker_down`, a 12 s no-news backstop `VOICE_ACTIVITY_STALE_MS`, file ingest flushes at the end of the file); a runtime restart releases the AI players' voice hold (F3); a forced split's short rest is kept (F4); a stop cancels transcriptions already queued at the limiter (F5); `TURN_END_MS` is read only with `VOICE_ENABLED=1` (F6, `VOICE_ENABLED=true` stays refused); the voice demo waits for a quiet log, no fixed sleep (F7); a failed voice-file write answers `failed` and logs the error name only (F8); the cleaner is idempotent across the cut (F9a); control forgets an ended voice session (F9b); the supervisor's early ready listener stops after the hand-over (F9c); `STT_URL` with `:80` is refused on purpose (F9d, pinned); alerts raised before the start are kept and logged at the start (F10).
 - **Deviations recorded (not fixed in A1a):**
@@ -81,13 +81,27 @@ Deferred from the US-0036 reviews (carried into US-0037/US-0038/US-0039, see the
   - after a runtime restart there is a short window, until the new runtime's ready is attached, in which lines the worker sends are refused `failed` and lost.
   - the web app drops `voice_notice` and has no route for `voice_opt_in` (A1b).
   - Closed by the fix wave: the VoiceHost's per-session entry (F9b) and the alerts dropped before the start (F10).
+- **Carried into A1b scope** (the A1b plan `docs/superpowers/plans/2026-11-08-voice-a1b-livekit-consent.md` owns each one):
+  - the per-worker STT in-flight cap becomes one global budget held by control (owner agreed global);
+  - `voice_notice` handling and `voice_opt_in`/`voice_opt_out` routes in the web app (the web app has neither today);
+  - the short refusal window after a runtime restart (worker lines refused `failed` until the new runtime's ready is attached): fix or document;
+  - `STT_MODEL` is allowlisted but unread;
+  - the `voice_unavailable` notice code is defined but unused (A1b's Whisper health polling sends it).
 - **Next:** A1b (LiveKit `AudioIngest` and token adapter, the web consent flow and lobby mic check, mute, `voice_notice` in the page, the console speaking indicator, worker restart with backoff, Whisper health polling), A1c (`pnpm voice:up`/`voice:check`, whisper-server hardening, runbook), A2 (audio store, index, lock, disk guard, retention sweep, replay, delete, audit log), A3 (partials, mute participant, push-to-talk). All are proposals: file each from the registry when its plan is expanded. Then the room test and the go-live checklist below. Not verified so far: a real whisper-server (F1), LiveKit, real voices, Safari.
 
-## Go-live checklist (pilot) — started 2026-11-08
-Items that must be true before a pilot runs with real participants. Owner-gated unless marked otherwise; tick here and in `progress.md` when done.
-- [ ] **Legal and HR sign-off** on voice recording and the consent notice v3 wording (audio kept until the facilitator deletes it, at most 30 days; deletion not applying to backups; bystander wording). Open item in `docs/PRODUCT_SPEC.md`. Needed before `VOICE_ENABLED=1` for any participant.
+## Go-live checklist (pilot) — started 2026-11-08; compliance deferred 2026-11-08
+Owner decision (2026-11-08): **legal, HR and other compliance tasks are deferred while the project is in pre-production.** Pre-production use is by the owner and colleagues who know that audio is recorded and agree to it (for example the room test). The engineering controls stay in scope because they are product design and cheap now: the consent gate before any LiveKit token, the privacy invariant (never process audio for a seat that did not choose voice), audio retention and deletion (slice A2), and no secrets, transcripts or paths in logs. Voice must not be offered to outside participants until the deferred list below is done.
+
+### Deferred until pre-production exit (owner decision 2026-11-08)
+- [ ] **Legal and HR sign-off** on voice recording and the consent notice v3 (audio kept until the facilitator deletes it and at most 30 days; deletion not applying to backups; bystander wording). The owner approved the notice wording on 2026-11-08; that is not legal or HR sign-off. Open item in `docs/PRODUCT_SPEC.md`.
+- [ ] **Remove the notice v3 draft marker and pin its SHA-256** (the first line of `consent/notice-v3.md` and its test), at the release gate, after A2 and the sign-off above.
+- [ ] **The legal and HR briefing document** (draft from `consent/notice-v3.md` and spec section 6: what is recorded, who hears it, retention, deletion, bystanders, backups). Deferred by the owner; not drafted.
+- [ ] Any **privacy or regulatory review** (for example a data protection impact assessment) and the **backups wording sign-off**.
+- [ ] **Release gate:** voice is enabled for outside participants only after A1a to A2 are built, the room test passed, and the items above are done.
+
+### Operational go-live (engineering and owner tasks; still needed before a pilot with real participants)
 - [ ] **Domain and certificate** for the LAN pilot hostname (US-0048; an owner-supplied certificate, or Caddy with a DNS token; certificates expire after 90 days). Needed for the microphone (secure context).
-- [ ] **Voice room test passed** (owner plus one other person, about 30 minutes; spec section 13: different labelled lines, GPU contention with a generating local model, 4-to-8 talker load, phantom-text rate quiet and noisy, attribution under 2% wrong).
+- [ ] **Voice room test passed** (owner plus one other person who agrees to be recorded, about 30 minutes; spec section 13: different labelled lines, GPU contention with a generating local model, 4-to-8 talker load, phantom-text rate quiet and noisy, attribution under 2% wrong).
 - [ ] **Real LiveKit keys** generated by `pnpm voice:up` (never the `--dev` keys); `.env` not committed.
 - [ ] **Network check on the real LAN:** WebRTC media (the spike only proved TCP on one machine), router DNS-rebinding protection, web server loopback-only behind Caddy with `TRUST_PROXY`.
 - [ ] **Backups:** the audio directory is excluded from the host's backups (Time Machine or similar).
@@ -95,4 +109,3 @@ Items that must be true before a pilot runs with real participants. Owner-gated 
 - [ ] **Rotate the OpenRouter key** pasted into chat on 2026-10-02 (long deferred).
 - [ ] **Release** the version to deploy (the voice slices ship dark behind `VOICE_ENABLED`; US-0068 and the 0.2.1 fixes are on `develop`/`main` as noted in `progress.md`).
 - [ ] Decide the **remote participant** path (tunnel plus TURN, or hosted LiveKit) only if a pilot needs it; not part of the LAN pilot.
-

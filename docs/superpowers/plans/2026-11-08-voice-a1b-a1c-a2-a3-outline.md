@@ -1,6 +1,6 @@
 # EPIC-0003 voice A1b, A1c, A2, A3: task outlines
 
-> **Status: OUTLINE, NOT EXECUTABLE.** Each slice below must be expanded into a full bite-sized, test-first plan (the A1a plan's format: files, interfaces, failing tests with assertions, commands, expected results, commit messages) **just before that slice starts**, because the earlier slices change the facts these outlines rest on (file names, interfaces, line numbers, ids). Re-verify every `file:line` at expansion time. Use the superpowers:writing-plans skill for each expansion.
+> **Status: OUTLINE, NOT EXECUTABLE** (A1b has since been expanded into its own plan file; A1c, A2 and A3 are still outlines). Each slice below must be expanded into a full bite-sized, test-first plan (the A1a plan's format: files, interfaces, failing tests with assertions, commands, expected results, commit messages) **just before that slice starts**, because the earlier slices change the facts these outlines rest on (file names, interfaces, line numbers, ids). Re-verify every `file:line` at expansion time. Use the superpowers:writing-plans skill for each expansion.
 
 **Spec:** `docs/superpowers/specs/2026-11-08-voice-part-a-design.md`. **Master plan:** `docs/superpowers/plans/2026-11-08-voice-part-a-overview.md` (contradictions C1 to C11, cross-slice interfaces, settings, risks, open questions). **First slice:** `docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md`. These outlines assume Open Question 1 option A (the runtime voice choice landed in A1a).
 
@@ -9,6 +9,8 @@ Every slice: Task 0 files its story, TASK, AC and TC ids from `docs/ID_REGISTRY.
 ---
 
 ## A1b (proposed US-0071): LiveKit and consent — `feature/EPIC-0003-US-0071-voice-livekit-consent`
+
+> **Expanded into its own plan file (2026-11-08):** `docs/superpowers/plans/2026-11-08-voice-a1b-livekit-consent.md` (Tasks 0 to 19, Resolved Facts R1 to R25, contradictions K1 to K8). That plan supersedes the table below, which is kept for the record only; do not execute from it.
 
 Depends on A1a merged. New dependencies (exact pins, findings.md rows, audit): `livekit-server-sdk` (adapters), `@livekit/rtc-node` (speech; spike 1.2.1), `livekit-client` (web).
 

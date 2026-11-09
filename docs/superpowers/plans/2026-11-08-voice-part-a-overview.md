@@ -1,6 +1,6 @@
 # EPIC-0003 voice, part A: master implementation plan (overview)
 
-> **For agentic workers:** this is the master plan. Each slice gets its own full plan, written just before it starts: A1a is `2026-11-08-voice-a1a-pipeline.md` (full); A1b, A1c, A2 and A3 are outlined in `2026-11-08-voice-a1b-a1c-a2-a3-outline.md` and must be expanded first. Execute a full plan with superpowers:subagent-driven-development (recommended) or superpowers:executing-plans.
+> **For agentic workers:** this is the master plan. Each slice gets its own full plan, written just before it starts: A1a is `2026-11-08-voice-a1a-pipeline.md` (full, merged in PR #130); A1b is `2026-11-08-voice-a1b-livekit-consent.md` (full); A1c, A2 and A3 are outlined in `2026-11-08-voice-a1b-a1c-a2-a3-outline.md` and must be expanded first. Execute a full plan with superpowers:subagent-driven-development (recommended) or superpowers:executing-plans.
 
 **Goal:** Voice into the transcript: what each participant says enters the session log under their own role as an ordinary `utterance` with `channel: "voice"`, with audio kept for facilitator replay, while text-only participants and the log format stay unchanged.
 
@@ -43,15 +43,15 @@ A1a (pipeline on file ingest) ──> A1b (LiveKit, consent UI, supervision) ─
 
 | Slice | Proposed story | Branch (from `develop`) | Depends on | Scope (one line) |
 | --- | --- | --- | --- | --- |
-| A1a | US-0070 | `feature/EPIC-0003-US-0070-voice-pipeline` | spec + this plan on `develop` | Worker skeleton, all IPC and parent-channel messages with drift tests, segmenter, noise gate, STT adapter, contract suite and Whisper client, normaliser, host voice method, per-track FIFO, turn timer, GM and bot cadence, refusals and failures, the runtime voice choice (C1), `pnpm demo --voice` on file ingest with the fake adapter. |
-| A1b | US-0071 | `feature/EPIC-0003-US-0071-voice-livekit-consent` | A1a merged | LiveKit `AudioIngest` and token adapter, control token route, grant, seat generations, `removeParticipant`, final notice v3, web consent route, lobby, roster and readiness voice state, mic check, mute, web `voice_notice`, console speaking indicator and alerts, worker restart with backoff, Whisper health polling. |
+| A1a | US-0070 (Complete, PR #130) | `feature/EPIC-0003-US-0070-voice-pipeline` | spec + this plan on `develop` | Worker skeleton, all IPC and parent-channel messages with drift tests, segmenter, noise gate, STT adapter, contract suite and Whisper client, normaliser, host voice method, per-track FIFO, turn timer, GM and bot cadence, refusals and failures, the runtime voice choice (C1), `pnpm demo --voice` on file ingest with the fake adapter. |
+| A1b | US-0071 (full plan: `2026-11-08-voice-a1b-livekit-consent.md`) | `feature/EPIC-0003-US-0071-voice-livekit-consent` | A1a merged (done, PR #130) | LiveKit `AudioIngest` and token adapter, control token route, grant, seat generations, `removeParticipant`, final notice v3, web consent route, lobby, roster and readiness voice state, mic check, mute, web `voice_notice`, console speaking indicator and alerts, worker restart with backoff, Whisper health polling. |
 | A1c | US-0072 | `feature/EPIC-0003-US-0072-voice-operations` | A1b merged | `pnpm voice:up` / `voice:check`, compose services (LiveKit, Caddy), certificate path, loopback-only web server behind the proxy, runbook, threat-model section, `.env.example`, ROLLBACK, ARCHITECTURE deviations. |
 | A2 | US-0073 | `feature/EPIC-0003-US-0073-voice-audio-retention` | A1a merged (A1b for the live path) | Audio store, index, lock, disk guard, sweep in control, replay, delete (session, role, participant), audit log, console additions. |
 | A3 | US-0074 | `feature/EPIC-0003-US-0074-voice-facilitator-tools` | A1b, A2 merged | Live partials, mute a participant, push-to-talk option, capacity switch-off. |
 
 **Ids.** Story numbers above are proposals (next free US-0070 at the time of writing, `docs/ID_REGISTRY.md:156`); nothing is reserved by this plan. Each slice's story, TASK, AC and TC ids are taken from `docs/ID_REGISTRY.md` when that slice's stories are filed (the first task of each slice plan), with a "Reserved blocks" or "Assigned" line in the registry's own style. If another story takes US-0070 first, every name in this plan shifts with the registry; branch names follow the filed id.
 
-**Release gate (spec §12, unchanged):** voice is enabled for a pilot only when A1a, A1b, A1c and A2 are complete, the owner-run room test passes (spec §13), and legal and HR have signed off the notice v3 wording (spec §14 item 7). Until then `VOICE_ENABLED` stays `0` in every shipped configuration; each slice is dark behind it. A3 may ship after the pilot starts.
+**Release gate (spec §12, unchanged):** voice is enabled for a pilot only when A1a, A1b, A1c and A2 are complete, the owner-run room test passes (spec §13), and, for outside participants, legal and HR have signed off the notice v3 wording (spec §14 item 7; **deferred while in pre-production, owner decision 2026-11-08**); at that gate notice v3's draft marker is removed and the file is pinned by its SHA-256 (the owner approved the wording on 2026-11-08; A1b keeps the marker, and the notice already describes the retention A2 builds, so voice must not go live before A2). Until then `VOICE_ENABLED` stays `0` in every shipped configuration; each slice is dark behind it. A3 may ship after the pilot starts.
 
 **Docs-first:** the spec and these three plans land on `develop` through one docs PR before A1a's branch is cut (the precedent of slice 2c-4, Task 0).
 
@@ -81,7 +81,7 @@ type ControlToWorker =
   | { type: "voice_line_result"; segmentId: SegmentId; refused: VoiceRefusal };   // one schema: exactly one of seq | refused
 ```
 
-A2 adds no message here (the worker writes its own store); A1b adds `livekit_join { url, token, room }` (control→worker) and `stt_health { ok }` (worker→control); A3 adds `partial { roleId, text }` (worker→control, facilitator only).
+A2 adds no message here (the worker writes its own store); A1b adds `livekit_join { roleId, url, token, room }` (control→worker, the answer to the worker's `livekit_token_request { roleId }`, one room per seat), `stt_slot_grant`, and `stt_health { ok }`, `stt_slot_request`/`stt_slot_release`, `livekit_status` (worker→control); the A1b plan has the exact shapes; A3 adds `partial { roleId, text }` (worker→control, facilitator only).
 
 ### 2. Control ↔ runtime (parent channel: `services/runtime/src/host/parent-channel.ts` and its copy `services/control/src/protocol.ts`, drift test `services/control/src/__tests__/protocol.drift.test.ts`)
 
@@ -174,7 +174,7 @@ Minted in control through `packages/adapters/src/livekit/token.ts` (`livekit-ser
            canSubscribe: false, canPublishData: false, canUpdateOwnMetadata: false } }
 ```
 
-`room` is `v` + 32 random hex per session, held in control memory only. A token is issued only to the current holder whose voice state is `voice` (from the last `voice_seats`); a reissue or opt-out calls `removeParticipant(room, identity)`. The worker's own token (`canSubscribe: true`, `canPublish: false`) goes to it through `livekit_join`, never through its environment.
+`room` is the **seat's own room** (design change in the A1b plan, K9: one room per human seat, not per session, so LiveKit's signalling never shows a participant anything about another seat): `v` + 32 random hex per (session, role), held in control memory only. A token is issued only to the current holder whose voice state is `voice` (from the last `voice_seats`), for that seat's room; a reissue, rebind, leave, withdrawal, AI fill or opt-out removes the old identity from the seat's room (`removeParticipant`, with a `listParticipants` sweep on every seat change). The worker's own per-room token (`canSubscribe: true`, `canPublish: false`, `hidden: true`) goes to it through `livekit_join` when it asks, never through its environment.
 
 ---
 
@@ -223,7 +223,8 @@ Rules for each (AGENTS.md §19 and §12): exact version in `package.json` (no `^
 | `AUDIO_MAX_RETENTION_DAYS` | `30` | 1 to 30 | control (sweep) | n/a (A2) |
 | `AUDIO_MIN_FREE_MB` | `2048` | 512 to 1 000 000 | worker, control, `voice:check` | speech env allowlist (A2) |
 | `AUDIO_DIR` | `<CONTROL_DATA_DIR>/audio` | absolute | worker, control | speech env allowlist (A2) |
-| `LIVEKIT_URL` | none | `wss://...` (browser) | control (returned with the token) | never to a runtime |
+| `LIVEKIT_URL` | none | `wss://...` (browser), or `ws://` to loopback for local development | the web app (CSP and the token answer; changed by the A1b plan, K2: control does not read it) | never to a runtime |
+| `LIVEKIT_HOST` | `http://127.0.0.1:7880` | `http:` to loopback, a port, no path: the LiveKit server API; the worker's signalling URL is derived from it (A1b plan, K2) | control | never (the worker gets the URL over IPC) |
 | `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | none, `.env` only | generated by `voice:up` | control only | never (the worker gets a token over IPC) |
 
 Constants (not settings; changed only by code review): `VAD_FRAME_MS` 20, `VAD_THRESHOLD_DBFS` -45, `LEAD_IN_MS` 200, `MIN_SPEECH_MS` 300, `SPLIT_SEARCH_MS` 1000, `STT_DEADLINE_MS` 5000, `STT_MAX_RETRIES` 2, `STT_RETRY_BASE_MS` 150, `STT_MAX_IN_FLIGHT` 2, `STT_QUEUE_ALERT` 16, `VOICE_LINE_TIMEOUT_MS` 10 000, `NOTICE_MIN_INTERVAL_MS` 10 000 (per role and code), `ALERT_MIN_INTERVAL_MS` 30 000 (per session and code), noise gate `GATE_NO_SPEECH_PROB` 0.6 and `GATE_AVG_LOGPROB` -1.0 (whisper-server's own defaults `-nth 0.60`, `-lpt -1.00`), `GATE_MIN_RMS_DBFS` -50, `GATE_SHORT_MS` 400; A1b: restart backoff 5 tries, base 500 ms, doubling; Whisper health poll 5 s. Every setting goes into `docs/memory/models-and-providers.md` and `.env.example` in the slice that adds it.
@@ -282,7 +283,7 @@ Constants (not settings; changed only by code review): `VAD_FRAME_MS` 20, `VAD_T
 8. **Spec §16 items** (participant access to their own audio; REC-07 correction deferred; audit log mandatory) are still the owner's; the plans follow the spec's defaults.
 9. **GPU cap scope** (Risk 7): per worker (plan) or one cap across all sessions (needs a shared limiter in control)?
 10. **Lock for the audio store (F8):** export `SessionLock` as `@acr/runtime/files` (a sixth allowed subpath) or copy the pattern into `services/speech`? Decided in the A2 plan; the owner may prefer one now.
-11. **Legal and HR sign-off** on notice v3 (release gate) and **a domain and certificate** (US-0048) are prerequisites outside this epic's code.
+11. **Legal and HR sign-off** on notice v3 (release gate for outside participants; **deferred while the project is in pre-production, owner decision 2026-11-08**) and **a domain and certificate** (US-0048) are prerequisites outside this epic's code.
 
 ---
 

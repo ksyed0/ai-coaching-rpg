@@ -3039,7 +3039,7 @@
       "title": "As a participant, I want what I say to appear under my name in the transcript, so that I can take part by voice.",
       "priority": "High",
       "estimate": "L",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
       "acs": [
         {
@@ -3084,8 +3084,8 @@
         },
         {
           "id": "AC-0404",
-          "text": "`pnpm demo --voice` runs the pipeline offline (file ingest, fake STT) and passes checks V-01 to V-08 in CI (TC-0170; 8 of 8 locally on macOS on 2026-11-08 and services/control/src/__tests__/demo/voice-demo.test.ts passes; the `pnpm demo --voice` step is in the CI Demo Run job but CI runs on pull requests only and no PR is open yet: tick when the PR's Demo Run job is green)",
-          "done": false
+          "text": "`pnpm demo --voice` runs the pipeline offline (file ingest, fake STT) and passes checks V-01 to V-08 in CI (TC-0170; 8 of 8 locally on macOS on 2026-11-08, services/control/src/__tests__/demo/voice-demo.test.ts passes, and the CI Demo Run job, which runs `pnpm demo --voice`, was green on PR #130 with all 15 checks green before the squash merge 76a61c0 into `develop` on 2026-11-08)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -4100,9 +4100,9 @@
       "title": "Build the voice pipeline on file ingest (slice A1a)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
-      "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md (Tasks 0 to 21): speech package and worker protocol, parent-channel voice messages, voice settings and draft notice v3, the voice record, opt-in and opt-out, voice lines through the host, the turn timer, Game Master and bot cadence, notices and alerts, the speech-to-text adapter, the Whisper client, the segmenter, noise gate and normaliser, the worker pipeline, control's VoiceHost and `pnpm demo --voice`. Covers AC-0396 to AC-0404 (TC-0162 to TC-0170). 2026-11-08: Tasks 0 to 20 done (code and tests, four batches, commits 6b81e84 to 2952053); Task 21 (documents, gates, independent review, PR) in progress, so the task stays In Progress. Deviations from the plan recorded by the batches: the runtime's first `voice_seats`, sent in the same turn as `ready`, is held by the supervisor's `awaitReady` (it was dropped before); control sends `voice_state` only after the worker's `worker_ready`; file ingest starts with the first `voice_state` in which a seat records and the session is not paused; control refuses a line at once (`failed`) beyond 256 pending per session (`MAX_PENDING_LINES`); the limiter also treats a call as cold while another cold call is pending; the fake script gives each role its own fake adapter outside the limiter; the `--voice` flag tests are in `services/runtime/src/demo/__tests__/voice-flag.test.ts`, and `supervisor.voice.test.ts` and `session-store.voice.test.ts` were added. Review fix wave (2026-11-08): F1 to F10 fixed test-first (see US-0070 notes); the STT in-flight cap stays per worker (A1b moves it to control), `STT_MODEL` is unread and the `voice_unavailable` notice unused in A1a, `closedTurnEnds` is unbounded for the session (noted)."
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md (Tasks 0 to 21): speech package and worker protocol, parent-channel voice messages, voice settings and draft notice v3, the voice record, opt-in and opt-out, voice lines through the host, the turn timer, Game Master and bot cadence, notices and alerts, the speech-to-text adapter, the Whisper client, the segmenter, noise gate and normaliser, the worker pipeline, control's VoiceHost and `pnpm demo --voice`. Covers AC-0396 to AC-0404 (TC-0162 to TC-0170). 2026-11-08: Tasks 0 to 20 done (code and tests, four batches, commits 6b81e84 to 2952053); Task 21 (documents, gates, independent review, PR) in progress, so the task stays In Progress. Deviations from the plan recorded by the batches: the runtime's first `voice_seats`, sent in the same turn as `ready`, is held by the supervisor's `awaitReady` (it was dropped before); control sends `voice_state` only after the worker's `worker_ready`; file ingest starts with the first `voice_state` in which a seat records and the session is not paused; control refuses a line at once (`failed`) beyond 256 pending per session (`MAX_PENDING_LINES`); the limiter also treats a call as cold while another cold call is pending; the fake script gives each role its own fake adapter outside the limiter; the `--voice` flag tests are in `services/runtime/src/demo/__tests__/voice-flag.test.ts`, and `supervisor.voice.test.ts` and `session-store.voice.test.ts` were added. Review fix wave (2026-11-08): F1 to F10 fixed test-first (see US-0070 notes); the STT in-flight cap stays per worker (A1b moves it to control), `STT_MODEL` is unread and the `voice_unavailable` notice unused in A1a, `closedTurnEnds` is unbounded for the session (noted). 2026-11-08: Task 21 done; PR #130 merged into `develop` (squash commit 76a61c0) with all 15 CI checks green, so the task is Done."
     }
   ],
   "testCases": [
@@ -5793,7 +5793,7 @@
       "relatedTask": "TASK-0106",
       "relatedAC": "AC-0404",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     }
   ],
@@ -6623,7 +6623,7 @@
       "outputTokens": 0
     },
     "US-0070": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
@@ -7735,10 +7735,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-09T00:34:57.621Z",
-  "commitSha": "2331196",
-  "buildNumber": "598",
-  "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
+  "generatedAt": "2026-11-09T01:59:36.226Z",
+  "commitSha": "76a61c0",
+  "buildNumber": "551",
+  "branch": "docs/US-0070-close-and-a1b-plan",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7882,7 +7882,7 @@
   "budget": {
     "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 13653.1,
+    "totalProjected": 12054,
     "percentUsed": 99,
     "burnRate": 0,
     "daysRemaining": null,
@@ -7975,9 +7975,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 10",
-    "rangeStart": "Jun 16",
-    "rangeEnd": "Oct 4",
+    "likelyDate": "Aug 11",
+    "rangeStart": "Jun 17",
+    "rangeEnd": "Oct 5",
     "velocityWeeks": 5,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.5
@@ -7996,7 +7996,8 @@
       "2026-11-08T17:39:47.895Z",
       "2026-11-08T18:12:59.796Z",
       "2026-11-08T22:40:07.074Z",
-      "2026-11-09T00:34:57.678Z"
+      "2026-11-09T00:34:57.678Z",
+      "2026-11-09T01:59:36.634Z"
     ],
     "doneCounts": [
       0,
@@ -8008,6 +8009,7 @@
       4,
       4,
       4,
+      6,
       6,
       6,
       6,
@@ -8026,6 +8028,7 @@
       69,
       69,
       70,
+      70,
       70
     ],
     "aiCosts": [
@@ -8041,9 +8044,11 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -8071,6 +8076,7 @@
       29,
       29,
       29,
+      29,
       29
     ],
     "openBugs": [
@@ -8086,9 +8092,11 @@
       1,
       1,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8116,10 +8124,12 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8146,7 +8156,8 @@
       1.1333333333333335,
       1.1333333333333335,
       1.1375000000000002,
-      1.1375000000000002
+      1.1375000000000002,
+      1.1328125
     ],
     "velocityByWeek": {
       "labels": [
