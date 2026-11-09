@@ -69,7 +69,11 @@ export type JoinedFrame = {
 };
 
 /** What the facilitator sees of a seat. */
-export type FacilitatorRosterEntry = { roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
+export type FacilitatorRosterEntry = {
+  roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true;
+  /** US-0071 (K6): with voice on, this seat's voice state and whether it is speaking now. The facilitator's roster only, never a peer's. */
+  voice?: VoiceState; speaking?: true;
+};
 /** What a player sees of another seat. */
 export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
 

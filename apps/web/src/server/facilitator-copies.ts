@@ -50,6 +50,22 @@ const ALERT_MESSAGES = {
   warning: "The runtime raised an alert. Details are in the facilitator log.",
 } as const;
 
+/**
+ * US-0071 (A1b Task 13, R14): the runtime's voice alert sentences (VOICE_ALERT_SENTENCES in services/runtime/src/host/voice.ts, pinned equal
+ * by facilitator-copies.test.ts). They are fixed text with no value, id or path in them, so an alert whose message is EXACTLY one of them
+ * is shown as it is; every other alert keeps the fixed line of its level. A copy, because the web app never imports the runtime.
+ */
+export const VOICE_ALERT_SENTENCES_COPY: readonly string[] = [
+  "Voice input stopped: the speech worker is not running. Participants can continue by text.",
+  "Voice input is unavailable: the speech-to-text server does not answer.",
+  "A spoken line could not be transcribed; the speaker was told.",
+  "Voice input is restarting after a fault.",
+  "Voice input is off for this session after repeated faults. Participants can continue by text.",
+  "Voice input is available again.",
+];
+const alertMessage = (e: Ev<"facilitator.alert">): string =>
+  typeof e.message === "string" && VOICE_ALERT_SENTENCES_COPY.includes(e.message) ? e.message : e.level === "info" ? ALERT_MESSAGES.info : ALERT_MESSAGES.warning;
+
 const EVENT_COPY: { [T in EventType]: (e: Ev<T>) => SessionEvent } = {
   "session.started": (e) => {
     const out: Ev<"session.started"> = { type: e.type, ...env(e), scenarioId: e.scenarioId, version: e.version, roles: kindsOnly(e.roles) };
@@ -80,7 +96,7 @@ const EVENT_COPY: { [T in EventType]: (e: Ev<T>) => SessionEvent } = {
       case "prompt_ai": return { ...base, command: e.command, roleId: e.roleId };
     }
   },
-  "facilitator.alert": (e) => ({ type: e.type, ...env(e), level: e.level === "info" ? "info" : "warning", message: e.level === "info" ? ALERT_MESSAGES.info : ALERT_MESSAGES.warning }),
+  "facilitator.alert": (e) => ({ type: e.type, ...env(e), level: e.level === "info" ? "info" : "warning", message: alertMessage(e) }),
   "session.ended": (e) => ({ type: e.type, ...env(e), reason: e.reason, ...(e.message !== undefined && { message: e.message }) }),
   "session.resumed": (e) => ({ type: e.type, ...env(e), downFromTs: e.downFromTs }),
 };

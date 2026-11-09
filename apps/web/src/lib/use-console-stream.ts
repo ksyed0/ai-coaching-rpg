@@ -16,7 +16,11 @@ import type { EventSourceLike, SessionDeps } from "./use-session";
 export const MAX_GAP_RESYNCS = 3;
 
 /** Mirrors FacilitatorRosterEntry in src/server/wire.ts (client modules import no server module). */
-export type FacilitatorRosterEntry = { roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
+export type FacilitatorRosterEntry = {
+  roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true;
+  /** US-0071: with voice on, the seat's voice state and whether it speaks now (types only here; the view uses them from Task 16). */
+  voice?: "none" | "voice" | "text_only" | "off"; speaking?: true;
+};
 /** Mirrors ConsoleScene/ConsoleCharacter in src/server/facilitator-copies.ts. A character's facts carry only their number and whether they are released: never text. */
 export type ConsoleInject = { id: string; to: string[]; content: string; atMinute?: number };
 export type ConsoleScene = PlayerScene & { injects: ConsoleInject[] };

@@ -389,7 +389,7 @@ describe("wire contract", () => {
 
 // The facilitator side of the contract: every client message wire.ts can send is accepted by the runtime's own schema, and the frames a
 // facilitator receives carry only the keys wire.ts knows.
-const FAC_ENTRY_KEYS = keys<FacilitatorRosterEntry>()(["roleId", "name", "joined", "consented", "connected", "ai"]);
+const FAC_ENTRY_KEYS = keys<FacilitatorRosterEntry>()(["roleId", "name", "joined", "consented", "connected", "ai", "voice", "speaking"]);
 const FAC_ROSTER_KEYS = keys<Extract<ServerMessage, { type: "roster"; audience: "facilitator" }>>()(["type", "audience", "entries"]);
 /** One sample of every ClientMessage variant; the Record makes a new variant a compile error until it is added here. */
 const SENT: Record<ClientMessage["type"], ClientMessage> = {

@@ -14,6 +14,9 @@ export type RosterEntry = {
   connected: boolean;
   /** US-0060: an AI player holds this seat (only ever the literal true). */
   ai?: true;
+  /** US-0071: with voice on, the seat's voice state and whether it speaks now (the BFF picks both; shown from Task 16). */
+  voice?: "none" | "voice" | "text_only" | "off";
+  speaking?: true;
 };
 export type Readiness = {
   launcherStatus: "running" | "stopped" | "ended";

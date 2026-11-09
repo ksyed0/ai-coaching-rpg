@@ -534,6 +534,18 @@ describe("console session API", () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
+  it("readiness: voice does not change missing or ready, and the roster keeps each seat's voice state and speaking (US-0071)", async () => {
+    const a = await api();
+    const v = (e: FacilitatorRosterEntry, voice: string, speaking?: unknown) => ({ ...e, voice, ...(speaking === undefined ? {} : { speaking }) }) as FacilitatorRosterEntry;
+    conn = new FakeFacConn([v(seat("a", true, true), "voice", true), v(seat("b", true, true), "text_only"), v(seat("c", true, false), "voice"), v(seat("d", true, true), "loud", 1)]);
+    const d = (await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data;
+    expect(d.missing).toEqual(["c"]);
+    expect(d.canStart).toBe(false);
+    expect(d.roster.map((e: Record<string, unknown>) => [e.roleId, e.voice, e.speaking])).toEqual([["a", "voice", true], ["b", "text_only", undefined], ["c", "voice", undefined], ["d", undefined, undefined]]);
+    conn = new FakeFacConn([v(seat("a", true, true), "voice"), v(seat("b", true, true), "none")]);
+    expect((await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data.canStart).toBe(true);
+  });
+
   it("readiness missing lists role ids only", async () => {
     const a = await api();
     conn = new FakeFacConn([
