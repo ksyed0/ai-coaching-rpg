@@ -201,4 +201,22 @@ describe("voice_unavailable on bind (US-0071, K7)", () => {
     await sam.next((m) => m.type === "voice" || m.type === "error");
     expect(sam.inbox.some((m) => m.type === "voice_notice")).toBe(false);
   });
+
+  it("a holder who opts in while unavailable gets exactly one voice_unavailable after the voice answer (F3)", async () => {
+    const h = makeHost();
+    const issued = JoinCodes.issue(PLAYERS, BIND);
+    server = await startServer({ port: 0, hosts: new Map([["local", h.host]]), log: () => {}, joinCodes: new Map([["local", issued.codes]]) });
+    h.host.voiceAvailability(false, false); // before anyone chose voice: nobody to tell yet
+    const pat = await open(server.port);
+    pat.send({ type: "join", sessionId: "local", roleId: "tech_lead", participantId: "pat", joinCode: issued.plain.tech_lead });
+    await pat.next((m) => m.type === "joined");
+    pat.send({ type: "consent", noticeVersion: "v3" });
+    pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
+    // A later answer on the same socket: every frame of the opt-in has arrived before it (so a missing notice fails fast).
+    pat.send({ type: "voice_mute", muted: false });
+    await pat.next((m) => m.type === "voice" && m.muted === false);
+    const kinds = pat.inbox.map((m) => m.type);
+    expect(kinds.indexOf("voice_notice")).toBeGreaterThan(kinds.indexOf("voice"));
+    expect(pat.inbox.filter((m) => m.type === "voice_notice")).toEqual([{ type: "voice_notice", code: "voice_unavailable" }]);
+  });
 });

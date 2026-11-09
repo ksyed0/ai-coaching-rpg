@@ -497,8 +497,8 @@ export class SessionHost {
   }
 
   /**
-   * US-0071 (K7): a holder bound the seat (a join or a reconnect, called by the server after `joined`): while voice is unavailable, a
-   * holder whose state is `voice` is told once. Never throws.
+   * US-0071 (K7): a holder bound the seat (a join or a reconnect, called by the server after `joined`) or opted in (F3, called after the
+   * `voice` answer): while voice is unavailable, a holder whose state is `voice` is told once. Never throws.
    */
   noteVoiceBound(roleId: string, participantId: string): void {
     if (!this.voiceUnavailable) return;

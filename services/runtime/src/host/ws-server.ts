@@ -450,6 +450,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           if (m.type === "voice_opt_in") host.optInVoice(who, participantId, m.noticeVersion);
           else host.optOutVoice(who, participantId);
           send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only" }); // to this socket only
+          // US-0071 (K7, F3): an opt-in while voice is unavailable is told so right after its answer (a no-op unless unavailable).
+          if (m.type === "voice_opt_in") (host as Partial<SessionHost>).noteVoiceBound?.(who, participantId);
           broadcastRoster(liveEntry!.sessionId, host, "facilitator"); // US-0071 (K6): the console's voice column
           return;
         }
