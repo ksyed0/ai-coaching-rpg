@@ -142,7 +142,7 @@ describe("console copies: voice (US-0071)", () => {
   it("the copy list equals the runtime's VOICE_ALERT_SENTENCES values", async () => {
     const { VOICE_ALERT_SENTENCES } = (await import(RUNTIME_VOICE)) as { VOICE_ALERT_SENTENCES: Record<string, string> };
     expect([...VOICE_ALERT_SENTENCES_COPY].sort()).toEqual(Object.values(VOICE_ALERT_SENTENCES).sort());
-    expect(VOICE_ALERT_SENTENCES_COPY).toHaveLength(6);
+    expect(VOICE_ALERT_SENTENCES_COPY).toHaveLength(8); // US-0072 (A1c Task 10): livekit_lost and livekit_recovered
   });
 
   it("each voice alert sentence passes through exactly, at its level", () => {

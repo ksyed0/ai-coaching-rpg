@@ -35,10 +35,14 @@ export const VOICE_ALERT_SENTENCES: Readonly<Record<VoiceAlertCode, string>> = {
   worker_restarting: "Voice input is restarting after a fault.",
   voice_off: "Voice input is off for this session after repeated faults. Participants can continue by text.",
   stt_recovered: "Voice input is available again.",
+  // US-0072 (A1c Task 10). The pages do not rejoin by themselves after an outage (K15): the recovery sentence says who must act.
+  livekit_lost: "Voice input lost the LiveKit media server. It reconnects when the server answers; participants can continue by text.",
+  livekit_recovered: "The LiveKit media server answers again; voice input is restarting. Participants who lost voice press Join with voice again.",
 };
 /** US-0071 (K8): the level each voice alert is raised at; only the recovery is good news. */
 export const VOICE_ALERT_LEVELS: Readonly<Record<VoiceAlertCode, "info" | "warning">> = {
   worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info",
+  livekit_lost: "warning", livekit_recovered: "info",
 };
 
 /**

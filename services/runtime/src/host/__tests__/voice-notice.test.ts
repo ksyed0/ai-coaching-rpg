@@ -202,11 +202,19 @@ describe("the US-0071 alert codes (Task 3, K8)", () => {
       expect(sentence).not.toContain(code);
       expect(sentence).not.toMatch(/[_0-9]/);
     }
-    expect(VOICE_ALERT_LEVELS).toEqual({ worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info" });
+    expect(VOICE_ALERT_LEVELS).toEqual({ worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info", livekit_lost: "warning", livekit_recovered: "info" });
+  });
+
+  it("US-0072 (A1c Task 10): the two LiveKit outage sentences are fixed and livekit_recovered is info", () => {
+    expect(VOICE_ALERT_SENTENCES.livekit_lost).toBe("Voice input lost the LiveKit media server. It reconnects when the server answers; participants can continue by text.");
+    // Revision 2 (K15): the pages do not rejoin by themselves; the sentence tells the facilitator so.
+    expect(VOICE_ALERT_SENTENCES.livekit_recovered).toBe("The LiveKit media server answers again; voice input is restarting. Participants who lost voice press Join with voice again.");
+    expect(VOICE_ALERT_LEVELS.livekit_lost).toBe("warning");
+    expect(VOICE_ALERT_LEVELS.livekit_recovered).toBe("info");
   });
 
   it("VOICE_ALERT_SENTENCES is exported from host/voice.ts", () => {
-    expect(Object.keys(voiceModule.VOICE_ALERT_SENTENCES).sort()).toEqual(["stt_failed", "stt_recovered", "stt_unavailable", "voice_off", "worker_down", "worker_restarting"]);
+    expect(Object.keys(voiceModule.VOICE_ALERT_SENTENCES).sort()).toEqual(["livekit_lost", "livekit_recovered", "stt_failed", "stt_recovered", "stt_unavailable", "voice_off", "worker_down", "worker_restarting"]);
     expect("VOICE_ALERT_SENTENCES" in hostModule).toBe(false); // one source: a web test may import voice.ts, never session-host.ts
   });
 });

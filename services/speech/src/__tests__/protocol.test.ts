@@ -1,6 +1,9 @@
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  ControlToWorkerSchema, MAX_HOLDERS, MAX_LIVEKIT_TOKEN_CHARS, MAX_LIVEKIT_URL_CHARS, MAX_SILENT_MS, MAX_VOICE_TEXT_CHARS, REBIND_PENDING_PARTICIPANT, SegmentIdSchema,
+  ControlToWorkerSchema, EXIT_LIVEKIT_LOST, MAX_HOLDERS, MAX_LIVEKIT_TOKEN_CHARS, MAX_LIVEKIT_URL_CHARS, MAX_SILENT_MS, MAX_VOICE_TEXT_CHARS, REBIND_PENDING_PARTICIPANT, SegmentIdSchema,
   VOICE_REFUSALS, WorkerMessageSchema,
 } from "../protocol.js";
 
@@ -19,6 +22,35 @@ describe("worker protocol constants", () => {
   it("a segment id is a file-safe id", () => {
     for (const ok of [seg, "a", "a".repeat(64), "a_b-c"]) expect(SegmentIdSchema.safeParse(ok).success, ok).toBe(true);
     for (const bad of ["", "../x", "A", "a".repeat(65), "a/b", "a.b", 5, null]) expect(SegmentIdSchema.safeParse(bad).success, String(bad)).toBe(false);
+  });
+});
+
+/** Every non-test .ts file under `dir`. */
+function sources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const f = path.join(dir, e.name);
+    if (e.isDirectory()) return e.name === "__tests__" || e.name === "node_modules" ? [] : sources(f);
+    return e.name.endsWith(".ts") ? [f] : [];
+  });
+}
+
+describe("EXIT_LIVEKIT_LOST, one source (US-0072, A1c Task 10)", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const speechSrc = path.join(here, "..");
+  const controlSrc = path.join(here, "../../../control/src");
+
+  it("the protocol module exports it as 3", () => { expect(EXIT_LIVEKIT_LOST).toBe(3); });
+
+  it("main.ts and the protocol agree on EXIT_LIVEKIT_LOST: main imports it and declares no copy, nor exits with a bare 3", () => {
+    const main = readFileSync(path.join(speechSrc, "main.ts"), "utf8");
+    expect(main).toMatch(/import \{[^}]*\bEXIT_LIVEKIT_LOST\b[^}]*\} from "\.\/protocol\.js"/);
+    expect(main).toContain("process.exit(EXIT_LIVEKIT_LOST)");
+    expect(main).not.toMatch(/process\.exit\(3\)/);
+  });
+
+  it("only speech's protocol.ts declares it, in speech and in control (control reads it from @acr/speech/protocol)", () => {
+    const declaring = [...sources(speechSrc), ...sources(controlSrc)].filter((f) => /\bEXIT_LIVEKIT_LOST\s*(:[^=]+)?=[^=>]/.test(readFileSync(f, "utf8")));
+    expect(declaring.map((f) => path.relative(speechSrc, f))).toEqual(["protocol.ts"]);
   });
 });
 

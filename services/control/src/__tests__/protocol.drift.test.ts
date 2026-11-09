@@ -24,7 +24,7 @@ describe("protocol copy", () => {
     expect(VOICE_REFUSALS).toEqual(RUNTIME_VOICE_REFUSALS);
     expect(SPEECH_VOICE_REFUSALS).toEqual(RUNTIME_VOICE_REFUSALS);
     expect(VOICE_ALERT_CODES).toEqual(RUNTIME_VOICE_ALERT_CODES);
-    expect(VOICE_ALERT_CODES).toEqual(["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered"]);
+    expect(VOICE_ALERT_CODES).toEqual(["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered", "livekit_lost", "livekit_recovered"]);
     expect(REBIND_PENDING_PARTICIPANT).toBe(REBIND_PENDING);
   });
 
@@ -126,6 +126,8 @@ describe("protocol copy", () => {
       ...RUNTIME_VOICE_ALERT_CODES.map((code) => ({ type: "voice_alert", code })),
       // US-0071: the new alert codes and the availability message (fire-and-forget).
       { type: "voice_alert", code: "voice_off" }, { type: "voice_alert", code: "worker_restarting" }, { type: "voice_alert", code: "stt_recovered" },
+      // US-0072 (A1c Task 10): a LiveKit outage and its end.
+      { type: "voice_alert", code: "livekit_lost" }, { type: "voice_alert", code: "livekit_recovered" },
       { type: "voice_availability", available: false, off: false }, { type: "voice_availability", available: true, off: false },
       { type: "voice_availability", available: true, off: true }];
     const bad: unknown[] = [{ type: "reissue", requestId: "r1" }, { type: "reissue", requestId: "r1", roleId: "facilitator" }, { type: "reissue", requestId: "r 1", roleId: "cfo" },

@@ -41,8 +41,11 @@ const BotAlertSchema = z.strictObject({ type: z.literal("bot_alert"), roleId: Ro
  */
 export const VOICE_REFUSALS = ["voice_off", "not_started", "unknown_role", "ai_role", "not_holder", "not_recording", "paused", "not_in_scene", "ended", "failed"] as const;
 export type VoiceRefusal = (typeof VOICE_REFUSALS)[number];
-/** US-0071 adds `worker_restarting`, `voice_off` and `stt_recovered` (the last one an info alert). */
-export const VOICE_ALERT_CODES = ["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered"] as const;
+/**
+ * US-0071 adds `worker_restarting`, `voice_off` and `stt_recovered` (the last one an info alert). US-0072 (A1c Task 10) adds
+ * `livekit_lost` (a LiveKit outage: voice waits for the media server without spending the restart budget) and `livekit_recovered` (info).
+ */
+export const VOICE_ALERT_CODES = ["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered", "livekit_lost", "livekit_recovered"] as const;
 export type VoiceAlertCode = (typeof VOICE_ALERT_CODES)[number];
 const MAX_VOICE_TEXT_CHARS = 2000;
 const MAX_SILENT_MS = 60_000;
