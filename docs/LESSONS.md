@@ -288,3 +288,44 @@ _Learned when BUG-0026's roster test read `before` after the facilitator's frame
 **Rule:** When a request carries an authenticated credential (a sealed AES-GCM cookie, a signed token), verify it FIRST and send a valid one straight to its own per-credential budget; consult and charge the per-address failure throttle only when verification fails. A per-address block checked before the credential lets junk from one person behind a shared address (a workshop NAT) lock out every valid holder behind it, and protects nothing, because a forger cannot produce a credential that verifies. Keep each failure class in its own throttle table, so a flood of one kind cannot saturate the table another route needs.
 _Learned in BUG-0025: the report read and write routes checked the address block before unsealing the cookie, in the same table as the enter route, so forged cookies could answer 429 to valid readers and, once the table was saturated, to valid enters._
 **Date:** 2026-11-07
+
+## L-0037 — After a realtime reconnect, ask again for what you subscribed to, and never wait for ever on the server's answer
+
+@agent: all
+
+**Rule:** A subscription is state on the server; a full reconnect can drop it without any event telling you. Keep the set of things you want, re-request each one that has no delivered track when the connection reports `Reconnected`, and bound every wait for a subscription (or any other server answer) with an injected timer, so a request the server silently drops ends in a bounded retry or a visible failure instead of a component that looks healthy and hears nothing.
+_Learned in the A1b live checks (US-0071, D59 and D60): after a full reconnect rtc-node never answered the re-subscribe sent while reconnecting (4 frames in 60 s), and a refused subscription was never answered either, so a read waited for ever; one plain re-request after `Reconnected` brought the audio back, and a 10 s `SUBSCRIBE_WAIT_MS` now ends a read nobody answers._
+**Date:** 2026-11-09
+
+## L-0038 — Attribute buffered data by the generation that produced it, checked per item, not by the channel it arrives on
+
+@agent: all
+
+**Rule:** When a channel (a seat, a role, a socket slot) can change owner while data from the old owner is still buffered, unsubscribing is not enough: frames already queued keep arriving. Tag each item at its source with an owner generation and drop it at the consumer when the generation is no longer current, item by item. Closing the old stream early is defence in depth; the per-item check is the guarantee, and a race test with the check mutated away must fail.
+_Learned in A1b (US-0071, review finding behind Task 7): rtc-node's `AudioStreamSource.teardown` keeps already-buffered frames readable after `setSubscribed(false)`, so a reissued seat would have recorded the old holder's last words under the new holder's name without the generation check in `TrackPipeline`._
+**Date:** 2026-11-09
+
+## L-0039 — A fake must hang where the real thing hangs
+
+@agent: all
+
+**Rule:** A test double that settles a pending read, a `return()` or a request at once hides every hang the real library has. Model the real ordering in the fake (a `return()` queued behind a pending `next()`, an unsubscribe that takes effect late, an answer that never comes) and keep a test that proves the code survives it; a component excluded from coverage because it wraps the real library needs a live check that exercises it directly.
+_Learned in A1b (US-0071, batch 3 review F11 and the live checks): the fake room settled a pending `next()` on `return()` and answered every subscribe, so a deaf seat after a dropped stream and a read that waited for ever passed every unit test and showed up only against a real LiveKit server._
+**Date:** 2026-11-09
+
+## L-0040 — Never hang state on a rate-limited or deferred alert path
+
+@agent: all
+
+**Rule:** An alert path that is rate limited, or kept until later (before a session starts), drops or delays messages by design. Anything that changes behaviour (availability, voice off, a mute) needs its own message, applied first, with no rate limit and also before the start; the alert then only informs a human.
+_Learned in the A1b plan review (US-0071, K7 and R23): Whisper being unhealthy was going to ride the `stt_unavailable` alert, which the runtime limits to one per 30 s and keeps unraised before the start, so a page could have kept saying "recording" while nothing was transcribed; `voice_availability` became a separate parent message._
+**Date:** 2026-11-09
+
+## L-0041 — Read the installed library source before trusting what its documentation implies
+
+@agent: all
+
+**Rule:** For any behaviour a security or privacy property depends on (what a mute does, what a 404 means, where a logger lives), read the pinned version's installed source and pin the answer with a test. Documentation and method names describe intent, not the edge cases.
+_Learned in A1b (US-0071): livekit-client 2.23.0's `setMicrophoneEnabled(false)` only mutes the published track (D40: the page now unpublishes it); rtc-node 1.2.1's logger is not exported and logs identities at debug level (D10: silenced by file path); `livekit-server-sdk` maps a non-JSON 404 to a twirp error with no code, so "any 404 is not found" made removals silent no-ops against the wrong server (batch 2 F1)._
+**Date:** 2026-11-09
+
