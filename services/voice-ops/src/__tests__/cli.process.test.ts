@@ -26,7 +26,8 @@ function findOnPath(name: string): string | null {
   return null;
 }
 const PNPM = findOnPath("pnpm");
-const PNPM_IS_COREPACK_SHIM = PNPM !== null && readFileSync(PNPM).subarray(0, 4096).toString("latin1").includes("COREPACK");
+/** pnpm 9 on Linux exits 0 after a group SIGINT whatever the CLI's code (corepack's shim and the npm-installed pnpm.cjs alike). */
+const WRAPPER_MAY_EXIT_0 = process.platform === "linux";
 
 function portTaken(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -175,9 +176,10 @@ describe("the root voice scripts as real processes (US-0072, A1c Tasks 7 and 9)"
     const r = await done;
     // the CLI's own last line: it ran to the end of its rollback (the wrappers did not kill it first)
     expect(r.out).toContain("voice-ops: interrupted by SIGINT: what this run started has been rolled back");
-    // pnpm passes the CLI's 130 on; corepack's node shim for pnpm (the Linux container) was seen to exit 0 instead: only that exact
-    // code is allowed, and only for the shim (review B2 F3)
-    expect(r.code === 130 || r.signal === "SIGINT" || (PNPM_IS_COREPACK_SHIM && r.code === 0)).toBe(true);
+    // pnpm's own exit code is pnpm's, not the CLI's: on macOS pnpm 9.15.9 passes the CLI's 130 on; on Linux it was seen to exit 0 after
+    // a group SIGINT, both as corepack's shim (review B2 F3) and as the npm-installed pnpm.cjs that pnpm/action-setup uses (PR #135 CI,
+    // reproduced in node:22). So 0 is accepted on Linux only, never any other code; the CLI's OWN 130 is proven by the direct test below.
+    expect(r.code === 130 || r.signal === "SIGINT" || (WRAPPER_MAY_EXIT_0 && r.code === 0), `pnpm exited with code ${String(r.code)}, signal ${String(r.signal)}`).toBe(true);
     await vi.waitFor(() => { expect(isAlive(w.pid)).toBe(false); }, { timeout: 20_000, interval: 100 });
     expect(existsSync(path.join(s.stateDir, "state.json"))).toBe(false);
     expect(existsSync(path.join(s.stateDir, "livekit.env"))).toBe(false);
@@ -185,6 +187,26 @@ describe("the root voice scripts as real processes (US-0072, A1c Tasks 7 and 9)"
     expect(r.out).toContain("voice:up: interrupted: rolling back what this run started");
     for (const v of secrets(s)) expect(r.out).not.toContain(v);
   });
+  it("the CLI itself (no pnpm) exits 130 after its rollback when SIGINT reaches its group during compose up", async (ctx) => {
+    if (skip) { ctx.skip(); return; }
+    const s = setup({ holdUp: true });
+    const child = spawn(process.execPath, ["--import", "tsx", "src/cli.ts", "up"], { cwd: path.join(s.root, "services", "voice-ops"), env: s.env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    cleanups.push(() => killQuietly(child.pid!, true));
+    let out = "";
+    child.stdout.on("data", (c: Buffer) => { out += c.toString(); });
+    child.stderr.on("data", (c: Buffer) => { out += c.toString(); });
+    const done = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.on("close", (code, signal) => resolve({ code, signal })));
+    await vi.waitFor(() => { expect(dockerRecord(s).some((r) => r.event === "up-holding")).toBe(true); }, { timeout: 60_000, interval: 100 });
+    const w = whisperRecord(s);
+    process.kill(-child.pid!, "SIGINT");
+    const r = await done;
+    expect(r, `the CLI exited with code ${String(r.code)}, signal ${String(r.signal)}`).toEqual({ code: 130, signal: null });
+    expect(out).toContain("voice-ops: interrupted by SIGINT: what this run started has been rolled back");
+    await vi.waitFor(() => { expect(isAlive(w.pid)).toBe(false); }, { timeout: 20_000, interval: 100 });
+    expect(existsSync(path.join(s.stateDir, "state.json"))).toBe(false);
+    expect(dockerRecord(s).some((x) => x.argv?.includes("down"))).toBe(true);
+  });
+
   it("pnpm -s voice:check from the repository root with nothing running exits 1 and prints no secret", async (ctx) => {
     if (skip) { ctx.skip(); return; }
     const s = setup();
