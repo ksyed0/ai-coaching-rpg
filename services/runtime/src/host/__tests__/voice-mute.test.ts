@@ -63,6 +63,20 @@ describe("voice mute (US-0071, K5)", () => {
     expect(recording(h, "tech_lead")).toBe(true);
   });
 
+  it("mute is accepted in any state of a human seat (none, text_only) and is kept into a later opt-in (F5 decision: fail safe)", async () => {
+    const h = makeHost();
+    await startAll(h);
+    expect(h.host.voiceStateOf("tech_lead")).toBe("none");
+    expect(code(() => h.host.muteVoice("tech_lead", "p-tech_lead", true))).toBeUndefined();
+    h.host.optOutVoice("account_manager", "p-account_manager");
+    expect(code(() => h.host.muteVoice("account_manager", "p-account_manager", true))).toBeUndefined();
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    expect(h.host.voiceMutedOf("tech_lead")).toBe(true);
+    expect(recording(h, "tech_lead")).toBe(false); // muted before choosing voice: the opt-in does not start recording
+    h.host.muteVoice("tech_lead", "p-tech_lead", false);
+    expect(recording(h, "tech_lead")).toBe(true);
+  });
+
   it("mute is refused voice_off, forbidden for an AI seat, not_joined for a non-holder", async () => {
     const off = makeHost({ voice: { enabled: false } });
     off.host.join("tech_lead", "p1");

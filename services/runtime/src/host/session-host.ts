@@ -466,7 +466,9 @@ export class SessionHost {
   /**
    * US-0071 (K5): the holder mutes or unmutes. In memory only: never written, never audited, cleared when the holder is released.
    * Muted, the seat does not record (`recording` false at once) and the runtime refuses its lines. Refusals, in order: voice_off
-   * (disabled), forbidden (an AI seat), not_joined (not the holder of a human player role).
+   * (disabled), forbidden (an AI seat), not_joined (not the holder of a human player role). F5 decision: accepted in EVERY state of a
+   * human seat (`none`, `text_only`, and `off` after a failed opt-out), never refused: a mute can only stop recording, so refusing it
+   * would fail open (a page that mutes before choosing voice would be recorded on its opt-in); the `voice` answer reports the real state.
    */
   muteVoice(roleId: string, participantId: string, muted: boolean): void {
     if (!this.voice.enabled) throw new HostError("voice_off");

@@ -390,8 +390,9 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
               ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
-              // US-0070: only this seat's own voice state, only while voice is on (a text-only session's joined is unchanged).
-              ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId) } } : {}),
+              // US-0070: only this seat's own voice state, only while voice is on (a text-only session's joined is unchanged). US-0071
+              // (F5): with its mute state (kept when the same holder rebinds without a release, e.g. a superseded socket).
+              ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId), muted: h.voiceMutedOf(m.roleId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -449,7 +450,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           if (isFacilitator || !participantId) return fail("forbidden", "only a player may choose voice");
           if (m.type === "voice_opt_in") host.optInVoice(who, participantId, m.noticeVersion);
           else host.optOutVoice(who, participantId);
-          send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only" }); // to this socket only
+          // To this socket only. US-0071 (F5): every `voice` answer carries the seat's real mute state (it outlives an opt-out).
+          send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only", muted: host.voiceMutedOf(who) });
           // US-0071 (K7, F3): an opt-in while voice is unavailable is told so right after its answer (a no-op unless unavailable).
           if (m.type === "voice_opt_in") (host as Partial<SessionHost>).noteVoiceBound?.(who, participantId);
           broadcastRoster(liveEntry!.sessionId, host, "facilitator"); // US-0071 (K6): the console's voice column
@@ -459,7 +461,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           // US-0071 (K5): refusals (voice_off, forbidden, not_joined) come back as HostError below. In memory only, never logged.
           if (isFacilitator || !participantId) return fail("forbidden", "only a player may mute their own voice");
           host.muteVoice(who, participantId, m.muted);
-          send({ type: "voice", state: host.voiceStateOf(who), muted: m.muted }); // to this socket only
+          send({ type: "voice", state: host.voiceStateOf(who), muted: host.voiceMutedOf(who) }); // to this socket only
           return;
         }
         if (m.type === "start") {

@@ -87,10 +87,10 @@ export type ServerMessage =
       /** US-0054: players only, when the server keeps seats: the notice to agree to and whether this participant has agreed. Never another role's. */
       consent?: { noticeVersion: string; notice: string; given: boolean };
       /** US-0070: players only, when voice is enabled and the server keeps seats, for a human seat: this seat's own voice state. Never another role's. */
-      voice?: { state: VoiceState } }
+      voice?: { state: VoiceState; muted: boolean } }
   | { type: "event"; event: SessionEvent }
   // US-0070: answers an accepted voice_opt_in ("voice") or voice_opt_out ("text_only"), to the sender only. US-0071: an accepted
-  // voice_mute answers the seat's current state and `muted` (only on that answer).
+  // voice_mute answers the seat's current state; F5: every `voice` answer carries the seat's real `muted` (sent whenever voice is on).
   | { type: "voice"; state: VoiceState; muted?: boolean }
   // US-0070: why the speaker's last segment did not become a line; to that role's live socket only, never logged, never to anyone else.
   | { type: "voice_notice"; code: VoiceNoticeCode }
