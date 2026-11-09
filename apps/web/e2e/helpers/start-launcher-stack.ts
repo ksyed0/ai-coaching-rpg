@@ -48,6 +48,11 @@ export type LauncherStack = {
   /** US-0071: the web server's LIVEKIT_URL origin (`ws://127.0.0.1:<port>`, a port nothing listens on), when the stack has one. */
   livekitOrigin?: string;
   /**
+   * US-0071: the fake speech-to-text's call record (`<script>.calls.jsonl`: one `{"roleId","n"}` line per transcription, never text),
+   * when the stack has voice. It may not exist before the first call.
+   */
+  sttCalls?: string;
+  /**
    * US-0071: SIGKILLs every speech worker of the control service's group (each process whose command line holds the speech entry);
    * waits up to the start timeout for one to exist first. The control service restarts them by itself (bounded backoff).
    */
@@ -64,25 +69,35 @@ export type LauncherStackOptions = {
    * the file ingest with an empty directory: no audio is ever read) and, unless `livekitUrl` is false, LIVEKIT_URL in the web server
    * set to a loopback port nothing listens on (an explicit port, as the web config requires). No LiveKit key or secret is set anywhere:
    * the control service then answers every token request `voice_unavailable` (it issues tokens only with SPEECH_INGEST=livekit), and
-   * no LiveKit server exists in the e2e run.
+   * no LiveKit server exists in the e2e run. The opt-in live spec (`voice-live.spec.ts`, VOICE_LIVE=1) sets `live` instead.
    */
-  voice?: { livekitUrl?: boolean };
+  voice?: {
+    livekitUrl?: boolean;
+    /**
+     * US-0071 (A1b Task 18, opt-in live checks only): a REAL LiveKit server. The control service then runs SPEECH_INGEST=livekit with
+     * these keys and LIVEKIT_HOST (its speech workers subscribe to the seat rooms), and the web server's LIVEKIT_URL is `url`. Never
+     * set in the default suite (no LiveKit server there).
+     */
+    live?: { url: string; host: string; apiKey: string; apiSecret: string };
+    /** The fake speech-to-text script: role id -> the lines its segments give, in order (default: none, every segment is empty). */
+    sttLines?: Record<string, string[]>;
+  };
 };
 
 /** The voice settings of the control service (US-0071): every path is inside `dir`, a private temp directory of this stack. */
-async function voiceEnv(dir: string): Promise<Record<string, string>> {
+async function voiceEnv(dir: string, v: NonNullable<LauncherStackOptions["voice"]>): Promise<{ env: Record<string, string>; script: string }> {
+  const script = path.join(dir, "stt-script.json");
+  await writeFile(script, JSON.stringify(v.sttLines ?? {}), { mode: 0o600 });
+  const common = { VOICE_ENABLED: "1", CONSENT_NOTICE_VERSION: "v3", STT_PROVIDER: "fake", STT_FAKE_SCRIPT: script };
+  if (v.live) {
+    return {
+      script,
+      env: { ...common, SPEECH_INGEST: "livekit", LIVEKIT_API_KEY: v.live.apiKey, LIVEKIT_API_SECRET: v.live.apiSecret, LIVEKIT_HOST: v.live.host },
+    };
+  }
   const ingest = path.join(dir, "ingest");
   await mkdir(ingest, { mode: 0o700 });
-  const script = path.join(dir, "stt-script.json");
-  await writeFile(script, "{}", { mode: 0o600 });
-  return {
-    VOICE_ENABLED: "1",
-    CONSENT_NOTICE_VERSION: "v3",
-    STT_PROVIDER: "fake",
-    STT_FAKE_SCRIPT: script,
-    SPEECH_INGEST: "file",
-    SPEECH_INGEST_DIR: ingest,
-  };
+  return { script, env: { ...common, SPEECH_INGEST: "file", SPEECH_INGEST_DIR: ingest } };
 }
 
 async function startControl(
@@ -284,12 +299,16 @@ export async function startLauncherStack(
     const controlUrl = `http://127.0.0.1:${controlPort}`;
     let controlExtra: Record<string, string> = {};
     let livekitOrigin: string | undefined;
+    let sttScript: string | undefined;
     if (o.voice) {
       const voiceDir = await mkdtemp(path.join(os.tmpdir(), "acr-voice-e2e-"));
       cleanups.push(() => rm(voiceDir, { recursive: true, force: true }));
-      controlExtra = await voiceEnv(voiceDir);
-      // A port that was free a moment ago and that nothing here listens on: every LiveKit connection to it fails.
-      if (o.voice.livekitUrl !== false) livekitOrigin = `ws://127.0.0.1:${await freePort()}`;
+      const v = await voiceEnv(voiceDir, o.voice);
+      controlExtra = v.env;
+      sttScript = v.script;
+      // A port that was free a moment ago and that nothing here listens on: every LiveKit connection to it fails (unless live).
+      if (o.voice.live) livekitOrigin = o.voice.live.url;
+      else if (o.voice.livekitUrl !== false) livekitOrigin = `ws://127.0.0.1:${await freePort()}`;
     }
     let control = await startControl(controlPort, dataDir, serviceToken, out, controlExtra);
     cleanups.push(() => stopControl(control));
@@ -325,6 +344,7 @@ export async function startLauncherStack(
       crashRuntimes: () => crashRuntimesOf(control, controlUrl, serviceToken),
       runtimeCount: async () => (control.pid === undefined ? 0 : (await runtimePids(control.pid)).length),
       ...(livekitOrigin !== undefined && { livekitOrigin }),
+      ...(sttScript !== undefined && { sttCalls: `${sttScript}.calls.jsonl` }),
       crashSpeechWorkers: () => crashSpeechOf(control),
       stop: cleanup,
     };
