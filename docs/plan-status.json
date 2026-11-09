@@ -8225,9 +8225,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-09T16:07:45.655Z",
-  "commitSha": "0a14263",
-  "buildNumber": "559",
+  "generatedAt": "2026-11-09T16:36:31.638Z",
+  "commitSha": "4f6efb1",
+  "buildNumber": "573",
   "branch": "feature/EPIC-0003-US-0072-voice-operations",
   "sessionTimeline": [
     {
@@ -8467,7 +8467,7 @@
   "completion": {
     "likelyDate": "Aug 29",
     "rangeStart": "Jul 1",
-    "rangeEnd": "Oct 26",
+    "rangeEnd": "Oct 27",
     "velocityWeeks": 5,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.4
@@ -8498,7 +8498,7 @@
       "2026-11-09T09:05:12.201Z",
       "2026-11-09T15:05:52.083Z",
       "2026-11-09T15:35:57.568Z",
-      "2026-11-09T16:07:45.748Z"
+      "2026-11-09T16:36:31.736Z"
     ],
     "doneCounts": [
       0,
