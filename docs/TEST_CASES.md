@@ -2911,8 +2911,8 @@ Preconditions: A checkout with dependencies installed; no real whisper-server, L
 Steps:
   1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/whisper.test.ts src/__tests__/up.test.ts src/__tests__/down.test.ts src/__tests__/cli.process.test.ts`.
 Expected Result: whisper-server is started with exactly `--host 127.0.0.1 --port <port> --request-path /<32 hex> -m <STT_MODEL_FILE> -sns --public <empty dir> --tmp-dir <state>/tmp` and never `--convert`; a missing model file is refused before anything is generated or started; compose is started with `up -d --no-build --wait --wait-timeout 60 --quiet-pull`; a second `voice:up` says "already running"; a changed setting is refused; repair restarts only what is missing; `voice:down` stops everything and clears the state.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected with stand-ins only (stub `whisper-server` and `docker`, a LiveKit stand-in on 127.0.0.1:7880, a private repository copy): the exact whisper arguments, never `--convert`; the model refusal before anything is generated; compose `up -d --no-build --wait --wait-timeout 60 --quiet-pull`; rollback on a failure and on SIGINT through `pnpm -s voice:up` (the last line says whether it completed); repair mode; "already running"; `voice:down` leaving a foreign or reused pid alone. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`). The real stack: TC-0204.
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story. The real stack is run only in the plan's Task 15 owner-approved run.
 
@@ -2925,8 +2925,8 @@ Preconditions: A checkout with dependencies installed; private temporary directo
 Steps:
   1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/env-file.test.ts src/__tests__/up.test.ts`.
 Expected Result: The key (`API` + 24 hex), the secret (64 hex) and `STT_URL` (`http://127.0.0.1:<20000..32767>/<32 hex>`) are appended once, only when absent, as one block; existing bytes are kept; the file stays mode 600 and is replaced atomically; a symlink, a directory, a missing file (the sentence says to run `./run.sh` first), mode 0644 (the sentence says `chmod 600 .env`), half a key pair, an empty managed assignment, the public `devkey`/`secret` pair, a short secret, a bad or `[::1]` `STT_URL`, a file changed between the read and the rename, a git-tracked `.env` and a real environment that sets a managed name are refused with the file byte-identical; no value appears in any message.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected: the refusal table (symlink, hard link, missing, not owned, group- or world-readable, over 1 MiB, tracked by git case-insensitively, half a pair, empty managed line, `devkey`/`secret`, bad key characters, short or non-loopback `STT_URL`, a managed name in the shell) leaves the file byte-identical; one appended block, existing bytes (non-UTF-8 included) kept, 0600 under any umask, the identity recheck before the rename; nothing printed. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -2940,8 +2940,8 @@ Steps:
   1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose.test.ts`.
   2. `docker compose -f deploy/compose/voice.yml config --quiet` with placeholder values (interpolation only, nothing pulled).
 Expected Result: Both images are pinned by digest; LiveKit never runs with `--dev`, takes its keys only from the private `livekit.env`, publishes its API on `127.0.0.1` only and its media on the node address only; the Caddyfile has `admin off`, no `log`, no `trusted_proxies`, no `X-Forwarded-For` directive, and forwards only `/rtc*` to LiveKit without the cookie.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected: `compose-files.test.ts` and `compose.test.ts` pin both digests, no `--dev`, the private `livekit.env`, the API on 127.0.0.1, the media on the node address, `logging.level: error`, `no-new-privileges`, `restart: on-failure:5`, the Caddyfile (`admin off`, no site `log`, the ERROR `log default` filter, no `trusted_proxies` or `X-Forwarded-For`, `/rtc*` only with `header_up -Cookie`); both `docker compose -f deploy/compose/voice.yml --env-file /dev/null config --quiet` runs (lan and local placeholders) exit 0, nothing pulled. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -2955,8 +2955,8 @@ Steps:
   1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/checks src/__tests__/check.test.ts`.
   2. From the repository root against a private copy: `pnpm -s voice:check`.
 Expected Result: Whisper health and its cross-origin answer, LiveKit reachability and the keys check, a changed node address, the certificate (warning under 21 days), the hostname's resolution, free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and the versions are reported; exit 0, 1 or 2; no output line holds a secret.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected with injected seams and stand-ins: one OK/WARN/FAIL/SKIP line per check, exit 0/1/2, no secret in the report (marker scan), `pnpm -s voice:check` from the root of a private copy exits 1 with nothing running. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -2970,8 +2970,8 @@ Steps:
   1. `pnpm --filter @acr/web exec playwright test web-bind`.
   2. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose.test.ts` (the Caddyfile pins).
 Expected Result: A connection to `127.0.0.1:<port>` is answered; one to the machine's LAN address on the same port is refused; the Caddyfile sets no `trusted_proxies` and no `X-Forwarded-For` header; the BFF still refuses a two-entry list.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected: `web-bind.spec.ts` answers on 127.0.0.1 and is refused on the LAN address; the Caddyfile pins (in `compose-files.test.ts`); `requestAddress refuses a two-entry list` (characterisation). 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -2984,8 +2984,8 @@ Preconditions: A checkout with dependencies installed; fake worker, fake probe a
 Steps:
   1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/livekit-outage.test.ts src/__tests__/voice/restart.test.ts`.
 Expected Result: Exit 3 with LiveKit unreachable is an outage: not counted, one `livekit_lost` alert, probes after 2, 4, 8, 16 and then every 30 s, a new worker and one `livekit_recovered` alert when LiveKit answers; exit 3 with LiveKit answering, any other exit, and a LiveKit that dies again within 60 s of a recovery are counted and reach voice off after the fifth failed restart.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected with fakes (`livekit-outage.test.ts` 31 tests, `livekit-probe.test.ts`, `restart.test.ts`, `supervisor.voice.test.ts`, `main.test.ts` wiring): not counted, one `livekit_lost`, probes 2, 4, 8, 16 s after the previous answer then every 30 s, one `livekit_recovered` and a new worker; exit 3 with LiveKit answering, a rejected or hanging probe (watchdog), other exits and a re-loss within 60 s of a recovery count; end and shutdown cancel probes and ignore late answers; every listed mutation fails a test. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`). Not yet live: the real outage is TC-0204.
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story. The live claim waits for the plan's Task 15 real outage run.
 
@@ -2998,8 +2998,8 @@ Preconditions: A checkout with dependencies installed.
 Steps:
   1. From `services/control` and `services/voice-ops`: the timing tests of the plan's Task 12.
 Expected Result: With `VOICE_TIMING_LOG=1` each appended voice line logs only the two millisecond values; `voice:timings <log>` prints count, p50, p95 and max.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected: `voice-host.test.ts` (one line per ack from the injected clock, nothing for a refused or timed-out line), `timing-log.test.ts` (0600, no link, no FIFO, 1 MiB cap, marker scan: no text, role, participant, segment, token or path), `timing-chain.test.ts` (`end_to_append_ms` from the voice-detector end, the hangover included), `timings.test.ts` and the `pnpm -s voice:timings` process test (nearest-rank p50/p95, exit 0/1/2). 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -3012,8 +3012,8 @@ Preconditions: The branch's documents.
 Steps:
   1. Read `docs/VOICE_RUNBOOK.md` and run its commands' tests (the plan's Task 14).
 Expected Result: Start, check, stop, the secure context, router DNS rebinding, the macOS firewall and the native LiveKit failure, headsets, the backup exclusion, the same-room cross-talk risk and the owner-run room test with how to read its results are covered.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected: `docs/VOICE_RUNBOOK.md` sections 1 to 11 (start, check, stop, the secure context, DNS rebinding, the firewall and the native LiveKit failure, the two-device check, headsets, backups, failures including the LiveKit outage and the rejoin click, the room test, reading the results, the owner checklist); its commands and sentences checked against `services/voice-ops` and control. Its real-run steps are TC-0204.
+Status: [x] Pass
 Defect Raised: None
 Notes: Filed 2026-11-09 with the story.
 
@@ -3026,7 +3026,105 @@ Preconditions: The branch's documents.
 Steps:
   1. Read the threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, `findings.md` and the memory files; check the voice settings tests that `VOICE_ENABLED` defaults to `0`.
 Expected Result: Each document describes A1c; `findings.md` lists the two images (no new npm dependency); `VOICE_ENABLED` stays `0` by default.
+Actual Result: As expected: the threat model ("Voice operations, slice A1c"), ROLLBACK ("US-0072"), ARCHITECTURE (deviation note), README ("6. Voice (pre-production)"), `.env.example`, `findings.md` (the two images, no new npm dependency) and the memory files describe A1c; the voice settings tests still default `VOICE_ENABLED` to 0. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0198: An `.env` that is not what `voice:up` expects is refused or merged without changing one existing byte
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0418
+Type: Security
+Preconditions: Fabricated `.env` files in private temporary directories (never the owner's `.env`).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/env-file.test.ts` (the `refuses and leaves the file byte-identical for ...` table, `a file without a final newline gets one before the block`).
+Expected Result: A symlink, mode 0644, only `LIVEKIT_API_KEY`, an empty `LIVEKIT_API_SECRET=`, the public `devkey`/`secret` pair, a quoted value, Windows line ends and no final newline are refused or merged with the existing bytes an exact prefix; only variable names are printed.
+Actual Result: As expected. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 1.
+
+TC-0199: `voice:up` failing half way or interrupted leaves nothing `voice:down` cannot stop
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417
+Type: Functional
+Preconditions: Stand-ins only (stub executables, fake world).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/up.test.ts src/__tests__/cli.process.test.ts` (`compose failure stops whisper-server and clears the state`, `SIGINT during the health wait rolls back`, `repair: a dead whisper-server is started again and compose is not taken down`, `SIGINT through pnpm -s voice:up rolls back`).
+Expected Result: Every start is recorded before the next; a failure or an interrupt rolls back only what this run started; a refusal or an interrupt before the first change leaves a running stack's state untouched; repair never runs `compose down`.
+Actual Result: As expected with stand-ins. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 2. A real Ctrl-C during a real image pull: TC-0204.
+
+TC-0200: `voice:down` never signals a process that is not the whisper-server `voice:up` started
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417
+Type: Security
+Preconditions: Stand-ins only.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/run.test.ts src/__tests__/whisper.test.ts src/__tests__/down.test.ts` (`isOurWhisper is not_ours for a live pid of another program (the test's own pid)`, `down leaves a foreign process alone`, the repeated autumn hour, a `ps` that cannot answer).
+Expected Result: A pid whose command name, start time or `--port` differ is left alone; an unanswerable `ps` keeps the record and asks to run `voice:down` again; no SIGKILL without a fresh identity check.
+Actual Result: As expected. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 3.
+
+TC-0201: The LiveKit outage table, the crash loop and the probe faults
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0422
+Type: Functional
+Preconditions: Fake workers, a scripted probe, manual timers.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/livekit-outage.test.ts` (`a LiveKit that dies again within 60 s of each recovery turns voice off after the fifth such cycle`, `an outage longer than the whole restart budget never turns voice off`, the review C watchdog and fallback tests).
+Expected Result: A LiveKit restart of 10 to 60 s keeps voice (unavailable, then back, one alert each way, no flapping availability); a LiveKit-shaped fault while LiveKit answers reaches voice off after the fifth failed restart, and so does a LiveKit that dies again within 60 s of each recovery; a hanging probe is bounded.
+Actual Result: As expected with fakes. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 4. Live: TC-0204.
+
+TC-0202: A LAN client cannot reach the web port, and its own `X-Forwarded-For` never survives the proxy
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0421
+Type: Security
+Preconditions: The web app built; a runner with a LAN address.
+Steps:
+  1. `pnpm --filter @acr/web exec playwright test web-bind`; from `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose-files.test.ts`; from `apps/web`: `pnpm exec vitest run src/server/__tests__/guards.test.ts`.
+Expected Result: Refused at the socket on the LAN address; the Caddyfile has no `trusted_proxies` and no `X-Forwarded-For` directive; the BFF refuses a two-entry list.
+Actual Result: As expected (configuration pinned; Caddy's real replacement of the header is part of TC-0204). 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 5.
+
+TC-0203: The wrapper and the environment around `voice-ops`
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417, AC-0418
+Type: Functional
+Preconditions: Stand-ins only; a private repository copy.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/root-scripts.test.ts src/__tests__/up.test.ts src/__tests__/cli.process.test.ts` (`every voice:* root script names run`, `the real environment setting a managed name is refused`, `SIGINT through pnpm -s voice:up rolls back`, `a changed node address is refused while running`, `a second concurrent run is refused by the lock`).
+Expected Result: No root script can be read as a pnpm built-in; a shell that exports a managed name is refused before anything is written; an interrupt through pnpm rolls back; changed settings while running are refused; two runs at once are excluded.
+Actual Result: As expected. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 6.
+
+TC-0204: The real stack (owner-approved run; not in CI)
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417, AC-0419, AC-0420, AC-0422, AC-0423
+Type: Functional
+Preconditions: The pilot laptop, the owner's approval for each marked item, a real Docker engine, whisper-server 1.9.5 and a model file; for `lan` the hostname and certificate and a second device.
+Steps:
+  1. `docs/VOICE_RUNBOOK.md` section 11, items 1 to 10, in order.
+Expected Result: `voice:up` and `voice:check` work against the real services (whisper-server's `/health` and prefix, its CORS answer, LiveKit's `GET /` answer, the keys check); no transcript in `whisper.log` or stdout; the A1b live checks pass; a 10 to 60 s LiveKit stop gives one `livekit_lost`, one `livekit_recovered`, a restarted worker without spending the budget, and voice again after the person presses "Join with voice"; the sweep logs one line per 20 s during the outage; the two-device address check passes (or the fallback is recorded); Caddy's log holds no `access_token`, `join_request` or `sid` after a forced 502; real timing numbers are recorded; `voice:down` leaves nothing.
 Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
-Notes: Filed 2026-11-09 with the story.
+Notes: Filed 2026-11-09. Not run by the agents (no container, image pull or real service in this slice); the owner runs it.

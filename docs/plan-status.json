@@ -3177,48 +3177,48 @@
       "acs": [
         {
           "id": "AC-0417",
-          "text": "`pnpm voice:up` starts whisper-server natively on `127.0.0.1` with the `STT_URL` port and an unguessable request path, never `--convert`, with the model file of `STT_MODEL_FILE`; refuses without that file and says how to obtain one (never downloads); waits for health and warms it; then starts the compose services and waits until they run; it is idempotent (a changed setting while running is refused; a missing service is started again without stopping a healthy whisper-server) and starts nothing it cannot stop; `pnpm voice:down` stops all of it (TC-0189)",
+          "text": "`pnpm voice:up` starts whisper-server natively on `127.0.0.1` with the `STT_URL` port and an unguessable request path, never `--convert`, with the model file of `STT_MODEL_FILE`; refuses without that file and says how to obtain one (never downloads); waits for health and warms it; then starts the compose services and waits until they run; it is idempotent (a changed setting while running is refused; a missing service is started again without stopping a healthy whisper-server) and starts nothing it cannot stop; `pnpm voice:down` stops all of it (TC-0189); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
           "done": false
         },
         {
           "id": "AC-0418",
-          "text": "the LiveKit key and secret and `STT_URL` are generated into `.env` only when absent, never printed, never overwritten, the file kept private; a symlinked, too-open or git-tracked `.env`, half a key pair, an empty managed line, the public development keys and a shell environment that overrides a managed name are refused with the file unchanged (TC-0190)",
-          "done": false
+          "text": "the LiveKit key and secret and `STT_URL` are generated into `.env` only when absent, never printed, never overwritten, the file kept private; a symlinked, too-open or git-tracked `.env`, half a key pair, an empty managed line, the public development keys and a shell environment that overrides a managed name are refused with the file unchanged (TC-0190); ticked 2026-11-09: env-file.test.ts (the `refuses and leaves the file byte-identical for ...` table, the append, umask and identity-recheck cases) and up.test.ts (`the real environment setting a managed name is refused`)",
+          "done": true
         },
         {
           "id": "AC-0419",
-          "text": "LiveKit runs from `deploy/compose/voice.yml`, pinned by digest, never `--dev`, with only its own keys from a private file, its API on loopback only, `node_ip` the LAN address (`lan`) or loopback (`local`), media on TCP 7881 and UDP 7882; Caddy (`lan`) serves the web app and `wss` signalling under one owner-supplied certificate, forwards only `/rtc*` to LiveKit without cookies, keeps no access log and no admin endpoint (TC-0191)",
+          "text": "LiveKit runs from `deploy/compose/voice.yml`, pinned by digest, never `--dev`, with only its own keys from a private file, its API on loopback only, `node_ip` the LAN address (`lan`) or loopback (`local`), media on TCP 7881 and UDP 7882; Caddy (`lan`) serves the web app and `wss` signalling under one owner-supplied certificate, forwards only `/rtc*` to LiveKit without cookies, keeps no access log and no admin endpoint (TC-0191); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
           "done": false
         },
         {
           "id": "AC-0420",
-          "text": "`pnpm voice:check` reports Whisper health and its cross-origin answer, LiveKit reachability and that control's keys are LiveKit's (a short-lived server API token for `ListRooms` on loopback; no participant token minted), a node address that changed since `voice:up`, the certificate's presence, hostname and days to expiry (warning under 21), the hostname resolving to the private node address (with a DNS-rebinding hint), free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and versions; exit 0 / 1 / 2; it never prints a secret (TC-0192)",
+          "text": "`pnpm voice:check` reports Whisper health and its cross-origin answer, LiveKit reachability and that control's keys are LiveKit's (a short-lived server API token for `ListRooms` on loopback; no participant token minted), a node address that changed since `voice:up`, the certificate's presence, hostname and days to expiry (warning under 21), the hostname resolving to the private node address (with a DNS-rebinding hint), free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and versions; exit 0 / 1 / 2; it never prints a secret (TC-0192); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
           "done": false
         },
         {
           "id": "AC-0421",
-          "text": "the web server listens on loopback only (`next start -H 127.0.0.1`): a request from a LAN address to its port is refused; the proxy configuration never trusts or forwards a client's `X-Forwarded-For` (TC-0193)",
-          "done": false
+          "text": "the web server listens on loopback only (`next start -H 127.0.0.1`): a request from a LAN address to its port is refused; the proxy configuration never trusts or forwards a client's `X-Forwarded-For` (TC-0193); ticked 2026-11-09: apps/web/e2e/web-bind.spec.ts, compose-files.test.ts (the Caddyfile pins), guards.test.ts `requestAddress refuses a two-entry list`",
+          "done": true
         },
         {
           "id": "AC-0422",
-          "text": "a worker exit caused by a LiveKit outage (exit 3 and LiveKit unreachable by control's probe) does not count toward the restart budget: voice is unavailable, control probes after 2, 4, 8, 16 and then every 30 s and restarts the worker when LiveKit answers, with one alert for the loss and one for the recovery (which tells participants who lost voice to press \"Join with voice\" again: pages do not rejoin by themselves); a LiveKit that dies again within 60 s of a recovery counts, and every other exit still counts. Proven with fakes in CI; the live claim waits for the plan's Task 15 real outage run (TC-0194)",
+          "text": "a worker exit caused by a LiveKit outage (exit 3 and LiveKit unreachable by control's probe) does not count toward the restart budget: voice is unavailable, control probes 2, 4, 8, 16 s after the previous answer and then every 30 s and restarts the worker when LiveKit answers, with one alert for the loss and one for the recovery (which tells participants who lost voice to press \"Join with voice\" again: pages do not rejoin by themselves); a LiveKit that dies again within 60 s of a recovery counts, and every other exit still counts. Proven with fakes in CI; the live claim waits for the plan's Task 15 real outage run (TC-0194)",
           "done": false
         },
         {
           "id": "AC-0423",
-          "text": "with `VOICE_TIMING_LOG=1` control logs, per appended voice line, only the end-of-speech-to-append and start-to-append milliseconds; `pnpm voice:timings <log>` prints count, p50, p95 and max (TC-0195)",
-          "done": false
+          "text": "with `VOICE_TIMING_LOG=1` control logs, per appended voice line, only the voice-detector-end-to-append (the hangover included) and start-to-append milliseconds (to a private, bounded `voice-timing.log`); `pnpm voice:timings <log>` prints count, p50, p95 and max (TC-0195); ticked 2026-11-09: voice-host.test.ts (the timing describe), timing-log.test.ts (marker scan, 0600, no link or FIFO, 1 MiB), timing-chain.test.ts, timings.test.ts, cli.process.test.ts (`pnpm -s voice:timings`)",
+          "done": true
         },
         {
           "id": "AC-0424",
-          "text": "`docs/VOICE_RUNBOOK.md` covers start, check, stop, the secure context, router DNS rebinding, the macOS firewall and the native LiveKit failure, headsets, excluding the audio directory from backups, the same-room cross-talk risk and the owner-run room test with how to read its results (TC-0196)",
-          "done": false
+          "text": "`docs/VOICE_RUNBOOK.md` covers start, check, stop, the secure context, router DNS rebinding, the macOS firewall and the native LiveKit failure, headsets, excluding the audio directory from backups, the same-room cross-talk risk and the owner-run room test with how to read its results (TC-0196); ticked 2026-11-09: docs/VOICE_RUNBOOK.md sections 1 to 11",
+          "done": true
         },
         {
           "id": "AC-0425",
-          "text": "the threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, `findings.md` (the two images; no new npm dependency) and the memory files describe A1c; `VOICE_ENABLED` stays `0` by default (TC-0197)",
-          "done": false
+          "text": "the threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, `findings.md` (the two images; no new npm dependency) and the memory files describe A1c; `VOICE_ENABLED` stays `0` by default (TC-0197); ticked 2026-11-09: THREAT_MODEL \"Voice operations, slice A1c\", ROLLBACK \"US-0072\", the ARCHITECTURE deviation note, README section 6, `.env.example`, findings.md, docs/memory",
+          "done": true
         }
       ],
       "dependencies": [
@@ -6137,7 +6137,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0417",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6147,7 +6147,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0418",
       "type": "Negative",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6157,7 +6157,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0419",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6167,7 +6167,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0420",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6177,7 +6177,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0421",
       "type": "Negative",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6187,7 +6187,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0422",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6197,7 +6197,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0423",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6207,7 +6207,7 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0424",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6217,6 +6217,76 @@
       "relatedTask": "TASK-0108",
       "relatedAC": "AC-0425",
       "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0198",
+      "title": "An `.env` that is not what `voice:up` expects is refused or merged without changing one existing byte",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0418",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0199",
+      "title": "`voice:up` failing half way or interrupted leaves nothing `voice:down` cannot stop",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0200",
+      "title": "`voice:down` never signals a process that is not the whisper-server `voice:up` started",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0201",
+      "title": "The LiveKit outage table, the crash loop and the probe faults",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0422",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0202",
+      "title": "A LAN client cannot reach the web port, and its own `X-Forwarded-For` never survives the proxy",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0421",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0203",
+      "title": "The wrapper and the environment around `voice-ops`",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417, AC-0418",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0204",
+      "title": "The real stack (owner-approved run; not in CI)",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417, AC-0419, AC-0420, AC-0422, AC-0423",
+      "type": "Functional",
       "status": "Not Run",
       "defect": "None"
     }
@@ -8223,11 +8293,27 @@
       "context": "",
       "date": "2026-11-09",
       "bugIds": []
+    },
+    {
+      "id": "L-0042",
+      "title": "A package script must never share a name with a package-manager built-in",
+      "rule": "Before naming a script that a root script hands over to (`pnpm --filter <pkg> <name>`), run `pnpm help <name>`: pnpm resolves a built-in (or its alias) before a script of the same name. Give the script a name no built-in has, and write `run` explicitly in every handing-over root script; pin both with a test that reads `package.json`.\n_Learned in the A1c plan review (US-0072, K13): `pnpm -s --filter @acr/voice-ops up` would have run `pnpm update` (its alias `up`) in that package and rewritten its `package.json` and the lockfile, instead of starting voice. The scripts became `voice-up` and friends, called with `run`._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0043",
+      "title": "`fetch` and Node's global agent follow an environment proxy: probes that carry a secret use `node:http` with `agent: false`",
+      "rule": "With `NODE_USE_ENV_PROXY=1` (Node 22.21 and later) global `fetch` and the default `http` agent send requests, the full URL included, to `HTTP_PROXY`. Any request whose URL or headers carry a secret (a secret request path, an admin token) goes through `node:http` with `agent: false`, to a literal loopback address only, and a test runs it in a child Node started with the proxy variables set (Node reads them at start-up) with the child's own default-agent request as the proof that the proxy was live.\n_Learned in A1c (US-0072, review A F10 and review B F2): the `STT_URL` path and the LiveKit admin token would have reached a proxy; the first test set the variables at run time and so proved nothing._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-09T19:54:49.477Z",
-  "commitSha": "0f48c20",
-  "buildNumber": "624",
+  "generatedAt": "2026-11-09T20:12:02.817Z",
+  "commitSha": "463ba73",
+  "buildNumber": "625",
   "branch": "feature/EPIC-0003-US-0072-voice-operations",
   "sessionTimeline": [
     {
@@ -8503,7 +8589,7 @@
       "2026-11-09T17:43:48.273Z",
       "2026-11-09T18:19:05.586Z",
       "2026-11-09T19:32:10.800Z",
-      "2026-11-09T19:54:49.557Z"
+      "2026-11-09T20:12:02.914Z"
     ],
     "doneCounts": [
       0,

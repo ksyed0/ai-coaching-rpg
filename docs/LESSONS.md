@@ -329,3 +329,19 @@ _Learned in the A1b plan review (US-0071, K7 and R23): Whisper being unhealthy w
 _Learned in A1b (US-0071): livekit-client 2.23.0's `setMicrophoneEnabled(false)` only mutes the published track (D40: the page now unpublishes it); rtc-node 1.2.1's logger is not exported and logs identities at debug level (D10: silenced by file path); `livekit-server-sdk` maps a non-JSON 404 to a twirp error with no code, so "any 404 is not found" made removals silent no-ops against the wrong server (batch 2 F1)._
 **Date:** 2026-11-09
 
+
+## L-0042 — A package script must never share a name with a package-manager built-in
+
+@agent: all
+
+**Rule:** Before naming a script that a root script hands over to (`pnpm --filter <pkg> <name>`), run `pnpm help <name>`: pnpm resolves a built-in (or its alias) before a script of the same name. Give the script a name no built-in has, and write `run` explicitly in every handing-over root script; pin both with a test that reads `package.json`.
+_Learned in the A1c plan review (US-0072, K13): `pnpm -s --filter @acr/voice-ops up` would have run `pnpm update` (its alias `up`) in that package and rewritten its `package.json` and the lockfile, instead of starting voice. The scripts became `voice-up` and friends, called with `run`._
+**Date:** 2026-11-09
+
+## L-0043 — `fetch` and Node's global agent follow an environment proxy: probes that carry a secret use `node:http` with `agent: false`
+
+@agent: all
+
+**Rule:** With `NODE_USE_ENV_PROXY=1` (Node 22.21 and later) global `fetch` and the default `http` agent send requests, the full URL included, to `HTTP_PROXY`. Any request whose URL or headers carry a secret (a secret request path, an admin token) goes through `node:http` with `agent: false`, to a literal loopback address only, and a test runs it in a child Node started with the proxy variables set (Node reads them at start-up) with the child's own default-agent request as the proof that the proxy was live.
+_Learned in A1c (US-0072, review A F10 and review B F2): the `STT_URL` path and the LiveKit admin token would have reached a proxy; the first test set the variables at run time and so proved nothing._
+**Date:** 2026-11-09

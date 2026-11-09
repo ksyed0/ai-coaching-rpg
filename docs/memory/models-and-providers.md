@@ -58,6 +58,26 @@ The LiveKit settings are checked whenever they are set, even with `VOICE_ENABLED
 
 Constants (code only, not settings): `VOICE_TOKEN_TTL_S` 600 (adapters `livekit/token.ts`); `MAX_IDENTITY_CHARS` 128; `SEATS_WAIT_MS` 1000, `MAX_WAITERS_PER_ROLE` 4, `SWEEP_INTERVAL_MS` 20 000, `SWEEP_RETRY_MS` 2000 (control `voice/tokens.ts`); `RESTART_TRIES` 5, `RESTART_BASE_MS` 500 (500, 1000, 2000, 4000, 8000), `RESTART_STABLE_MS` 60 000 (`voice/restart.ts`); `STT_GLOBAL_IN_FLIGHT` 2 across all sessions, lease `STT_COLD_TIMEOUT_MS` + `STT_LEASE_MARGIN_MS` 5000 (`voice/stt-slots.ts`); `STT_HEALTH_POLL_MS` 5000, `STT_HEALTH_CONFIRM` 2 (speech `health.ts`); `LIVEKIT_JOIN_WAIT_MS` 10 000 (speech `worker.ts`), `JOIN_RETRY_MS` 1000, `JOIN_ATTEMPTS` 3, `MAX_TRACK_RESTARTS` 5 (`ingest/livekit-ingest.ts`), `SUBSCRIBE_WAIT_MS` 10 000 (`ingest/livekit-room.ts`); BFF `VOICE_SEND_WAIT_MS` 2000 (`stream-hub.ts`) and `VOICE_TOKEN_THROTTLE` 20 per 60 s, 60 s block (`handlers.ts`). Cold-start contention: with the global budget of 2, one session's cold call (up to `STT_COLD_TIMEOUT_MS`) holds a slot that other sessions wait for. Known consequence of the budget: a LiveKit outage of about 16 s (five restarts of a worker that exits 3, then the sixth exit) turns voice off for the rest of the session (A1c follow-up proposed).
 
+## Voice operations, slice A1c (EPIC-0003, US-0072; `docs/VOICE_RUNBOOK.md`)
+Read by `services/voice-ops` only (from the root `.env` merged UNDER the real environment, as control reads it), except `VOICE_TIMING_LOG` (control). Verified against `services/voice-ops/src/settings.ts` and `services/control/src/main.ts`:
+
+| Variable | Read by | Default | Range and notes |
+| --- | --- | --- | --- |
+| `VOICE_ACCESS` | voice-ops | `local` | `local` or `lan` |
+| `VOICE_STATE_DIR` | voice-ops | `<HOME>/.scenecoach/voice` | absolute, outside the repository (by `realpath`), 0700 |
+| `STT_MODEL_FILE` | voice-ops | `<HOME>/.scenecoach/models/ggml-<STT_MODEL>.bin` | absolute; at least 1 MB; never downloaded |
+| `VOICE_WEB_PORT` | voice-ops | 3000 | 1024 to 65535 |
+| `VOICE_HOSTNAME` | voice-ops (`lan`) | unset (required) | a DNS name of two or more labels, not `localhost` or an address |
+| `VOICE_NODE_IP` | voice-ops (`lan`) | from the interfaces | a private IPv4 of this machine |
+| `VOICE_HTTPS_PORT`, `VOICE_LIVEKIT_TLS_PORT` | voice-ops (`lan`) | 443, 7443 | 1 to 65535, different |
+| `VOICE_TLS_MODE` | voice-ops (`lan`) | `files` | `files` (with `VOICE_TLS_CERT_FILE`, `VOICE_TLS_KEY_FILE`, absolute) or `dns` (with `VOICE_DNS_PROVIDER`; refused by `voice:up` in A1c: plan Task 13 skipped) |
+| `AUDIO_MIN_FREE_MB` | voice-ops (`voice:check`; A2 later) | 2048 | 512 to 1 000 000 |
+| `AUDIO_DIR` | voice-ops (`voice:check`; A2 later) | `<CONTROL_DATA_DIR>/audio` when that is absolute | absolute |
+| `LIVEKIT_HOST` | control and voice-ops | `http://127.0.0.1:7880` | `voice:up` requires exactly the default (voice.yml publishes the API there) |
+| `VOICE_TIMING_LOG` | control only | 0 | exactly 0 or 1; anything else stops control. 1 appends `<CONTROL_LOG_DIR>/voice-timing.log` |
+
+`voice:up` adds `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` and `STT_URL` to `.env` when absent and refuses when the real environment sets any of them. Constants (code, not settings): `WHISPER_READY_WAIT_MS` 120 000, `WHISPER_WARM_TIMEOUT_MS` 120 000, `WHISPER_STOP_GRACE_MS` 5000, `LIVEKIT_READY_WAIT_MS` 60 000, `COMPOSE_UP_TIMEOUT_MS` 600 000, `COMPOSE_WAIT_TIMEOUT_S` 60, `CERT_WARN_DAYS` 21, `ADMIN_TOKEN_TTL_S` 60, the STT port range 20000..32767, `MIN_STT_PATH_CHARS` 16; control's `LIVEKIT_PROBE_TIMEOUT_MS` 2000 (watchdog 2x), `LIVEKIT_RETRY_BASE_MS` 2000, `LIVEKIT_RETRY_MAX_MS` 30 000 (2, 4, 8, 16 s after the previous answer, then every 30 s, no cap), `TIMING_LOG_MAX_BYTES` 1 MiB; `voice:timings`' `TIMINGS_MAX_BYTES` 4 MiB.
+
 ## The local endpoint (owner's Mac: Apple M5 Pro, 64 GB)
 Osaurus at `http://127.0.0.1:1337/v1`. Models served on 2026-10-06: `foundation`, `gemma-4-31b-it-qat-mxfp4`, `nemotron-3-nano-omni-30b-a3b-jangtq4`, `qwen3.8-27b-mxfp8`, `raptor-v0.5-8b-a1b-jang_6m`.
 - **gemma-4-31b-it-qat-mxfp4: use this.** About 18 GB. Full showcase about 400 to 650 s, with the evaluator about 1100 to 1300 s. In role, specific, progresses a negotiation, 0 fallbacks, copies the Game Master nonce every time.

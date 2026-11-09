@@ -6,9 +6,9 @@
 | US           | US-0073               | US-0072           |
 | TASK         | TASK-0109             | TASK-0108         |
 | AC           | AC-0426               | AC-0425           |
-| TC           | TC-0198               | TC-0197           |
+| TC           | TC-0205               | TC-0204           |
 | BUG          | BUG-0035              | BUG-0034          |
-| L            | L-0042                | L-0041            |
+| L            | L-0044                | L-0043            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
 
@@ -101,3 +101,5 @@ Assigned 2026-11-09 (EPIC-0003 voice A1b close-out, feature/EPIC-0003-US-0071-vo
 Assigned 2026-11-09 (EPIC-0003 voice A1b close-out, lessons): L-0037..L-0041 (re-request subscriptions after a reconnect and bound every wait; per-item generation check; fakes must hang where the real thing hangs; no state on a rate-limited alert path; read the installed library source).
 
 Assigned 2026-11-09 (EPIC-0003 voice A1c, feature/EPIC-0003-US-0072-voice-operations): US-0072 (voice operations: `pnpm voice:up`, `voice:check`, `voice:down`, `voice:timings`); TASK-0108 (US-0072); AC-0417..AC-0425 (all under US-0072, in the A1c plan's order AC-a to AC-i; no AC-j: the DNS-challenge path waits for the owner); TC-0189..TC-0197 (one per AC, in order; the edge cases of the plan's Task 15 get the next free ids then). A2 and A3 are not filed: the overview's proposed story numbers for them are not reserved.
+
+Assigned 2026-11-09 (EPIC-0003 voice A1c close-out, feature/EPIC-0003-US-0072-voice-operations): TC-0198..TC-0204 (US-0072 edge cases: the `.env` refusal table, rollback on failure and interrupt, the foreign pid, the outage table, the LAN bind and the proxy pins, the wrapper and the environment, and TC-0204 the owner-run real stack, Not Run); L-0042..L-0043 (lessons: pnpm built-ins before scripts; fetch and the global agent follow an environment proxy).

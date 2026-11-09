@@ -62,6 +62,8 @@ No npm package is added: `@acr/voice-ops` uses `node:` built-ins and the workspa
 | caddy (superseded) | 2.11.7 | sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e | sha256:cc447f149425221422153c6cdf33a123b3f458839679f950298f68a690a54a5b | 23 639 921 bytes (about 22.5 MiB) | Apache-2.0 (image label) | 2026-10-03 |
 | caddy (pinned) | 2.11.9 | sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0 | sha256:9ee998103a2bc0d4392bbe9738b4069da1562d6920b3cd8088cfd098a8270120 | 23 513 580 bytes (about 22.4 MiB) | Apache-2.0 (image label) | 2026-11-05 |
 
+**No DNS provider plugin and no custom Caddy build:** the optional DNS-challenge path (A1c plan Task 13) was skipped on 2026-11-09 because no DNS provider has been named; nothing was added for it.
+
 ## Exceptions to the two-week rule
 
 - next 16.4.1 was released 13 days before the pick. Every earlier 16.x (up to 16.4.0) and every 15.x is flagged by the npm advisory database (GHSA-673q-mjm6-r5xr and GHSA-2464-fhr4-w9xw, critical remote code execution; GHSA-p3m5-59mp-jv5r, denial of service), and `next build` refuses to run on them. 16.4.1 is the oldest release without an advisory.

@@ -569,3 +569,23 @@
 - Wrote the full A1c (operations) plan, `docs/superpowers/plans/2026-11-09-voice-a1c-operations.md` (proposed US-0072, not filed: Task 0 files it from the registry): `pnpm voice:up`/`voice:down`/`voice:check`/`voice:timings` in a new `services/voice-ops` package, compose services for LiveKit and Caddy pinned by digest, owner-supplied certificate (DNS challenge only after the owner names a provider), the web `start` script on 127.0.0.1, a LiveKit outage no longer spending the restart budget (classified by control's own probe of `LIVEKIT_HOST`), the runbook with the owner-run room test. Outline and overview updated (A1c expanded; A2 and A3 still outlines).
 - Read-only checks only: `whisper-server --help` and `strings` (no authentication; `/health`, `/inference`, `/load`; `{"status":"ok"}` and `{"status":"loading model"}`; CORS strings), `livekit-server --help` (1.13.11), `docker --version`, `docker compose version`. Nothing was started, pulled or downloaded.
 - Open for the owner: the pilot hostname (US-0048), the certificate source, a DNS provider if wanted, the model file, Caddy placement if the room test shows one shared client address.
+
+## Session 43 — 2026-11-09 (EPIC-0003 voice slice A1c: voice operations, US-0072)
+
+### What Was Done
+
+- **Built US-0072 (voice A1c) on `feature/EPIC-0003-US-0072-voice-operations`** (plan `docs/superpowers/plans/2026-11-09-voice-a1c-operations.md`, Revision 2), in five batches with independent reviews A, B, B2 and C after batches 1 to 4; every Critical and Important finding was fixed test-first and mutation-checked. Batch notes D1 to D46 and the review responses are in the plan.
+  - Batch 1: the `voice-ops` package and settings, `httpAnswers`, the `.env` writer.
+  - Batch 2: the state directory, process identity, whisper-server hardening, the compose services pinned by digest, the loopback web bind.
+  - Batch 3: `voice:up`/`voice:down` with repair and rollback, the checks, `voice:check`.
+  - Batch 4: `EXIT_LIVEKIT_LOST` moved into `@acr/speech/protocol`; the alert codes `livekit_lost`/`livekit_recovered`; a LiveKit outage no longer spends the restart budget; the timing record and `voice:timings`. Commits d2ddcb7, 15eee11, 6d8f3a5. The review C fix wave is 0f48c20: the hangover wording, `O_NONBLOCK`, the probe watchdog, the retry armed first.
+  - Batch 5 (documents only): Task 13 skipped because no DNS provider was named. `docs/VOICE_RUNBOOK.md` written. Task 15's documents updated: threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, the memory files, TEST_CASES (TC-0189 to TC-0203 Pass, TC-0204 Not Run), RELEASE_PLAN (AC-0418, 0421, 0423, 0424, 0425 ticked), ID_REGISTRY, MIGRATION_LOG, LESSONS (L-0042, L-0043), CHANGELOG.
+- **Not run (owner):** the real run of runbook section 11, which covers LiveKit's `GET /` answer, a real 10 to 60 s outage and the rejoin click, the sweep noise, Caddy's log filter on a forced 502, real timing numbers, the two-device address check and whisper-server's real behaviour. Also not done: the final independent review (controller) and the PR (body drafted).
+
+### Verification (batch 5 gates, 2026-11-09, macOS arm64, Node 22.23.1)
+
+See the batch report; summary: `pnpm -r typecheck` clean, `pnpm test:coverage` exit 0 normally and under load (every package above 80% lines), `lint:sdk` ok, eslint 0 errors, id-registry 8 passed, plan:generate ok, both compose validations exit 0, demos 8/29/42/14/8, web build and the `voice-lobby` and `web-bind` Playwright specs, the Linux container run of the changed packages as root and `node`.
+
+### Next
+
+The controller's final independent review; then the PR into `develop`; then the owner-approved real run (TC-0204), which must pass before AC-0417, AC-0419, AC-0420 and AC-0422 are ticked; then A2 (audio retention).
