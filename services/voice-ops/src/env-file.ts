@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, constants as fsConstants, fstatSync, fsyncSync, lstatSync, openSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants as fsConstants, fchmodSync, fstatSync, fsyncSync, lstatSync, openSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { parseSttUrl } from "@acr/adapters";
@@ -207,6 +207,7 @@ export function appendBlock(file: string, bytes: Buffer, block: string, readId: 
   try {
     try {
       guard("unwritable", () => {
+        fchmodSync(fd, 0o600); // the umask may have removed owner bits from the 0600 of the open (umask 0477 gives 0200): review A F6
         let off = 0;
         while (off < data.length) off += writeSync(fd, data, off, data.length - off);
         fsyncSync(fd);

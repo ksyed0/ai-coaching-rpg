@@ -154,6 +154,16 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     expect(readdirSync(dir)).toEqual([".env"]);
   });
 
+  it("the result is mode 600 under any umask (review A F6: umask 0477 would give 0200)", async () => {
+    for (const mask of [0o477, 0o077, 0o777]) {
+      const file = envFile("A=1\n");
+      const saved = process.umask(mask);
+      try { await ensure(file); } finally { process.umask(saved); }
+      expect(statSync(file).mode & 0o777, mask.toString(8)).toBe(0o600);
+      expect(parseEnv(readFileSync(file, "utf8")).STT_URL).toBeDefined();
+    }
+  });
+
   it("the file is replaced, not written in place (a new inode)", async () => {
     const file = envFile("A=1\n");
     const ino = statSync(file).ino;
