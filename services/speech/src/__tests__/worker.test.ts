@@ -76,6 +76,58 @@ describe("startWorker and the global speech-to-text slots (US-0071, A1b Task 6)"
   });
 });
 
+describe("startWorker and the speech-to-text health poll (US-0071, A1b Task 9)", () => {
+  type T = { fn: () => void; ms: number; cancelled: boolean };
+  const pollWorker = (healthy: () => boolean, warm: boolean, healthPoll = true) => {
+    const timers: T[] = [];
+    const sent: WorkerMessage[] = [];
+    const stt = new FakeSpeechToText({ script: () => ({ text: "x", durationMs: 1 }), healthy });
+    if (!warm) stt.warmUp = async () => { throw new SpeechUnavailableError(); };
+    const w = startWorker({
+      cfg: cfgFor(["tech_lead"]), send: (m) => { sent.push(m); return true; }, now: () => 1, stt, healthPoll,
+      ingest: { start: async () => {}, stop: async () => {} },
+      setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+    });
+    const polls = () => timers.filter((t) => t.ms === 5000 && !t.cancelled);
+    const tick = async () => { const p = polls(); expect(p).toHaveLength(1); p[0]!.cancelled = true; p[0]!.fn(); for (let i = 0; i < 10; i++) await Promise.resolve(); };
+    return { w, sent, polls, tick };
+  };
+
+  it("after the warm-up the worker polls health and reports a confirmed change as stt_health", async () => {
+    let up = true;
+    const h = pollWorker(() => up, true);
+    await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
+    up = false;
+    await h.tick(); await h.tick();
+    expect(h.sent.filter((m) => m.type === "stt_health")).toEqual([{ type: "stt_health", ok: false }]);
+    await h.w.stop();
+    expect(h.polls()).toEqual([]); // stop ends the poll
+  });
+
+  it("a worker whose warm-up failed reports ok true once the server answers (its worker_ready said unavailable)", async () => {
+    const h = pollWorker(() => true, false);
+    await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "unavailable" }));
+    await h.tick(); await h.tick();
+    expect(h.sent.filter((m) => m.type === "stt_health")).toEqual([{ type: "stt_health", ok: true }]);
+    await h.w.stop();
+  });
+
+  it("without healthPoll (the fake STT) nothing is polled", async () => {
+    const h = pollWorker(() => false, true, false);
+    await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
+    expect(h.polls()).toEqual([]);
+    await h.w.stop();
+  });
+
+  it("the session end stops the poll", async () => {
+    const h = pollWorker(() => true, true);
+    await vi.waitFor(() => expect(h.polls()).toHaveLength(1));
+    h.w.onControl(state([], { ended: true }));
+    await h.w.done;
+    expect(h.polls()).toEqual([]);
+  });
+});
+
 describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
   it("worker_ready is sent after warm-up", async () => {
     let release!: () => void;

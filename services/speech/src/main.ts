@@ -83,7 +83,7 @@ async function main(): Promise<void> {
       onStatus: (state) => { send({ type: "livekit_status", state }); if (state !== "connected") lost(); },
     });
   }
-  worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}), ...(slots ? { onSlotGrant: slots.granted.bind(slots) } : {}) });
+  worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}), ...(slots ? { onSlotGrant: slots.granted.bind(slots), healthPoll: true } : {}) });
   const running = worker;
   process.on("message", (raw: unknown) => {
     const m = ControlToWorkerSchema.safeParse(raw);

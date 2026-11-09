@@ -2,6 +2,7 @@ import type { SpeechToText } from "@acr/adapters";
 import { ActivityReporter } from "./activity.js";
 import type { WorkerConfig } from "./config.js";
 import type { AudioIngest } from "./ingest/audio-ingest.js";
+import { HealthPoller } from "./health.js";
 import { FileIngest } from "./ingest/file-ingest.js";
 import { LiveKitJoinRefused, LiveKitJoinTimeout, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
 import type { ControlToWorker, WorkerMessage } from "./protocol.js";
@@ -63,6 +64,8 @@ export function startWorker(o: {
   setTimer?: SetTimer;
   /** US-0071 (A1b Task 6): control granted a speech-to-text slot (main.ts hands it to the SlotSpeechToText). */
   onSlotGrant?: (slot: string) => void;
+  /** US-0071 (A1b Task 9): poll the shared speech-to-text's health after the warm-up (main.ts: Whisper only; the fake is not polled). */
+  healthPoll?: boolean;
 }): RunningWorker {
   const log = o.log ?? (() => {});
   const send = (m: WorkerMessage): void => { try { o.send(m); } catch { /* a closed channel: the parent is gone */ } };
@@ -98,10 +101,17 @@ export function startWorker(o: {
   };
 
   const instances = [...new Set(typeof o.stt === "function" ? o.cfg.ingest.roles.map((r) => sttFor(r)) : [o.stt])];
-  void Promise.all(instances.map((s) => s.warmUp())).then(
-    () => send({ type: "worker_ready", stt: "ok" }),
-    () => send({ type: "worker_ready", stt: "unavailable" }),
-  );
+  let health: HealthPoller | undefined;
+  // US-0071 (Task 9): the poll starts from this worker's own warm-up result (control has it from worker_ready), so a restarted worker
+  // whose warm-up succeeds is healthy without any stt_health.
+  const ready = (ok: boolean): void => {
+    send({ type: "worker_ready", stt: ok ? "ok" : "unavailable" });
+    if (o.healthPoll && typeof o.stt !== "function" && !ending) {
+      health = new HealthPoller({ stt: o.stt, setTimer, send, initial: ok });
+      health.start();
+    }
+  };
+  void Promise.all(instances.map((s) => s.warmUp())).then(() => ready(true), () => ready(false));
 
   const startIngest = (): void => {
     ingestStarted = true;
@@ -112,6 +122,7 @@ export function startWorker(o: {
   };
 
   const end = async (m: Extract<ControlToWorker, { type: "voice_state" }>): Promise<void> => {
+    health?.stop();
     try {
       await ingest.stop();
       await Promise.all([...pipelines.values()].map((p) => p.flush()));
@@ -153,6 +164,7 @@ export function startWorker(o: {
     },
     async stop() {
       ending = true;
+      health?.stop();
       await ingest.stop().catch(() => undefined);
       resolveDone();
     },

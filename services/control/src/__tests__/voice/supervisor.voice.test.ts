@@ -113,7 +113,8 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     const w = workers[0]!;
     w.emit({ type: "worker_ready", stt: "ok" });
     w.emit({ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello.", startMs: 1, endMs: 2 });
-    expect(c.voice).toEqual([{ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello." }]);
+    expect(c.voice.filter((m) => m.type !== "voice_availability")).toEqual([{ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello." }]);
+    expect(c.voice.filter((m) => m.type === "voice_availability")).toEqual([{ type: "voice_availability", available: false, off: false }, { type: "voice_availability", available: true, off: false }]);
     c.emit({ type: "voice_line_ack", segmentId: "0123456789abcdef", seq: 7 });
     expect(w.sent.at(-1)).toEqual({ type: "voice_line_result", segmentId: "0123456789abcdef", seq: 7 });
     c.emit({ type: "voice_turn", open: true });
@@ -161,6 +162,27 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     await settle();
     expect(workers).toHaveLength(1);
     expect(w.sent.at(-1)).toEqual({ ...STATE, paused: true });
+  });
+
+  it("a restarted runtime is told the current voice availability at its ready, before any voice line (US-0071, A1b Task 9)", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    const w = workers[0]!;
+    w.emit({ type: "worker_ready", stt: "ok" });
+    w.emit({ type: "stt_health", ok: false });
+    expect(c.voice.filter((m) => m.type === "voice_availability").at(-1)).toEqual({ type: "voice_availability", available: false, off: false });
+    c.exit(1);
+    const p = sup.restart(id);
+    await settle();
+    const c2 = children.at(-1)!;
+    c2.emit({ ...READY, voice: true });
+    c2.emit({ ...SEATS, paused: true });
+    await p;
+    await settle();
+    expect(c2.voice[0]).toEqual({ type: "voice_availability", available: false, off: false });
+    w.emit({ type: "stt_health", ok: true });
+    expect(c2.voice.filter((m) => m.type !== "voice_availability")).toEqual([{ type: "voice_alert", code: "stt_recovered" }]);
+    expect(c2.voice.filter((m) => m.type === "voice_availability").at(-1)).toEqual({ type: "voice_availability", available: true, off: false });
   });
 
   it("ended sends the worker an ended state and then stops it", async () => {
