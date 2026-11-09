@@ -14,6 +14,7 @@ import type { RoomConn, RoomPort, RoomTrack } from "./room-port.js";
  *  - nothing of a participant is read but its identity (set by the server from the token); never a name, metadata or attributes.
  *  - rtc-node's logger is set to silent first (R26, see `silenceRtcLogger`).
  *  - every room-event listener is guarded: a throw becomes a lost room (onDisconnected, once), never an uncaught exception (F5).
+ *  - on Reconnected every subscription still wanted and not delivered is requested again (Task 18 live finding D59).
  */
 
 /** rtc-node 1.2.1's logger: `dist/log.cjs` exports `log`, a pino logger named "lk-rtc" at level debug unless NODE_ENV=production. */
@@ -41,6 +42,8 @@ const sourceOf = (s: TrackSource | undefined): RoomTrack["source"] => (s === Tra
 export class RtcConn implements RoomConn {
   private readonly pubs = new Map<string, RemoteTrackPublication>();
   private readonly tracks = new Map<string, RemoteTrack>();
+  /** Track sids the ingest subscribed and has not unsubscribed (nor seen gone): re-requested on Reconnected while no track came (D59). */
+  private readonly wanted = new Set<string>();
   /** Readers waiting for a subscribed track; resolved with null when it will not come (unsubscribed, gone, disconnected). */
   private readonly waiting = new Map<string, ((t: RemoteTrack | null) => void)[]>();
   private readonly trackFns: ((t: RoomTrack) => void)[] = [];
@@ -64,6 +67,12 @@ export class RtcConn implements RoomConn {
     room.on(RoomEvent.TrackUnsubscribed, (_track, pub) => this.guard(() => { if (pub.sid !== undefined) { this.tracks.delete(pub.sid); this.release(pub.sid, null); } }));
     // Batch 3 review F2: a failed subscription ends the waiting read (the ingest re-subscribes, bounded) instead of hanging it.
     room.on(RoomEvent.TrackSubscriptionFailed, (sid) => this.guard(() => { this.release(sid, null); }));
+    // A1b Task 18 live finding D59: after a full reconnect a subscription requested while the room was reconnecting never arrives
+    // (observed against LiveKit 1.13.11: no TrackSubscribed, no TrackSubscriptionFailed). A plain setSubscribed(true) after
+    // Reconnected brings it, so every wanted track that has no subscribed track yet is asked for again.
+    room.on(RoomEvent.Reconnected, () => this.guard(() => {
+      for (const sid of this.wanted) if (!this.tracks.has(sid)) this.pubs.get(sid)?.setSubscribed(true);
+    }));
     room.on(RoomEvent.Disconnected, () => this.guard(() => {
       for (const sid of [...this.waiting.keys()]) this.release(sid, null);
       this.lost();
@@ -81,11 +90,13 @@ export class RtcConn implements RoomConn {
   subscribe(trackSid: string): void {
     try { this.pubs.get(trackSid)?.setSubscribed(true); }
     catch { throw new Error("the LiveKit track could not be subscribed"); }
+    this.wanted.add(trackSid);
   }
   unsubscribe(trackSid: string): void {
     // Batch 3 review F2: forget the subscribed track at once, so the next read waits for a FRESH TrackSubscribed. Otherwise a resume
     // faster than rtc-node's TrackUnsubscribed builds an AudioStream on the old track, which that event then closes.
     this.tracks.delete(trackSid);
+    this.wanted.delete(trackSid);
     this.release(trackSid, null);
     try { this.pubs.get(trackSid)?.setSubscribed(false); } catch { /* the publication is already gone */ }
   }
@@ -121,6 +132,7 @@ export class RtcConn implements RoomConn {
     if (sid === undefined) return;
     this.pubs.delete(sid);
     this.tracks.delete(sid);
+    this.wanted.delete(sid);
     this.release(sid, null);
     for (const fn of this.goneFns) fn({ identity, trackSid: sid });
   }

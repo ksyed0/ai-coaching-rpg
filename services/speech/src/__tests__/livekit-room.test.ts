@@ -66,6 +66,40 @@ describe("RtcConn subscriptions (US-0071, A1b batch 3 review F2)", () => {
     await settle();
     expect(r.state).toBe("done");
   });
+
+  // A1b Task 18 live finding D59: after a full reconnect (rtc-node: Reconnecting, TrackUnpublished, TrackPublished, Reconnected) a
+  // subscription requested while the room was reconnecting never arrives: nothing re-sends it, and the seat stays deaf with no failure.
+  it("Reconnected re-requests every subscription that has no track yet (one asked while reconnecting is lost otherwise)", async () => {
+    const t = await setup();
+    t.conn.subscribe("TR_1"); // asked during the reconnect: the server never answers it
+    const r = t.read();
+    t.room.emit(t.rtc.RoomEvent.Reconnected);
+    await settle();
+    expect(t.subscribed).toEqual([true, true]);
+    expect(r.state).toBe("pending"); // the read still waits, now for the re-requested subscription
+    t.room.emit(t.rtc.RoomEvent.TrackSubscribed, { fresh: true }, t.pub, t.participant);
+    await settle();
+    // The read took the delivered track (a stand-in object, which the real AudioStream refuses: "threw"); "done" would mean no track.
+    expect(r.state).toBe("threw");
+  });
+
+  it("Reconnected re-requests nothing already delivered, unsubscribed or gone", async () => {
+    const t = await setup();
+    t.conn.subscribe("TR_1");
+    t.room.emit(t.rtc.RoomEvent.TrackSubscribed, { live: true }, t.pub, t.participant); // delivered
+    const pub2 = { sid: "TR_2", kind: t.rtc.TrackKind.KIND_AUDIO, source: t.rtc.TrackSource.SOURCE_MICROPHONE, setSubscribed: (b: boolean) => { t.subscribed.push(b); } };
+    const pub3 = { ...pub2, sid: "TR_3" };
+    t.room.emit(t.rtc.RoomEvent.TrackPublished, pub2, t.participant);
+    t.room.emit(t.rtc.RoomEvent.TrackPublished, pub3, t.participant);
+    t.conn.subscribe("TR_2");
+    t.conn.unsubscribe("TR_2"); // unsubscribed
+    t.conn.subscribe("TR_3");
+    t.room.emit(t.rtc.RoomEvent.TrackUnpublished, pub3, t.participant); // gone
+    t.subscribed.length = 0;
+    t.room.emit(t.rtc.RoomEvent.Reconnected);
+    await settle();
+    expect(t.subscribed).toEqual([]);
+  });
 });
 
 describe("RtcConn listeners never throw into rtc-node's event dispatch (US-0071, A1b batch 3 review F5)", () => {
