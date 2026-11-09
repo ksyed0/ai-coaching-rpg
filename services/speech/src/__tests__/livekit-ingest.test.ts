@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  JOIN_ATTEMPTS, JOIN_RETRY_MS, LIVEKIT_INGEST_FAILED, LiveKitIngest, LiveKitJoinRefused, LiveKitJoinTimeout, type LiveKitJoinInfo,
+  JOIN_ATTEMPTS, JOIN_RETRY_MS, LIVEKIT_INGEST_FAILED, MAX_TRACK_RESTARTS, LiveKitIngest, LiveKitJoinRefused, LiveKitJoinTimeout, type LiveKitJoinInfo,
 } from "../ingest/livekit-ingest.js";
 import { FakeRoomPort, chunk, mic, type FakeConn } from "./fake-room.js";
 
@@ -505,5 +505,107 @@ describe("LiveKitIngest: a join control refused or did not answer (US-0071, A1b 
     expect(h.status).toEqual(["failed"]);
     expect(h.state()).toBe("rejected");
     expect(h.live(JOIN_RETRY_MS)).toEqual([]);
+  });
+});
+
+describe("LiveKitIngest: a track stream that ends while its seat records (US-0071, A1b batch 3 review F2)", () => {
+  it("the stream ends without an unpublish while allowed: the track is subscribed again and frames flow again", async () => {
+    const h = harness();
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    c.push("T1", chunk(1));
+    await settle();
+    c.endStream("T1"); // a server-side unsubscribe, or rtc-node closing the stream
+    await settle();
+    expect(c.calls.filter((x) => x === "subscribe T1")).toHaveLength(2);
+    c.push("T1", chunk(2));
+    await settle();
+    expect(h.frames.map((f) => f.first)).toEqual([1, 2]);
+    expect(h.status).toEqual(["connected"]);
+  });
+
+  it("the stale-track race: pause and resume faster than the unsubscribe takes effect keeps the seat heard", async () => {
+    const h = harness();
+    h.port.lagUnsubscribe = true;
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    h.ingest.setAllowed(new Map()); // pause (or mute)
+    h.ingest.setAllowed(new Map([["alice", G1]])); // resume, before LiveKit has applied the unsubscribe
+    await settle();
+    c.flushUnsubscribed(); // the late unsubscribe ends the resumed stream too
+    await settle();
+    c.push("T1", chunk(7));
+    await settle();
+    expect(h.frames.map((f) => f.first)).toEqual([7]);
+    expect(c.openIterators("T1")).toBe(1);
+    expect(h.status).toEqual(["connected"]);
+  });
+
+  it("a stream that ends while the role is no longer allowed or the track is gone is not restarted", async () => {
+    const h = harness();
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    h.ingest.setAllowed(new Map());
+    c.endStream("T1");
+    await settle();
+    expect(c.calls.filter((x) => x === "subscribe T1")).toHaveLength(1);
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    c.unpublish(A1, "T1");
+    await settle();
+    expect(c.calls.filter((x) => x === "subscribe T1")).toHaveLength(2);
+  });
+
+  it(`a stream that keeps ending with no frame is restarted at most ${MAX_TRACK_RESTARTS} times in a row, then the ingest reports failed`, async () => {
+    const h = harness();
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    for (let i = 0; i < MAX_TRACK_RESTARTS; i++) { c.endStream("T1"); await settle(); }
+    expect(h.status).toEqual(["connected"]);
+    expect(c.calls.filter((x) => x === "subscribe T1")).toHaveLength(MAX_TRACK_RESTARTS + 1);
+    c.endStream("T1");
+    await settle();
+    expect(h.status).toEqual(["connected", "failed"]);
+    expect(h.state()).toBe("rejected");
+  });
+
+  it("a delivered frame resets the restart count (a long session with many short drops is not failed)", async () => {
+    const h = harness();
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    for (let i = 0; i < 3 * MAX_TRACK_RESTARTS; i++) { c.endStream("T1"); await settle(); c.push("T1", chunk(i)); await settle(); }
+    expect(h.status).toEqual(["connected"]);
+    expect(h.frames).toHaveLength(3 * MAX_TRACK_RESTARTS);
+  });
+
+  it("a return() that waits for the pending read (like a real async generator) still lets the next subscription's frames through", async () => {
+    const h = harness();
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    expect(c.waitingIterators("T1")).toBe(1);
+    h.ingest.setAllowed(new Map([["alice", G3]])); // the old loop's return() is queued behind its pending read
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    c.push("T1", chunk(5)); // the old pending read receives it too, and drops it (ended); the new loop delivers it once
+    await settle();
+    expect(h.frames.map((f) => [f.generation, f.first])).toEqual([[G1, 5]]);
   });
 });

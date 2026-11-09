@@ -36,7 +36,8 @@ export function silenceRtcLogger(): void {
 const kindOf = (k: TrackKind | undefined): RoomTrack["kind"] => (k === TrackKind.KIND_AUDIO ? "audio" : k === TrackKind.KIND_VIDEO ? "video" : "unknown");
 const sourceOf = (s: TrackSource | undefined): RoomTrack["source"] => (s === TrackSource.SOURCE_MICROPHONE ? "microphone" : "other");
 
-class RtcConn implements RoomConn {
+/** Exported for its tests only (a stand-in Room); the worker gets it through `createRtcRoomPort`. */
+export class RtcConn implements RoomConn {
   private readonly pubs = new Map<string, RemoteTrackPublication>();
   private readonly tracks = new Map<string, RemoteTrack>();
   /** Readers waiting for a subscribed track; resolved with null when it will not come (unsubscribed, gone, disconnected). */
@@ -57,6 +58,8 @@ class RtcConn implements RoomConn {
       this.release(sid, track);
     });
     room.on(RoomEvent.TrackUnsubscribed, (_track, pub) => { if (pub.sid !== undefined) { this.tracks.delete(pub.sid); this.release(pub.sid, null); } });
+    // Batch 3 review F2: a failed subscription ends the waiting read (the ingest re-subscribes, bounded) instead of hanging it.
+    room.on(RoomEvent.TrackSubscriptionFailed, (sid) => { this.release(sid, null); });
     room.on(RoomEvent.Disconnected, () => {
       for (const sid of [...this.waiting.keys()]) this.release(sid, null);
       if (!this.closing) for (const fn of this.discFns) fn();
@@ -72,6 +75,9 @@ class RtcConn implements RoomConn {
 
   subscribe(trackSid: string): void { this.pubs.get(trackSid)?.setSubscribed(true); }
   unsubscribe(trackSid: string): void {
+    // Batch 3 review F2: forget the subscribed track at once, so the next read waits for a FRESH TrackSubscribed. Otherwise a resume
+    // faster than rtc-node's TrackUnsubscribed builds an AudioStream on the old track, which that event then closes.
+    this.tracks.delete(trackSid);
     this.release(trackSid, null);
     try { this.pubs.get(trackSid)?.setSubscribed(false); } catch { /* the publication is already gone */ }
   }

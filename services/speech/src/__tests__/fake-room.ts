@@ -5,6 +5,11 @@ import type { RoomConn, RoomPort, RoomTrack } from "../ingest/room-port.js";
  * publish and unpublish tracks and push audio, and — like rtc-node's AudioStream, whose already-buffered frames stay readable after an
  * unsubscribe (rtc-node 1.2.1 `AudioStreamSource.teardown`) — **keeps yielding queued and newly pushed frames to every open iterator of
  * a track after `unsubscribe`**. So nothing in the ingest may rely on an unsubscribe stopping the frames: only its own per-frame check.
+ *
+ * Batch 3 review F2/F11: like a real async generator, `return()` called while a `next()` is pending does NOT settle that `next()`: it is
+ * queued until the stream's next chunk (which the pending `next()` still receives) or its end. And with `lagUnsubscribe` the stale-track
+ * race of rtc-node is modelled: an `unsubscribe` takes effect later (`flushUnsubscribed`), when it ends every stream of the track that
+ * is open by then, including one started by a fast re-subscribe (rtc-node's `TrackUnsubscribed` and `track.closeAudioStreams()`).
  */
 export class FakeRoomPort implements RoomPort {
   readonly opened: { url: string; token: string }[] = [];
@@ -13,21 +18,33 @@ export class FakeRoomPort implements RoomPort {
   failNext: Error | null = null;
   /** Tracks every new connection starts with (already in the room before the worker joins). */
   initial: RoomTrack[] = [];
+  /** New connections deliver their unsubscribes late (see the class comment). */
+  lagUnsubscribe = false;
 
   async open(url: string, token: string): Promise<RoomConn> {
     this.opened.push({ url, token });
     if (this.failNext) { const e = this.failNext; this.failNext = null; throw e; }
     const c = new FakeConn(this.initial);
+    c.lagUnsubscribe = this.lagUnsubscribe;
     this.conns.push(c);
     return c;
   }
 }
 
-type Iter = { queue: Int16Array[]; wait: ((r: IteratorResult<Int16Array>) => void) | null; done: boolean };
+type Iter = {
+  queue: Int16Array[]; wait: ((r: IteratorResult<Int16Array>) => void) | null; done: boolean;
+  /** A `return()` that waits for the pending `next()` to settle (a real async generator's queue). */
+  returning: (() => void) | null;
+};
 
 export class FakeConn implements RoomConn {
   readonly calls: string[] = [];
   disconnected = false;
+  lagUnsubscribe = false;
+  /** Unsubscribes not yet delivered (with `lagUnsubscribe`). */
+  private readonly lagging: string[] = [];
+  /** The next `subscribe` throws this (then it is cleared). */
+  subscribeThrows: Error | null = null;
   private readonly published = new Map<string, RoomTrack>();
   private readonly iters = new Map<string, Iter[]>();
   private trackFns: ((t: RoomTrack) => void)[] = [];
@@ -39,13 +56,18 @@ export class FakeConn implements RoomConn {
   onTrack(fn: (t: RoomTrack) => void): void { this.trackFns.push(fn); for (const t of this.published.values()) fn(t); }
   onTrackGone(fn: (t: { identity: string; trackSid: string }) => void): void { this.goneFns.push(fn); }
   onDisconnected(fn: () => void): void { this.discFns.push(fn); }
-  subscribe(trackSid: string): void { this.calls.push(`subscribe ${trackSid}`); }
-  unsubscribe(trackSid: string): void { this.calls.push(`unsubscribe ${trackSid}`); }
+  subscribe(trackSid: string): void {
+    this.calls.push(`subscribe ${trackSid}`);
+    if (this.subscribeThrows) { const e = this.subscribeThrows; this.subscribeThrows = null; throw e; }
+  }
+  unsubscribe(trackSid: string): void { this.calls.push(`unsubscribe ${trackSid}`); if (this.lagUnsubscribe) this.lagging.push(trackSid); }
+  /** Test side: rtc-node's late `TrackUnsubscribed` for every unsubscribe so far: every stream of those tracks open now ends. */
+  flushUnsubscribed(): void { for (const sid of this.lagging.splice(0)) this.endStream(sid); }
 
   frames(trackSid: string, sampleRate: 16000, channels: 1): AsyncIterable<Int16Array> {
     if (sampleRate !== 16000 || channels !== 1) throw new Error("the fake room only serves 16 kHz mono");
     this.calls.push(`frames ${trackSid}`);
-    const it: Iter = { queue: [], wait: null, done: false };
+    const it: Iter = { queue: [], wait: null, done: false, returning: null };
     const list = this.iters.get(trackSid) ?? [];
     list.push(it);
     this.iters.set(trackSid, list);
@@ -59,9 +81,10 @@ export class FakeConn implements RoomConn {
         },
         return: (): Promise<IteratorResult<Int16Array>> => {
           this.calls.push(`return ${trackSid}`);
-          it.done = true; it.queue = [];
-          const w = it.wait; it.wait = null; w?.({ value: undefined, done: true });
-          return Promise.resolve({ value: undefined, done: true });
+          it.queue = [];
+          if (it.wait === null || it.done) { it.done = true; return Promise.resolve({ value: undefined, done: true }); }
+          // A pending next(): the return waits for it (it still gets the next chunk, or the end), like a real async generator.
+          return new Promise((r) => { it.returning = () => r({ value: undefined, done: true }); });
         },
       }),
     };
@@ -77,14 +100,26 @@ export class FakeConn implements RoomConn {
     for (const it of this.iters.get(trackSid) ?? []) {
       if (it.done) continue;
       const w = it.wait;
-      if (w) { it.wait = null; w({ value: chunk, done: false }); } else it.queue.push(chunk);
+      if (w) { it.wait = null; w({ value: chunk, done: false }); FakeConn.finishReturn(it); }
+      else if (it.returning === null) it.queue.push(chunk);
     }
   }
   /** Test side: the server ends the track's streams (as rtc-node does at an `eos`). */
-  endStream(trackSid: string): void { for (const it of this.iters.get(trackSid) ?? []) { it.done = true; const w = it.wait; it.wait = null; w?.({ value: undefined, done: true }); } }
+  endStream(trackSid: string): void {
+    for (const it of this.iters.get(trackSid) ?? []) { const w = it.wait; it.wait = null; w?.({ value: undefined, done: true }); FakeConn.finishReturn(it); it.done = true; }
+  }
   /** Test side: the connection drops without the worker asking. */
   drop(): void { this.disconnected = true; this.endAll(); for (const f of this.discFns) f(); }
   openIterators(trackSid: string): number { return (this.iters.get(trackSid) ?? []).filter((i) => !i.done).length; }
+  /** Iterators of the track with a `next()` waiting for audio. */
+  waitingIterators(trackSid: string): number { return (this.iters.get(trackSid) ?? []).filter((i) => !i.done && i.wait !== null).length; }
+
+  private static finishReturn(it: Iter): void {
+    const r = it.returning;
+    if (r === null) return;
+    it.returning = null; it.done = true; it.queue = [];
+    r();
+  }
 
   private endAll(): void { for (const sid of this.iters.keys()) this.endStream(sid); }
 }

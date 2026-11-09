@@ -15,6 +15,11 @@ export type SetTimer = (fn: () => void, ms: number) => () => void;
 
 /** Batch 3 review F1: how long after a refused or unanswered join the seat room is joined again (while its role is still allowed). */
 export const JOIN_RETRY_MS = 1_000;
+/**
+ * Batch 3 review F2: a track's stream that ends while the track is still published and its seat still records is subscribed again, at
+ * most this many times in a row without a delivered frame; one more reports `failed`.
+ */
+export const MAX_TRACK_RESTARTS = 5;
 /** Consecutive refused or unanswered joins of one seat room (while allowed) before the ingest reports `failed`. */
 export const JOIN_ATTEMPTS = 3;
 /** Control answered `livekit_join_refused` (paused, not recording, no seats yet, voice off, a minting failure). Fixed message. */
@@ -29,7 +34,11 @@ const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unr
 
 /** One subscribed track: who it belongs to is fixed when it starts (from the identity) and never changes. */
 type Sub = { trackSid: string; identity: string; roleId: string; generation: string; ended: boolean; iter?: AsyncIterator<Int16Array> };
-type Room = { roleId: string; conn?: RoomConn; published: Map<string, RoomTrack>; subs: Map<string, Sub>; gone: boolean };
+type Room = {
+  roleId: string; conn?: RoomConn; published: Map<string, RoomTrack>; subs: Map<string, Sub>; gone: boolean;
+  /** trackSid -> restarts in a row without a delivered frame (MAX_TRACK_RESTARTS). */
+  restarts: Map<string, number>;
+};
 
 /**
  * US-0071 (EPIC-0003 voice A1b, Task 7, R9, Review Focus 1 and 2): live audio from LiveKit, the worker's half of the privacy invariant at
@@ -44,6 +53,8 @@ type Room = { roleId: string; conn?: RoomConn; published: Map<string, RoomTrack>
  *    and two tracks of one role never interleave.
  *  - `setAllowed` (called in the same synchronous step as the gate update, worker.ts) ends every loop no longer allowed at once,
  *    subscribes newly allowed tracks and joins newly allowed rooms. The worker passes an EMPTY set while paused or ended.
+ *  - A track loop that ends by itself while the track is published and allowed subscribes it again (at most MAX_TRACK_RESTARTS in a
+ *    row without a frame, then `failed`; batch 3 review F2).
  *  - A join control refused or did not answer (LiveKitJoinRefused, LiveKitJoinTimeout: a pause, a mute or a runtime restart while the
  *    join was pending) forgets the room quietly; while its role is allowed it is joined again after JOIN_RETRY_MS on the injected timer,
  *    and only JOIN_ATTEMPTS such joins in a row report `failed` (batch 3 review F1).
@@ -99,7 +110,7 @@ export class LiveKitIngest implements AudioIngest {
   }
 
   private openRoom(roleId: string): void {
-    const room: Room = { roleId, published: new Map(), subs: new Map(), gone: false };
+    const room: Room = { roleId, published: new Map(), subs: new Map(), gone: false, restarts: new Map() };
     this.rooms.set(roleId, room);
     void (async () => {
       let conn: RoomConn;
@@ -204,21 +215,35 @@ export class LiveKitIngest implements AudioIngest {
         let stop = false;
         for (const frame of reframer.push(r.value)) {
           if (!this.current(sub)) { stop = true; break; }
+          room.restarts.delete(sub.trackSid);
           this.sink?.(sub.roleId, sub.generation, frame);
         }
         if (stop) break;
       }
     } catch { /* the stream failed: the track is ended below */ }
-    if (!sub.ended) this.endSub(room, sub);
+    if (sub.ended) return;
+    // Batch 3 review F2: the stream ended by itself (a server-side unsubscribe, a failed subscription, or rtc-node closing a stream of a
+    // track re-subscribed too fast) while the track is still published and the seat still records: nothing else would ever subscribe it
+    // again (no publish or unpublish event comes), so it is subscribed again here, bounded.
+    const again = this.current(sub) && !room.gone && room.published.has(sub.trackSid);
+    this.endSub(room, sub, !again); // no unsubscribe before a re-subscribe: that would be a fast toggle of its own
+    if (again) this.restartTrack(room, sub.trackSid);
+  }
+
+  private restartTrack(room: Room, trackSid: string): void {
+    const n = (room.restarts.get(trackSid) ?? 0) + 1;
+    room.restarts.set(trackSid, n);
+    if (n > MAX_TRACK_RESTARTS) { this.o.onStatus("failed"); this.fail(); return; }
+    this.reconcileRoom(room);
   }
 
   /** Ends a subscription at once: its loop delivers nothing more (it checks `ended`), its stream is closed, the track unsubscribed. */
-  private endSub(room: Room, sub: Sub): void {
+  private endSub(room: Room, sub: Sub, unsubscribe = true): void {
     if (sub.ended) return;
     sub.ended = true;
     if (room.subs.get(sub.identity) === sub) room.subs.delete(sub.identity);
     try { void sub.iter?.return?.()?.catch?.(() => undefined); } catch { /* already closed */ }
-    if (room.conn && !room.gone) { try { room.conn.unsubscribe(sub.trackSid); } catch { /* the connection is going away */ } }
+    if (unsubscribe && room.conn && !room.gone) { try { room.conn.unsubscribe(sub.trackSid); } catch { /* the connection is going away */ } }
   }
 
   private closeAll(): RoomConn[] {
