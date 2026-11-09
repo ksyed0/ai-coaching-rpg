@@ -1,6 +1,6 @@
 # Voice slice A2a: the audio store, disk guard and retention sweep (design)
 
-Status: Draft 2 (2026-11-09), after an independent Opus review of Draft 1 against the code (3 Critical, 10 Important findings, all incorporated below except where marked **Owner decision**). Parent: `2026-11-08-voice-part-a-design.md` section 8 and the overview's contracts 1, 5 and 6. Proposed story: US-0073a (EPIC-0003), dark behind `VOICE_ENABLED`.
+Status: Draft 2 (2026-11-09), after an independent Opus review of Draft 1 against the code (3 Critical, 10 Important findings, all incorporated below) and the owner's lock decision (section 3). Parent: `2026-11-08-voice-part-a-design.md` section 8 and the overview's contracts 1, 5 and 6. Proposed story: US-0073a (EPIC-0003), dark behind `VOICE_ENABLED`.
 
 ## 1. Intent
 
@@ -30,12 +30,12 @@ The exact refusal codes are taken from `VOICE_REFUSALS` in `services/speech/src/
 | --- | --- | --- | --- |
 | `AudioStore` | `services/speech/src/store/audio-store.ts` | Per the table above: validate, create dirs, write the WAV (fsync), then append the index line. Returns ok or a stop reason. | `StoreLock`, `DiskGuard`, injected clock and fs |
 | `IndexFile` | `store/index-file.ts` | Append and read of `index.jsonl`. On open, a file not ending in `\n` gets one appended first; readers skip unparseable lines. | fs |
-| `StoreLock` | see **Owner decision** below | The `SessionLock` pattern on `<AUDIO_DIR>/<logIdentity>.store.lock`, outside the directory the sweep deletes (review I6). | fs |
+| `StoreLock` | shared `SessionLock` from `@acr/runtime/files` (owner decision below) | The `SessionLock` pattern on `<AUDIO_DIR>/<logIdentity>.store.lock`, outside the directory the sweep deletes (review I6). | fs |
 | `DiskGuard` | `store/disk-guard.ts` | Before each write: `statfs` of `AUDIO_DIR` **and** of the sessions directory must each exceed `AUDIO_MIN_FREE_MB` plus the size of the next file (review I9; the pair `voice:check` already checks, `voice-ops/src/check.ts:115`). | injected `statfs` |
 | `AuditLog` | `services/control/src/voice/audit-log.ts` | Append-only `<logIdentity>.audio-audit.jsonl` under its own lock `<logIdentity>.audio-audit.lock`. A2a writes `audio.deleted` (reason `expired`, scope shape `{ kind: "session" }` per contract 6), `voice.recording_stopped`, and `voice.opted_in` / `voice.opted_out` (control drops `voice_choice` today, `voice-host.ts:372`; review I3). | lock |
 | `Sweep` | `control/src/voice/sweep.ts` | See section 6. | `AuditLog`, store lock, injected clock |
 
-**Owner decision (review open question 1).** Control (sweep, audit log) and the worker must judge the same lock file the same way, and two copies can drift. The reviewer recommends one shared implementation: export `@acr/runtime/files` (`SessionLock`, `assertInside`, `ensurePrivateDir`), add it to control's import allowlist and its "exactly" assertion (`services/control/src/__tests__/bots/imports.test.ts:22,31`) and use it from speech too. That reopens the 2026-11-08 decision to copy the pattern into `services/speech`. **Recommended: the shared export. This draft assumes it; the owner confirms or returns to the copy.** Fallback if the owner keeps the copy: export the speech copy as `@acr/speech/store-lock` and widen the guard at `imports.test.ts:47-53`.
+**Owner decision (review open question 1).** Control (sweep, audit log) and the worker must judge the same lock file the same way, and two copies can drift. The reviewer recommends one shared implementation: export `@acr/runtime/files` (`SessionLock`, `assertInside`, `ensurePrivateDir`), add it to control's import allowlist and its "exactly" assertion (`services/control/src/__tests__/bots/imports.test.ts:22,31`) and use it from speech too. That reopens the 2026-11-08 decision to copy the pattern into `services/speech`. **DECIDED by the owner, 2026-11-09 ("Yes, share it"): one shared export, `@acr/runtime/files`; this supersedes the 2026-11-08 decision to copy the pattern into `services/speech`.** The plan adds the sixth allowed subpath, updates the "exactly" assertion, and deletes nothing from the runtime's own use of `SessionLock`.
 
 ## 4. Identity, layout and permissions
 
@@ -82,4 +82,4 @@ The audit log holds participant ids and facilitator labels, never content (revie
 
 ## 9. Review log
 
-Draft 1 questions answered: (1) lock: shared export recommended, owner confirms (section 3); (2) `deleted` lines are A2b; (3) the clock comes from an `ended` marker plus the indexes (section 6). Not verified: behaviour on a real LAN, real disks near the floor, and APFS-specific rename atomicity under load (the sweep's rename is on one volume).
+Draft 1 questions answered: (1) lock: shared export, confirmed by the owner (section 3); (2) `deleted` lines are A2b; (3) the clock comes from an `ended` marker plus the indexes (section 6). Not verified: behaviour on a real LAN, real disks near the floor, and APFS-specific rename atomicity under load (the sweep's rename is on one volume).
