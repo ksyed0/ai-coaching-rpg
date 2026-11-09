@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, s
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { privateTmp } from "./helpers/ops-harness.js";
 import { assertUnchanged, digestFiles, type FileDigest } from "./helpers/real-files.js";
 
@@ -47,8 +47,16 @@ beforeAll(async () => {
   tmp = privateTmp("acr-voice-ops-cli-");
   realBefore = digestFiles(REAL_FILES);
   if (PNPM === null) skip = "pnpm is not on PATH";
-  else if (await portTaken(7880)) skip = "port 7880 is taken on this machine (the LiveKit stand-in needs it)";
+  // voice:up runs LiveKit only on 127.0.0.1:7880 (LIVEKIT_HOST must be the default) and waits for an answer there, so the docker stub's
+  // stand-in cannot move to another port without a product change (review B2 F13): these tests skip instead of racing a real LiveKit or
+  // another worktree's run on that port.
+  else if (await portTaken(7880)) skip = "port 7880 is taken on this machine: voice:up only runs LiveKit on 127.0.0.1:7880, so the stand-in cannot move; stop what holds 7880 (a real LiveKit, another worktree's process tests) to run these";
 });
+// Review B2 F13: every process a case started is killed after it, even when an assertion failed first: the whisper stub (stub-record
+// .json), the LiveKit stand-in (livekit-standin.pid) and a detached pnpm group.
+const cleanups: (() => void)[] = [];
+const killQuietly = (pid: number, group = false): void => { if (Number.isInteger(pid) && pid > 1) { try { process.kill(group ? -pid : pid, "SIGKILL"); } catch { /* gone */ } } };
+afterEach(() => { for (const c of cleanups.splice(0)) { try { c(); } catch { /* best effort */ } } });
 afterAll(() => {
   assertUnchanged(realBefore, digestFiles(REAL_FILES));
   tmp.restore();
@@ -85,6 +93,12 @@ function setup(stub: Record<string, unknown> = {}): Setup {
     chmodSync(path.join(bin, name), 0o755);
   }
   writeFileSync(path.join(bin, "stub-config.json"), JSON.stringify({ loadingPolls: 1, livekitPort: 7880, ...stub }));
+  cleanups.push(() => {
+    const rec = path.join(bin, "stub-record.json");
+    if (existsSync(rec)) killQuietly((JSON.parse(readFileSync(rec, "utf8")) as { pid: number }).pid);
+    const standin = path.join(bin, "livekit-standin.pid");
+    if (existsSync(standin)) killQuietly(Number(readFileSync(standin, "utf8")));
+  });
   const env: NodeJS.ProcessEnv = {
     PATH: [bin, path.dirname(PNPM!), path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter),
     HOME: home, VOICE_OPS_REPO_ROOT: root, TMPDIR: tmp.root,
@@ -100,6 +114,7 @@ function runRoot(s: Setup, script: string, o: { detached?: boolean; onSpawn?: (p
     child.stdout.on("data", (c: Buffer) => { out += c.toString(); });
     child.stderr.on("data", (c: Buffer) => { out += c.toString(); });
     o.onSpawn?.(child.pid!);
+    if (o.detached) cleanups.push(() => killQuietly(child.pid!, true));
     child.on("close", (code, signal) => resolve({ code, signal, out }));
   });
 }
