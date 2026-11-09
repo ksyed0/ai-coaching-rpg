@@ -22,4 +22,15 @@ run adapters-allowed  packages/adapters/src/x.ts 'import A from "@anthropic-ai/s
 run adapters-pkgjson  packages/adapters/package.json '{"dependencies":{"@anthropic-ai/sdk":"^0.30.0"}}' 0
 run node_modules-skip node_modules/x/y.js "require('openai')" 0
 run clean             services/a/x.ts   'import fs from "node:fs"; const openaiish = 1;' 0
+run livekit-server-in-service      services/a/x.ts 'import { AccessToken } from "livekit-server-sdk";' 1
+run livekit-server-in-adapters     packages/adapters/src/x.ts 'import { AccessToken } from "livekit-server-sdk";' 0
+run livekit-server-pkgjson-web     apps/web/package.json '{"dependencies":{"livekit-server-sdk":"2.19.2"}}' 1
+run rtc-node-in-speech             services/speech/src/x.ts 'import { Room } from "@livekit/rtc-node";' 0
+run rtc-node-in-control            services/control/src/x.ts 'import { Room } from "@livekit/rtc-node";' 1
+run rtc-node-pkgjson-adapters      packages/adapters/package.json '{"dependencies":{"@livekit/rtc-node":"1.2.1"}}' 1
+run livekit-client-in-web          apps/web/src/x.tsx 'import { Room } from "livekit-client";' 0
+run livekit-client-in-control      services/control/src/x.ts 'import { Room } from "livekit-client";' 1
+run livekit-client-dynamic-import-in-runtime services/runtime/src/x.ts 'const m = await import("livekit-client");' 1
+run livekit-protocol-untouched     services/a/x.ts 'import "@livekit/protocol";' 0
+run adapters-livekit-subpath-in-control services/control/src/x.ts 'import { mintParticipantToken } from "@acr/adapters/livekit";' 0
 exit "$fail"
