@@ -5,7 +5,7 @@
  */
 import type { VoiceAlertCode } from "./parent-channel.js";
 
-export type VoiceHolder ={ roleId: string; participantId: string; recording: boolean };
+export type VoiceHolder = { roleId: string; participantId: string; recording: boolean };
 export type VoiceSeats = { paused: boolean; ended: boolean; holders: VoiceHolder[] };
 export type VoiceState = "none" | "voice" | "text_only" | "off";
 /**
