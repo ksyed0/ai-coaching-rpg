@@ -76,6 +76,14 @@ export type SetTimer = (fn: () => void, ms: number) => () => void;
  */
 export const VOICE_ACTIVITY_STALE_MS = 12_000;
 
+/**
+ * US-0071 (A1b review finding 5): speech-edge-driven changes of who is speaking reach the facilitator's roster at most once per this
+ * many ms (trailing edge: the state at the end of the window is what is sent), so a speaker whose edges flap costs one roster frame
+ * per window per facilitator socket, not one per edge. The facilitator sees speaking with up to this much delay. A change that does
+ * not come from a speech edge (mute, opt-out, a release, pause, the end) is sent at once.
+ */
+export const SPEAKING_BROADCAST_MS = 250;
+
 /** The default SetTimer: a real timer that never keeps the process alive. */
 export const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
 
@@ -98,9 +106,10 @@ export class VoiceTurnTracker {
 
   /**
    * `staleMs` (F2): forget a speaking role after this long with no news from it (see VOICE_ACTIVITY_STALE_MS); absent, never.
-   * `onActiveChange` (US-0071): called after any call that may have changed who is speaking (the caller compares; it may be a no-op).
+   * `onActiveChange` (US-0071): called after any call that may have changed who is speaking (the caller compares; it may be a no-op);
+   * `edge` is true for a speech edge (`activity`), false for everything else (forget, the stale backstop, dropAll, clear).
    */
-  constructor(private readonly o: { turnEndMs: number; setTimer: SetTimer; onTurnEnd: () => void; onOpenChange: (open: boolean) => void; staleMs?: number; onActiveChange?: () => void }) {}
+  constructor(private readonly o: { turnEndMs: number; setTimer: SetTimer; onTurnEnd: () => void; onOpenChange: (open: boolean) => void; staleMs?: number; onActiveChange?: (edge: boolean) => void }) {}
 
   get open(): boolean { return this.active.size > 0 || this.timer !== null; }
 
@@ -119,7 +128,7 @@ export class VoiceTurnTracker {
       if (this.active.size === 0) this.arm(Math.max(0, this.o.turnEndMs - (silentMs ?? 0)));
     }
     this.notify();
-    this.o.onActiveChange?.();
+    this.o.onActiveChange?.(true);
   }
 
   /** A track that may no longer record (opt-out, a lost seat): it stops holding the turn open; the last one arms the timer from now. */
@@ -128,7 +137,7 @@ export class VoiceTurnTracker {
     if (!this.active.delete(roleId)) return;
     if (this.active.size === 0) this.arm(this.o.turnEndMs);
     this.notify();
-    this.o.onActiveChange?.();
+    this.o.onActiveChange?.(false);
   }
 
   /** News from a speaking track (a line arrived): its backstop starts again. Nothing for a role that is not speaking. */
@@ -144,7 +153,7 @@ export class VoiceTurnTracker {
     this.active.clear();
     this.cancel();
     this.notify();
-    this.o.onActiveChange?.();
+    this.o.onActiveChange?.(false);
     this.o.onTurnEnd();
   }
 
@@ -169,7 +178,7 @@ export class VoiceTurnTracker {
     this.active.clear();
     this.epochN++;
     this.notify();
-    this.o.onActiveChange?.();
+    this.o.onActiveChange?.(false);
   }
 
   /** Records the last seq of a closed turn; only a rising boundary is kept. */

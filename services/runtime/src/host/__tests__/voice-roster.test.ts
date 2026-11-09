@@ -16,6 +16,7 @@ import { VoiceChoices, type VoiceFileIO } from "../../engine/voice-file.js";
 import { SessionHost } from "../session-host.js";
 import { startServer, type ServerHandle } from "../ws-server.js";
 import type { VoiceConfig } from "../voice-config.js";
+import { SPEAKING_BROADCAST_MS, type SetTimer } from "../voice.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 3, K6): the facilitator's roster carries each seat's voice state and who is speaking; the peers'
 // roster never does (Open Question 1). Real sockets on port 0; waits are on the frames themselves.
@@ -40,7 +41,7 @@ async function open(port: number): Promise<Client> {
   return { inbox, next, send: (m) => ws.send(JSON.stringify(m)), drop: () => ws.terminate() };
 }
 
-async function setup(voice: VoiceConfig = { enabled: true, turnEndMs: 800 }) {
+async function setup(voice: VoiceConfig = { enabled: true, turnEndMs: 800 }, setTimer?: SetTimer) {
   const scenario = await loadScenario(friday);
   const clock = new FakeClock(1_000);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock });
@@ -49,7 +50,7 @@ async function setup(voice: VoiceConfig = { enabled: true, turnEndMs: 800 }) {
   let record: unknown = null;
   const voiceFile: VoiceFileIO = { read: () => ({ choices: record === null ? VoiceChoices.empty(vbind) : VoiceChoices.fromRecord(record, vbind) }), write: (c) => { record = c.toRecord(); }, remove: () => { record = null; } };
   const seats: Seats = { credentials, consent: new ConsentStore({ version: "v3", text: "notice v3" }), aiRoles: AiRoleSet.empty(), persist: () => {}, voiceFile };
-  const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats, voice });
+  const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats, voice, ...(setTimer ? { setTimer } : {}) });
   const issued = JoinCodes.issue(PLAYERS, BIND);
   server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: () => {}, joinCodes: new Map([["local", issued.codes]]) });
   const players: Record<string, Client> = {};
@@ -153,5 +154,29 @@ describe("voice in the roster (US-0071, K6)", () => {
     e.players.tech_lead!.send({ type: "voice_mute", muted: true });
     const after = await facRoster(e.fac, (en) => !("speaking" in entry(en, "tech_lead")), e.fac.inbox.indexOf(r) + 1);
     expect(entry(after.entries, "tech_lead").voice).toBe("voice");
+  });
+
+  // Review finding 5: a flapping speaker costs one facilitator roster frame per SPEAKING_BROADCAST_MS window, with the final state.
+  it("flapping speech edges send one facilitator roster per window, carrying the last state (injected timer)", async () => {
+    const timers: { fn: () => void; ms: number; live: boolean }[] = [];
+    const setTimer: SetTimer = (fn, ms) => { const t = { fn, ms, live: true }; timers.push(t); return () => { t.live = false; }; };
+    const fireWindow = () => { for (const t of timers) if (t.live && t.ms === SPEAKING_BROADCAST_MS) { t.live = false; t.fn(); } };
+    const e = await setup(undefined, setTimer);
+    await optIn(e, "tech_lead");
+    await optIn(e, "delivery_lead");
+    await barrier(e.fac);
+    const facRosters = () => e.fac.inbox.filter((m) => m.type === "roster" && m.audience === "facilitator");
+    const before = facRosters().length;
+    for (const a of [true, false, true, false, true]) e.host.onSpeechActivity("tech_lead", a);
+    e.host.onSpeechActivity("delivery_lead", true);
+    e.host.onSpeechActivity("delivery_lead", false);
+    await barrier(e.fac);
+    expect(facRosters().length).toBe(before); // the window is still open: nothing sent yet
+    fireWindow();
+    await barrier(e.fac);
+    expect(facRosters().length).toBe(before + 1);
+    const last = facRosters().at(-1)!;
+    expect(entry(last.entries, "tech_lead").speaking).toBe(true);
+    expect(entry(last.entries, "delivery_lead")).not.toHaveProperty("speaking");
   });
 });

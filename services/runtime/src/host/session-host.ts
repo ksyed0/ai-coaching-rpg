@@ -14,7 +14,7 @@ import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitator
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers, noticeNamesVoice } from "./limits.js";
 import { VoiceChoices, type VoiceFileIO } from "../engine/voice-file.js";
-import { buildVoiceSeats, gmUnits, realSetTimer, VOICE_ACTIVITY_STALE_MS, VOICE_ALERT_LEVELS, VOICE_ALERT_SENTENCES, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
+import { buildVoiceSeats, gmUnits, realSetTimer, SPEAKING_BROADCAST_MS, VOICE_ACTIVITY_STALE_MS, VOICE_ALERT_LEVELS, VOICE_ALERT_SENTENCES, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
 import type { VoiceConfig } from "./voice-config.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -120,6 +120,9 @@ export class SessionHost {
   /** US-0071 (K6): the speaking roles last told to the listeners, so a listener hears only a real change. */
   private lastSpeaking: string[] = [];
   private readonly speakingListeners = new Set<() => void>();
+  /** US-0071 (review finding 5): the cancel of the pending speaking window (SPEAKING_BROADCAST_MS), or null. */
+  private speakingWindow: (() => void) | null = null;
+  private readonly setTimer: SetTimer;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats; /** US-0070: voice input (VOICE_ENABLED); default off. */ voice?: VoiceConfig; /** US-0070: the voice-turn timer (default a real, unref'd setTimeout). */ setTimer?: SetTimer }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -135,13 +138,14 @@ export class SessionHost {
     this.seats = opts.seats;
     this.clock = opts.clock;
     this.voice = opts.voice ?? { enabled: false };
+    this.setTimer = opts.setTimer ?? realSetTimer;
     if (this.voice.enabled) {
       if (this.seats) this.loadVoiceChoices(this.seats);
       this.turns = new VoiceTurnTracker({
-        turnEndMs: this.voice.turnEndMs, setTimer: opts.setTimer ?? realSetTimer, staleMs: VOICE_ACTIVITY_STALE_MS,
+        turnEndMs: this.voice.turnEndMs, setTimer: this.setTimer, staleMs: VOICE_ACTIVITY_STALE_MS,
         onTurnEnd: () => this.endVoiceTurn(),
         onOpenChange: (open) => { for (const fn of this.voiceTurnListeners) { try { fn(open); } catch (err) { this.safeLog(`voice turn listener: ${errorName(err)}`); } } },
-        onActiveChange: () => this.noteSpeaking(),
+        onActiveChange: (edge) => this.noteSpeaking(edge),
       });
       // Pause, resume, a restart and the end change what may be recorded: the seats are reported again (coalesced; never throws).
       // Pause, a restart (it comes back paused) and the end also clear the voice turn: no round runs for it (AC-0400).
@@ -535,10 +539,24 @@ export class SessionHost {
     return new Set((this.turns?.activeRoles() ?? []).filter((r) => this.isRecordingHolder(r)));
   }
 
-  /** US-0071 (K6): `fn` is called whenever the set of speaking roles changes (for the facilitator's roster only). */
+  /**
+   * US-0071 (K6): `fn` is called when the set of speaking roles changed (for the facilitator's roster only). Review finding 5: a change
+   * from speech edges is told at most once per SPEAKING_BROADCAST_MS, at the end of the window, with the state then; any other change
+   * (mute, opt-out, a release, pause, the end) is told at once and closes the window. Nothing is told when the state is unchanged.
+   */
   onSpeakingChanged(fn: () => void): () => void { this.speakingListeners.add(fn); return () => { this.speakingListeners.delete(fn); }; }
 
-  private noteSpeaking(): void {
+  private noteSpeaking(edge: boolean): void {
+    if (edge && this.speakingListeners.size > 0) { // no listener (no server): nothing to coalesce, no timer
+      if (this.speakingWindow === null) this.speakingWindow = this.setTimer(() => { this.speakingWindow = null; this.tellSpeaking(); }, SPEAKING_BROADCAST_MS);
+      return;
+    }
+    this.speakingWindow?.();
+    this.speakingWindow = null;
+    this.tellSpeaking();
+  }
+
+  private tellSpeaking(): void {
     let now: string[];
     try { now = [...this.speakingRoles()].sort(); } catch (err) { this.safeLog(`speaking: ${errorName(err)}`); return; }
     if (now.length === this.lastSpeaking.length && now.every((r, i) => r === this.lastSpeaking[i])) return;
@@ -570,6 +588,8 @@ export class SessionHost {
     if (!this.voice.enabled) return;
     // A track that may no longer record stops holding the voice turn open at once (an opt-out, a lost or reissued seat).
     if (this.turns) for (const r of this.turns.activeRoles()) { try { if (!this.isRecordingHolder(r)) this.turns.forget(r); } catch (err) { this.safeLog(`voice turn: ${errorName(err)}`); } }
+    // Review finding 5: a release, mute, opt-out, pause or the end closes a pending speaking window at once (its state is told now).
+    if (this.speakingWindow !== null) this.noteSpeaking(false);
     if (this.voiceSeatsListeners.size === 0 || this.voiceSeatsQueued) return;
     this.voiceSeatsQueued = true;
     queueMicrotask(() => {
