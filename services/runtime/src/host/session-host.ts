@@ -41,6 +41,8 @@ export class HostError extends Error {
 export const NOTICE_MIN_INTERVAL_MS = 10_000;
 /** US-0070: at most one voice alert per code in this long (host clock). */
 export const ALERT_MIN_INTERVAL_MS = 30_000;
+/** US-0070 (F10): at most this many voice alerts wait for the start (one per code, so in practice at most the three codes). */
+export const MAX_PENDING_VOICE_ALERTS = 8;
 /** US-0070: the facilitator's voice alerts, fixed sentences (never a value, a path or a transcript). */
 export const VOICE_ALERT_SENTENCES: Readonly<Record<VoiceAlertCode, string>> = {
   worker_down: "Voice input stopped: the speech worker is not running. Participants can continue by text.",
@@ -107,6 +109,8 @@ export class SessionHost {
   /** US-0070: when each `role\ncode` notice and each alert code was last sent (host clock), for the rate limits. */
   private readonly noticeSentAt = new Map<string, number>();
   private readonly alertSentAt = new Map<VoiceAlertCode, number>();
+  /** F10: alerts raised before the start (a worker lost in the lobby, STT down at warm-up), one per code, latest last; logged at the start. */
+  private readonly pendingAlerts = new Set<VoiceAlertCode>();
   /** US-0070 (C7): the last seq before this process knew voice-turn boundaries (a restart): lines up to it count by runs (gmUnits). */
   private voiceKnownFrom = 0;
 
@@ -566,7 +570,7 @@ export class SessionHost {
       const extra = this.engine.startIncomplete ? undefined : this.startGate();
       // A copy: the gate checked these seats, so a release while the engine waits for its mutex must not change what is recorded.
       this.starting = this.engine.start({ ...this.assignments }, extra)
-        .then(() => { this.started = true; })
+        .then(() => { this.started = true; this.flushPendingAlerts(); })
         .finally(() => { this.starting = null; });
     }
     await this.starting;
@@ -714,17 +718,33 @@ export class SessionHost {
 
   /**
    * US-0070 (AC-0399, AC-0402): one facilitator-only warning with the FIXED sentence of `code`, at most once per code per
-   * ALERT_MIN_INTERVAL_MS (host clock); nothing while voice is off, before the start or after the end. Never rejects.
+   * ALERT_MIN_INTERVAL_MS (host clock); nothing while voice is off or after the end. Before the start it is kept (F10, one per code) and
+   * logged when the session starts. Never rejects.
    */
   async voiceAlert(code: VoiceAlertCode): Promise<void> {
     try {
-      if (!this.voice.enabled || !this.started || this.engine.state.status === "ended") return;
+      if (!this.voice.enabled || this.engine.state.status === "ended") return;
+      if (!this.started) { this.keepPendingAlert(code); return; }
       const now = this.clock.now();
       const last = this.alertSentAt.get(code);
       if (last !== undefined && now - last < ALERT_MIN_INTERVAL_MS) return;
       this.alertSentAt.set(code, now);
       await this.engine.alert(VOICE_ALERT_SENTENCES[code], "warning");
     } catch (err) { this.safeLog(`voice alert: ${errorName(err)}`); }
+  }
+
+  /** F10: keeps a pre-start alert: one per code (raised again, it moves to the end), at most MAX_PENDING_VOICE_ALERTS (the oldest goes). */
+  private keepPendingAlert(code: VoiceAlertCode): void {
+    this.pendingAlerts.delete(code);
+    this.pendingAlerts.add(code);
+    while (this.pendingAlerts.size > MAX_PENDING_VOICE_ALERTS) this.pendingAlerts.delete(this.pendingAlerts.values().next().value!);
+  }
+
+  /** F10: at the start, every kept alert becomes a facilitator alert, in the order kept, once (the usual rate limit applies). Never throws. */
+  private flushPendingAlerts(): void {
+    const codes = [...this.pendingAlerts];
+    this.pendingAlerts.clear();
+    void codes.reduce<Promise<void>>((p, c) => p.then(() => this.voiceAlert(c)), Promise.resolve());
   }
 
   /** US-0070: `fn` gets every open and close of a voice turn (for the control service's AI players, `voice_turn`). */

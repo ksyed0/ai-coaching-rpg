@@ -13,7 +13,7 @@ import { PlayerCredentials } from "../../engine/credentials.js";
 import { ConsentStore } from "../../engine/consent.js";
 import { AiRoleSet } from "../../engine/ai-roles.js";
 import type { Seats } from "../../engine/seats.js";
-import { ALERT_MIN_INTERVAL_MS, NOTICE_MIN_INTERVAL_MS, SessionHost, VOICE_ALERT_SENTENCES } from "../session-host.js";
+import { ALERT_MIN_INTERVAL_MS, MAX_PENDING_VOICE_ALERTS, NOTICE_MIN_INTERVAL_MS, SessionHost, VOICE_ALERT_SENTENCES } from "../session-host.js";
 import { startServer, type ServerHandle } from "../ws-server.js";
 import type { VoiceConfig } from "../voice-config.js";
 import type { VoiceNoticeCode } from "../voice.js";
@@ -114,7 +114,7 @@ describe("voiceAlert (US-0070, AC-0399)", () => {
     expect(VOICE_ALERT_SENTENCES.worker_down).toBe("Voice input stopped: the speech worker is not running. Participants can continue by text.");
   });
 
-  it("no alert before the start, after the end, or while voice is off; never a throw", async () => {
+  it("nothing is logged before the start, after the end, or while voice is off; never a throw", async () => {
     const h = makeHost();
     await h.host.voiceAlert("worker_down");
     expect(h.engine.state.lastSeq).toBe(0);
@@ -131,6 +131,40 @@ describe("voiceAlert (US-0070, AC-0399)", () => {
     await startAll(h2);
     vi.spyOn(h2.engine, "alert").mockRejectedValueOnce(new Error("disk"));
     await expect(h2.host.voiceAlert("stt_failed")).resolves.toBeUndefined();
+  });
+
+  // F10 (review fix wave): a worker that dies in the lobby (bad SPEECH_INGEST_DIR or STT_URL) or a whisper-server down at warm-up must
+  // still reach the facilitator: alerts raised before the start are kept (deduped by code, bounded, the latest last) and logged at the start.
+  it("an alert raised before the start is delivered at the start, exactly once", async () => {
+    const h = makeHost();
+    await h.host.voiceAlert("worker_down");
+    expect(await alerts(h)).toEqual([]);
+    await startAll(h);
+    await vi.waitFor(async () => expect((await alerts(h)).map((a) => a.message)).toEqual([VOICE_ALERT_SENTENCES.worker_down]));
+    await h.host.voiceAlert("stt_unavailable"); // after the start: at once, as before
+    await h.host.idle();
+    await h.host.start(); // a second start call changes nothing
+    expect((await alerts(h)).map((a) => a.message)).toEqual([VOICE_ALERT_SENTENCES.worker_down, VOICE_ALERT_SENTENCES.stt_unavailable]);
+  });
+
+  it("pre-start alerts are deduped by code and bounded, the latest raised last", async () => {
+    const h = makeHost();
+    for (let i = 0; i < 50; i++) for (const c of ["stt_failed", "worker_down", "stt_unavailable"] as const) await h.host.voiceAlert(c);
+    await h.host.voiceAlert("stt_failed"); // raised again: now the latest
+    const pending = (h.host as unknown as { pendingAlerts: Set<string> }).pendingAlerts;
+    expect(pending.size).toBeLessThanOrEqual(MAX_PENDING_VOICE_ALERTS);
+    expect([...pending]).toEqual(["worker_down", "stt_unavailable", "stt_failed"]);
+    await startAll(h);
+    await vi.waitFor(async () => expect((await alerts(h)).map((a) => a.message)).toEqual([VOICE_ALERT_SENTENCES.worker_down, VOICE_ALERT_SENTENCES.stt_unavailable, VOICE_ALERT_SENTENCES.stt_failed]));
+    expect(pending.size).toBe(0);
+  });
+
+  it("no pre-start alert is kept while voice is off", async () => {
+    const off = makeHost({ voice: { enabled: false } });
+    await off.host.voiceAlert("worker_down");
+    await startAll(off);
+    await off.host.idle();
+    expect((await alerts(off)).some((a) => a.message === VOICE_ALERT_SENTENCES.worker_down)).toBe(false);
   });
 
   it("a player never receives a facilitator.alert (regression guard)", async () => {
