@@ -51,7 +51,7 @@ A1a (pipeline on file ingest) ──> A1b (LiveKit, consent UI, supervision) ─
 
 **Ids.** Story numbers above are proposals (next free US-0070 at the time of writing, `docs/ID_REGISTRY.md:156`); nothing is reserved by this plan. Each slice's story, TASK, AC and TC ids are taken from `docs/ID_REGISTRY.md` when that slice's stories are filed (the first task of each slice plan), with a "Reserved blocks" or "Assigned" line in the registry's own style. If another story takes US-0070 first, every name in this plan shifts with the registry; branch names follow the filed id.
 
-**Release gate (spec §12, unchanged):** voice is enabled for a pilot only when A1a, A1b, A1c and A2 are complete, the owner-run room test passes (spec §13), and legal and HR have signed off the notice v3 wording (spec §14 item 7). Until then `VOICE_ENABLED` stays `0` in every shipped configuration; each slice is dark behind it. A3 may ship after the pilot starts.
+**Release gate (spec §12, unchanged):** voice is enabled for a pilot only when A1a, A1b, A1c and A2 are complete, the owner-run room test passes (spec §13), and legal and HR have signed off the notice v3 wording (spec §14 item 7); at that gate notice v3's draft marker is removed and the file is pinned by its SHA-256 (the owner approved the wording on 2026-11-08; A1b keeps the marker, and the notice already describes the retention A2 builds, so voice must not go live before A2). Until then `VOICE_ENABLED` stays `0` in every shipped configuration; each slice is dark behind it. A3 may ship after the pilot starts.
 
 **Docs-first:** the spec and these three plans land on `develop` through one docs PR before A1a's branch is cut (the precedent of slice 2c-4, Task 0).
 
@@ -81,7 +81,7 @@ type ControlToWorker =
   | { type: "voice_line_result"; segmentId: SegmentId; refused: VoiceRefusal };   // one schema: exactly one of seq | refused
 ```
 
-A2 adds no message here (the worker writes its own store); A1b adds `livekit_join { url, token, room }` (control→worker) and `stt_health { ok }` (worker→control); A3 adds `partial { roleId, text }` (worker→control, facilitator only).
+A2 adds no message here (the worker writes its own store); A1b adds `livekit_join { roleId, url, token, room }` (control→worker, the answer to the worker's `livekit_token_request { roleId }`, one room per seat), `stt_slot_grant`, and `stt_health { ok }`, `stt_slot_request`/`stt_slot_release`, `livekit_status` (worker→control); the A1b plan has the exact shapes; A3 adds `partial { roleId, text }` (worker→control, facilitator only).
 
 ### 2. Control ↔ runtime (parent channel: `services/runtime/src/host/parent-channel.ts` and its copy `services/control/src/protocol.ts`, drift test `services/control/src/__tests__/protocol.drift.test.ts`)
 
@@ -174,7 +174,7 @@ Minted in control through `packages/adapters/src/livekit/token.ts` (`livekit-ser
            canSubscribe: false, canPublishData: false, canUpdateOwnMetadata: false } }
 ```
 
-`room` is `v` + 32 random hex per session, held in control memory only. A token is issued only to the current holder whose voice state is `voice` (from the last `voice_seats`); a reissue or opt-out calls `removeParticipant(room, identity)`. The worker's own token (`canSubscribe: true`, `canPublish: false`) goes to it through `livekit_join`, never through its environment.
+`room` is the **seat's own room** (design change in the A1b plan, K9: one room per human seat, not per session, so LiveKit's signalling never shows a participant anything about another seat): `v` + 32 random hex per (session, role), held in control memory only. A token is issued only to the current holder whose voice state is `voice` (from the last `voice_seats`), for that seat's room; a reissue, rebind, leave, withdrawal, AI fill or opt-out removes the old identity from the seat's room (`removeParticipant`, with a `listParticipants` sweep on every seat change). The worker's own per-room token (`canSubscribe: true`, `canPublish: false`, `hidden: true`) goes to it through `livekit_join` when it asks, never through its environment.
 
 ---
 
