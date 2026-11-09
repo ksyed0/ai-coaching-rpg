@@ -117,6 +117,19 @@ describe("realSpawnDetached (US-0072, A1c Task 3)", () => {
     expect(withoutCf(seen.env)).toEqual({ PATH: "/usr/bin:/bin", HOME: dir });
   });
 
+  // Batch 2 review B F4: `detached: true` puts the child in its own session and process group (setsid), so a Ctrl-C to the terminal's
+  // process group never reaches whisper-server. Its process group id is its own pid, not this test's.
+  it("starts the child in its own process group (detached)", async () => {
+    const dir = newDir();
+    const { pid } = realSpawnDetached(process.execPath, ["-e", "setTimeout(() => {}, 600000)"], { logFile: path.join(dir, "g.log"), env: {}, cwd: dir });
+    started.push(pid);
+    const pgidOf = (p: number): number => Number(spawnSync("ps", ["-o", "pgid=", "-p", String(p)], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } }).stdout.trim());
+    const own = pgidOf(process.pid);
+    expect(own).toBeGreaterThan(0);
+    expect(pgidOf(pid)).toBe(pid);
+    expect(pgidOf(pid)).not.toBe(own);
+  });
+
   it("refuses a log that is a symbolic link (O_NOFOLLOW) and starts nothing", () => {
     const dir = newDir();
     const target = path.join(dir, "target.log");

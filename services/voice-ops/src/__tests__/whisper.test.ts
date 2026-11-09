@@ -70,7 +70,7 @@ function lstartOf(ms: number): string {
 }
 
 /** A fake system: one process table answering `ps`, and a `kill` that records signals. */
-function fakeSystem(o: { comm?: string; ignoreTerm?: boolean; startedAt?: () => number } = {}) {
+function fakeSystem(o: { comm?: string; ignoreTerm?: boolean; startedAt?: () => number; onTerm?: (p: { comm: string; args: string; start: number; alive: boolean }) => void; eperm?: boolean } = {}) {
   const procs = new Map<number, { comm: string; args: string; start: number; alive: boolean }>();
   const signals: [number, string | 0][] = [];
   const calls: { cmd: string; args: readonly string[] }[] = [];
@@ -93,6 +93,8 @@ function fakeSystem(o: { comm?: string; ignoreTerm?: boolean; startedAt?: () => 
     signals.push([pid, sig]);
     const p = procs.get(pid);
     if (!p || !p.alive) { const e = new Error("no such process") as NodeJS.ErrnoException; e.code = "ESRCH"; throw e; }
+    if (o.eperm) { const e = new Error("operation not permitted") as NodeJS.ErrnoException; e.code = "EPERM"; throw e; }
+    if (sig === "SIGTERM") o.onTerm?.(p);
     if (sig === "SIGKILL" || (sig === "SIGTERM" && !o.ignoreTerm)) p.alive = false;
   };
   return { procs, signals, calls, spawnDetached, run, kill };
@@ -287,6 +289,26 @@ describe("startWhisper and stopWhisper, with fakes (US-0072, A1c Task 4)", () =>
     expect(r).toBe("stopped");
     expect(sys.signals.filter(([, s]) => s !== 0).map(([, s]) => s)).toEqual(["SIGTERM", "SIGKILL"]);
     expect(timers.advanced()).toBeGreaterThanOrEqual(2000);
+  });
+
+  // Batch 2 review B F4: surviving mutations.
+  it("stopWhisper never SIGKILLs a pid whose process became another program during the grace period", async () => {
+    const timers = autoTimers();
+    // SIGTERM is ignored, and meanwhile the pid belongs to another program (it exited and the pid was reused): no SIGKILL.
+    const sys = fakeSystem({ startedAt: () => timers.now(), ignoreTerm: true, onTerm: (p) => { p.comm = "bash"; p.args = "bash --port 24680"; } });
+    const { pid } = sys.spawnDetached("whisper-server", ["--port", "24680"], { logFile: "/x", env: {}, cwd: "/" });
+    const r = await stopWhisper({ pid, port: 24680, startedAt: timers.now(), comm: "whisper-server" }, { run: sys.run, kill: sys.kill, setTimer: timers.setTimer, graceMs: 1000 });
+    expect(r).toBe("stopped");
+    expect(sys.signals.filter(([, s]) => s !== 0).map(([, s]) => s)).toEqual(["SIGTERM"]);
+  });
+
+  it("stopWhisper counts a pid it may not signal (EPERM: another user's process) as alive and not ours, never as gone", async () => {
+    const timers = autoTimers();
+    const sys = fakeSystem({ startedAt: () => timers.now(), comm: "sshd", eperm: true });
+    const { pid } = sys.spawnDetached("sshd", ["--port", "24680"], { logFile: "/x", env: {}, cwd: "/" });
+    const r = await stopWhisper({ pid, port: 24680, startedAt: timers.now(), comm: "whisper-server" }, { run: sys.run, kill: sys.kill, setTimer: timers.setTimer, graceMs: 1000 });
+    expect(r).toBe("not_ours");
+    expect(sys.signals.filter(([, s]) => s !== 0)).toEqual([]);
   });
 
   it("stopWhisper never signals a pid that is not ours, and reports a gone one", async () => {
