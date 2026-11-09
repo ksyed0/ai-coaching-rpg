@@ -62,6 +62,16 @@ describe("startControl", () => {
     expect(String(err)).not.toContain("short-secret-value");
   });
 
+  it("US-0071 (batch 3 review F8): LiveKit keys with a file-ingest worker give no tokens (voice_unavailable), only SPEECH_INGEST=livekit does", async () => {
+    const lk = { LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "s".repeat(40) };
+    const hosts: unknown[] = [];
+    running = await startControl({ ...env, ...lk, SPEECH_INGEST: "file" }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+    expect((hosts[0] as { o: { tokens?: unknown } }).o.tokens).toBeUndefined();
+    await running.close();
+    running = await startControl({ ...env, ...lk, SPEECH_INGEST: "livekit" }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+    expect((hosts[1] as { o: { tokens?: unknown } }).o.tokens).toBeDefined();
+  });
+
   it("US-0071: starts with LiveKit configured and SPEECH_INGEST=livekit", async () => {
     running = await startControl({ ...env, SPEECH_INGEST: "livekit", LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "s".repeat(40) }, { port: 0 });
     expect(running.port).toBeGreaterThan(0);

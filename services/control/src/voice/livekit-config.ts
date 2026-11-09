@@ -60,3 +60,12 @@ export function liveKitStartProblems(env: NodeJS.ProcessEnv): string[] {
   if (env.SPEECH_INGEST === "livekit" && r.cfg === null) return ["SPEECH_INGEST=livekit needs LIVEKIT_API_KEY and LIVEKIT_API_SECRET"];
   return [];
 }
+
+/**
+ * US-0071 (A1b batch 3 review F8): seat rooms, generations and tokens exist only when control has LiveKit settings AND its speech
+ * workers read LiveKit (SPEECH_INGEST=livekit). With file ingest nobody listens to a seat room, so no browser may be given a token to
+ * publish into one: token requests are then `voice_unavailable`.
+ */
+export function voiceTokensWanted(env: NodeJS.ProcessEnv, cfg: LiveKitConfig | null): cfg is LiveKitConfig {
+  return cfg !== null && env.SPEECH_INGEST === "livekit";
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { liveKitStartProblems, parseLiveKitConfig } from "../../voice/livekit-config.js";
+import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "../../voice/livekit-config.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 5, K2): control's LiveKit settings. Only control reads them; no child ever gets one.
 const KEY = "APIabcdef123";
@@ -95,5 +95,15 @@ describe("liveKitStartProblems: control refuses SPEECH_INGEST=livekit without Li
 
   it("a bad LiveKit setting is a start problem too", () => {
     expect(liveKitStartProblems({ LIVEKIT_API_KEY: KEY }).join(" ")).toContain("LIVEKIT_API_SECRET");
+  });
+});
+
+describe("voiceTokensWanted (US-0071, A1b batch 3 review F8)", () => {
+  const cfg = { apiKey: KEY, apiSecret: SECRET, host: new URL("http://127.0.0.1:7880"), workerUrl: "ws://127.0.0.1:7880" };
+  it("tokens only when LiveKit is configured AND the worker reads LiveKit (SPEECH_INGEST=livekit)", () => {
+    expect(voiceTokensWanted({ SPEECH_INGEST: "livekit" }, cfg)).toBe(true);
+    expect(voiceTokensWanted({ SPEECH_INGEST: "file" }, cfg)).toBe(false); // nobody would listen to the room: no browser may publish into it
+    expect(voiceTokensWanted({}, cfg)).toBe(false);
+    expect(voiceTokensWanted({ SPEECH_INGEST: "livekit" }, null)).toBe(false);
   });
 });

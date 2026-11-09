@@ -22,7 +22,7 @@ import { Supervisor, type SetTimer, type SpawnFn } from "./supervisor.js";
 import { speechSpawn } from "./voice/speech-spawn.js";
 import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
-import { liveKitStartProblems, parseLiveKitConfig } from "./voice/livekit-config.js";
+import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
 import { VoiceTokens } from "./voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn } from "./voice/voice-host.js";
 
@@ -85,8 +85,9 @@ export async function startControl(
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
     // US-0070: one speech worker per session whose runtime reports voice (VOICE_ENABLED=1 accepted at its bootstrap); none otherwise.
     voice: (deps) => {
-      // US-0071: the seat rooms, generations and tokens exist only when control has LiveKit settings; the key and secret stay here.
-      const tokens = liveKit ? new VoiceTokens({
+      // US-0071: the seat rooms, generations and tokens exist only when control has LiveKit settings and the workers read LiveKit
+      // (batch 3 review F8: never with SPEECH_INGEST=file); the key and secret stay here.
+      const tokens = voiceTokensWanted(env, liveKit) ? new VoiceTokens({
         cfg: liveKit, admin: createRoomAdmin({ host: liveKit.host, apiKey: liveKit.apiKey, apiSecret: liveKit.apiSecret }),
         mint: mintParticipantToken, mintWorker: mintWorkerToken, random: randomBytes, setTimer: realSetTimer, log,
       }) : undefined;
