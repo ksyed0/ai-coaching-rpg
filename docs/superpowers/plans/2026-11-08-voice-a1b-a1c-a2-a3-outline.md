@@ -1,6 +1,6 @@
 # EPIC-0003 voice A1b, A1c, A2, A3: task outlines
 
-> **Status: OUTLINE, NOT EXECUTABLE** (A1b has since been expanded into its own plan file; A1c, A2 and A3 are still outlines). Each slice below must be expanded into a full bite-sized, test-first plan (the A1a plan's format: files, interfaces, failing tests with assertions, commands, expected results, commit messages) **just before that slice starts**, because the earlier slices change the facts these outlines rest on (file names, interfaces, line numbers, ids). Re-verify every `file:line` at expansion time. Use the superpowers:writing-plans skill for each expansion.
+> **Status: OUTLINE, NOT EXECUTABLE** (A1b and A1c have since been expanded into their own plan files; A2 and A3 are still outlines). Each slice below must be expanded into a full bite-sized, test-first plan (the A1a plan's format: files, interfaces, failing tests with assertions, commands, expected results, commit messages) **just before that slice starts**, because the earlier slices change the facts these outlines rest on (file names, interfaces, line numbers, ids). Re-verify every `file:line` at expansion time. Use the superpowers:writing-plans skill for each expansion.
 
 **Spec:** `docs/superpowers/specs/2026-11-08-voice-part-a-design.md`. **Master plan:** `docs/superpowers/plans/2026-11-08-voice-part-a-overview.md` (contradictions C1 to C11, cross-slice interfaces, settings, risks, open questions). **First slice:** `docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md`. These outlines assume Open Question 1 option A (the runtime voice choice landed in A1a).
 
@@ -30,6 +30,8 @@ Depends on A1a merged. New dependencies (exact pins, findings.md rows, audit): `
 | 12 | Close-out | docs, gates, review | Browser matrix noted (Chromium tested; Safari and mobile listed as untested, F21). |
 
 ## A1c (proposed US-0072): operations — `feature/EPIC-0003-US-0072-voice-operations`
+
+> **Expanded into its own plan file (2026-11-09):** `docs/superpowers/plans/2026-11-09-voice-a1c-operations.md` (Tasks 0 to 15 in five batches, Resolved Facts R1 to R20, contradictions K1 to K11, the restart-budget decision). That plan supersedes the table below, which is kept for the record only; do not execute from it. The main changes against this table: a `services/voice-ops` package instead of `scripts/voice-*.sh|ts` (K1); `STT_URL` generated once into `.env` and reused (K2); no web `TRUST_PROXY` setting, the web `start` script binds loopback (K3); owner-supplied certificate files by default, the DNS-challenge path only after the owner names a provider (K4); Caddy forwards only `/rtc*` to LiveKit on its own TLS port (K6); a LiveKit outage, classified by control's own probe, no longer spends the restart budget (K7); `STT_MODEL_FILE` beside the `STT_MODEL` label (K9).
 
 Depends on A1b merged. Images pinned by digest (LiveKit server, Caddy).
 
