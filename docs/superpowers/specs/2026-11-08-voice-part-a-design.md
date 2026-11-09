@@ -153,7 +153,7 @@ Story ids are assigned when the plan files them (next free US-0070 at the time o
 - **A1c (proposed US-0072): operations.** `pnpm voice:up` and `voice:check`, the compose services and certificate path, loopback-only web server behind the proxy, the runbook, threat-model section, `.env.example`, ROLLBACK, ARCHITECTURE deviation notes.
 - **A2 (proposed US-0073): audio retention.** The audio store, index, lock, disk guard, the sweep in control, replay, delete (session, role, participant), the audit log, the console additions.
 - **A3 (proposed US-0074): facilitator voice tools.** Live partials, mute participant, push-to-talk option, capacity switch-off.
-- **Release gate:** voice is enabled for a pilot only when A1a to A2 are complete, the room test passes, and legal and HR have signed off the notice (section 14, item 7).
+- **Release gate:** voice is enabled for a pilot only when A1a to A2 are complete, the room test passes, and, for outside participants, legal and HR have signed off the notice (section 14, item 7; **deferred while the project is in pre-production, owner decision 2026-11-08**: pre-production use is by the owner and colleagues who know the audio is recorded and agree to it).
 - **Acceptance direction (made precise in the plan):** end of speech to line (worker voice-detector end to log append) at or below 1 s at p95 with a 500 ms hangover; word-to-line lag at or below 3 s at p95 on the room test; fewer than 2% of segments attributed to a person who did not speak them (room test, measured with different, labelled lines per person); a text-only seat: no token issued, no LiveKit subscription, no file written, no index entry (a test with an unconsented published track proves it); retention, delete, the cap and the disk guard proven with fake clocks and a fake disk; a worker crash leaves the session running and the worker restarts with bounded backoff; an opt-out stops recording at once.
 
 ## 13. Testing
@@ -173,7 +173,7 @@ Story ids are assigned when the plan files them (next free US-0070 at the time o
 4. **UDP and firewall** on a real LAN (Docker fell back to TCP; the native LiveKit binary failed on this Mac); DNS-rebinding protection on routers.
 5. **A domain and a certificate** are prerequisites (US-0048); renewals on a laptop.
 6. **Accuracy on real accents and rooms** is unmeasured; the spike's word error rate (about 0.4 to 2.5%) is a best case from synthetic voices, and the large model was not more accurate than the small one on that data.
-7. **Legal and HR sign-off** on voice recording and the notice wording is open in the product spec.
+7. **Legal and HR sign-off** on voice recording and the notice wording is open in the product spec; **deferred while the project is in pre-production** (owner decision 2026-11-08), together with any privacy or regulatory review; the engineering controls (consent gate, privacy invariant, retention and deletion, no secrets or transcripts in logs) are not deferred.
 8. **Disk use** about 0.9 GB per hour for 8 speakers in WAV, guarded by `AUDIO_MIN_FREE_MB`.
 9. **Browser coverage:** the spike used Chromium only; Safari and mobile browsers are untested.
 10. **Bystander privacy** in shared rooms (notice wording; headsets).

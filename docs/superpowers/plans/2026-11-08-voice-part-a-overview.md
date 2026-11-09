@@ -51,7 +51,7 @@ A1a (pipeline on file ingest) ──> A1b (LiveKit, consent UI, supervision) ─
 
 **Ids.** Story numbers above are proposals (next free US-0070 at the time of writing, `docs/ID_REGISTRY.md:156`); nothing is reserved by this plan. Each slice's story, TASK, AC and TC ids are taken from `docs/ID_REGISTRY.md` when that slice's stories are filed (the first task of each slice plan), with a "Reserved blocks" or "Assigned" line in the registry's own style. If another story takes US-0070 first, every name in this plan shifts with the registry; branch names follow the filed id.
 
-**Release gate (spec §12, unchanged):** voice is enabled for a pilot only when A1a, A1b, A1c and A2 are complete, the owner-run room test passes (spec §13), and legal and HR have signed off the notice v3 wording (spec §14 item 7); at that gate notice v3's draft marker is removed and the file is pinned by its SHA-256 (the owner approved the wording on 2026-11-08; A1b keeps the marker, and the notice already describes the retention A2 builds, so voice must not go live before A2). Until then `VOICE_ENABLED` stays `0` in every shipped configuration; each slice is dark behind it. A3 may ship after the pilot starts.
+**Release gate (spec §12, unchanged):** voice is enabled for a pilot only when A1a, A1b, A1c and A2 are complete, the owner-run room test passes (spec §13), and, for outside participants, legal and HR have signed off the notice v3 wording (spec §14 item 7; **deferred while in pre-production, owner decision 2026-11-08**); at that gate notice v3's draft marker is removed and the file is pinned by its SHA-256 (the owner approved the wording on 2026-11-08; A1b keeps the marker, and the notice already describes the retention A2 builds, so voice must not go live before A2). Until then `VOICE_ENABLED` stays `0` in every shipped configuration; each slice is dark behind it. A3 may ship after the pilot starts.
 
 **Docs-first:** the spec and these three plans land on `develop` through one docs PR before A1a's branch is cut (the precedent of slice 2c-4, Task 0).
 
@@ -283,7 +283,7 @@ Constants (not settings; changed only by code review): `VAD_FRAME_MS` 20, `VAD_T
 8. **Spec §16 items** (participant access to their own audio; REC-07 correction deferred; audit log mandatory) are still the owner's; the plans follow the spec's defaults.
 9. **GPU cap scope** (Risk 7): per worker (plan) or one cap across all sessions (needs a shared limiter in control)?
 10. **Lock for the audio store (F8):** export `SessionLock` as `@acr/runtime/files` (a sixth allowed subpath) or copy the pattern into `services/speech`? Decided in the A2 plan; the owner may prefer one now.
-11. **Legal and HR sign-off** on notice v3 (release gate) and **a domain and certificate** (US-0048) are prerequisites outside this epic's code.
+11. **Legal and HR sign-off** on notice v3 (release gate for outside participants; **deferred while the project is in pre-production, owner decision 2026-11-08**) and **a domain and certificate** (US-0048) are prerequisites outside this epic's code.
 
 ---
 
