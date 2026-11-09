@@ -10,9 +10,12 @@ export type VoiceSeats = { paused: boolean; ended: boolean; holders: VoiceHolder
 export type VoiceState = "none" | "voice" | "text_only" | "off";
 /**
  * US-0070 (overview section 2): why a speaker's segment did not become a line, told to that speaker alone as `voice_notice` (never logged,
- * never to anyone else). `stt_failed` and `empty` come from the speech worker; the others are the runtime's own refusals.
+ * never to anyone else). `stt_failed` and `empty` come from the speech worker; the others are the runtime's own refusals. US-0071 (K7):
+ * `voice_unavailable` and `voice_available` are the truth about whether the seat's speech can be captured, sent to a voice holder on each
+ * transition of control's `voice_availability` (and `voice_unavailable` also on a bind or an opt-in while unavailable); the page must
+ * follow them (Tasks 11, 14). The web app allowlists exactly these codes.
  */
-export const VOICE_NOTICE_CODES = ["stt_failed", "empty", "paused", "not_in_scene", "ended", "not_recording", "voice_unavailable"] as const;
+export const VOICE_NOTICE_CODES = ["stt_failed", "empty", "paused", "not_in_scene", "ended", "not_recording", "voice_unavailable", "voice_available"] as const;
 export type VoiceNoticeCode = (typeof VOICE_NOTICE_CODES)[number];
 
 /**

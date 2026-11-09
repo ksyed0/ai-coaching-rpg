@@ -14,6 +14,7 @@ import { AiRoleSet } from "../../engine/ai-roles.js";
 import type { Seats } from "../../engine/seats.js";
 import { VoiceChoices, type VoiceFileIO } from "../../engine/voice-file.js";
 import { SessionHost, VoiceRefusedError } from "../session-host.js";
+import { VOICE_NOTICE_CODES } from "../voice.js";
 import { startServer, type ServerHandle } from "../ws-server.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 3, K7): control's `voice_availability` sets the host's flag FIRST (no rate limit, also before the
@@ -25,15 +26,17 @@ const PLAYERS = ["account_manager", "delivery_lead", "tech_lead"];
 let scenario: Scenario;
 beforeAll(async () => { scenario = await loadScenario(friday); });
 
-function makeHost() {
+function makeHost(o: { aiRoles?: string[] } = {}) {
   const clock = new FakeClock(5_000);
   const log = new MemoryEventLog("local");
   const engine = new SessionEngine({ scenario, log, clock });
+  const aiRoles = AiRoleSet.empty();
+  aiRoles.replace(o.aiRoles ?? [], PLAYERS);
   const credentials = PlayerCredentials.create(BIND);
   const vbind = { sessionId: "local", logIdentity: credentials.logIdentity };
   let record: unknown = null;
   const voiceFile: VoiceFileIO = { read: () => ({ choices: record === null ? VoiceChoices.empty(vbind) : VoiceChoices.fromRecord(record, vbind) }), write: (c) => { record = c.toRecord(); }, remove: () => { record = null; } };
-  const seats: Seats = { credentials, consent: new ConsentStore({ version: "v3", text: "notice" }), aiRoles: AiRoleSet.empty(), persist: () => {}, voiceFile };
+  const seats: Seats = { credentials, consent: new ConsentStore({ version: "v3", text: "notice" }), aiRoles, persist: () => {}, voiceFile };
   const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats, voice: { enabled: true, turnEndMs: 800 } });
   const notices: string[] = [];
   host.onVoiceNotice((roleId, code) => notices.push(`${roleId}:${code}`));
@@ -107,7 +110,7 @@ describe("voice availability (US-0071, K7)", () => {
     h.host.voiceAvailability(false, false);
     h.host.voiceAvailability(true, false);
     h.host.voiceAvailability(false, false);
-    expect(h.notices).toEqual(["tech_lead:voice_unavailable", "tech_lead:voice_unavailable"]);
+    expect(h.notices).toEqual(["tech_lead:voice_unavailable", "tech_lead:voice_available", "tech_lead:voice_unavailable"]);
   });
 
   it("a transition notifies the worker's seats again", async () => {
@@ -141,6 +144,51 @@ describe("voice availability (US-0071, K7)", () => {
     expect([...h.host.speakingRoles()]).toEqual(["tech_lead"]);
     h.host.voiceAvailability(false, false);
     expect([...h.host.speakingRoles()]).toEqual([]);
+  });
+
+  it("voice_available is a player notice code (F4)", () => {
+    expect(VOICE_NOTICE_CODES).toContain("voice_available");
+    expect(VOICE_NOTICE_CODES).toContain("voice_unavailable");
+  });
+
+  it("the transition back to available sends voice_available once, only to the voice holders of human seats (F4)", async () => {
+    const h = makeHost({ aiRoles: ["delivery_lead"] });
+    h.host.join("delivery_lead", "bot");
+    for (const r of ["account_manager", "tech_lead"]) { h.host.join(r, `p-${r}`); h.host.giveConsent(r, `p-${r}`, "v3"); }
+    await h.host.start();
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    h.host.optOutVoice("account_manager", "p-account_manager");
+    h.host.voiceAvailability(true, false); // already available: no transition, nothing sent
+    expect(h.notices).toEqual([]);
+    h.host.voiceAvailability(false, false);
+    h.host.voiceAvailability(true, false);
+    expect(h.notices).toEqual(["tech_lead:voice_unavailable", "tech_lead:voice_available"]);
+    h.host.voiceAvailability(true, false); // no transition: nothing again
+    expect(h.notices).toHaveLength(2);
+    expect(recordingRoles(h)).toEqual(["tech_lead"]);
+  });
+
+  it("each transition back notifies again, without the 10 s notice limit; off to on counts as a transition (F4)", async () => {
+    const h = makeHost();
+    await startAll(h);
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    h.host.voiceAvailability(true, true); // off
+    h.host.voiceAvailability(true, false);
+    h.host.voiceAvailability(false, false);
+    h.host.voiceAvailability(true, false); // same clock time as the first voice_available
+    expect(h.notices.filter((n) => n.endsWith(":voice_available"))).toEqual(["tech_lead:voice_available", "tech_lead:voice_available"]);
+  });
+
+  it("a muted voice holder is told voice_available too, and a released one is not (F4)", async () => {
+    const h = makeHost();
+    await startAll(h);
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    h.host.optInVoice("account_manager", "p-account_manager", "v3");
+    h.host.muteVoice("tech_lead", "p-tech_lead", true);
+    h.host.voiceAvailability(false, false);
+    h.host.release("account_manager", "p-account_manager");
+    h.host.voiceAvailability(true, false);
+    expect(h.notices.filter((n) => n.endsWith(":voice_available"))).toEqual(["tech_lead:voice_available"]);
   });
 
   it("a text-only seat gets no notice", async () => {
@@ -199,6 +247,14 @@ describe("voice_unavailable on bind (US-0071, K7)", () => {
     await sam.next((m) => m.type === "joined");
     sam.send({ type: "voice_opt_out" });
     await sam.next((m) => m.type === "voice" || m.type === "error");
+    expect(sam.inbox.some((m) => m.type === "voice_notice")).toBe(false);
+    // F4: back to available, the voice holder's live socket is told; the text-only seat is not.
+    h.host.voiceAvailability(true, false);
+    again.send({ type: "voice_mute", muted: false }); // a later answer: a missing notice fails fast instead of waiting
+    await again.next((m) => m.type === "voice" && m.muted === false);
+    expect(again.inbox.filter((m) => m.type === "voice_notice").at(-1)).toEqual({ type: "voice_notice", code: "voice_available" });
+    sam.send({ type: "voice_mute", muted: false }); // a later answer on sam's socket: anything sent before it has arrived
+    await sam.next((m) => (m.type === "voice" && m.muted === false) || m.type === "error");
     expect(sam.inbox.some((m) => m.type === "voice_notice")).toBe(false);
   });
 

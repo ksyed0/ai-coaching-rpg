@@ -482,8 +482,8 @@ export class SessionHost {
   /**
    * US-0071 (K7): control's view of whether voice can work for this session. Applied FIRST, with no rate limit and also before the
    * start: unavailable (`!available || off`) makes every seat's `recording` false. On the change to unavailable every holder whose
-   * state is `voice` gets one `voice_unavailable` notice (not held back by the per-role notice limit); on any change the seats are
-   * reported again. Never throws.
+   * state is `voice` gets one `voice_unavailable` notice, and on the change back one `voice_available` (F4; neither held back by the
+   * per-role notice limit, which only a real transition bypasses); on any change the seats are reported again. Never throws.
    */
   voiceAvailability(available: boolean, off: boolean): void {
     const next = !available || off;
@@ -492,7 +492,8 @@ export class SessionHost {
     if (!this.voice.enabled || next === was) return;
     try {
       this.noteVoiceSeats();
-      if (next) for (const roleId of this.playerRoleIds()) { const p = this.holderOf(roleId); if (p !== undefined) this.noteVoiceUnavailable(roleId, p); }
+      const code: VoiceNoticeCode = next ? "voice_unavailable" : "voice_available";
+      for (const roleId of this.playerRoleIds()) { const p = this.holderOf(roleId); if (p !== undefined) this.noteVoiceTransition(roleId, p, code); }
     } catch (err) { this.safeLog(`voice availability: ${errorName(err)}`); }
   }
 
@@ -502,13 +503,16 @@ export class SessionHost {
    */
   noteVoiceBound(roleId: string, participantId: string): void {
     if (!this.voiceUnavailable) return;
-    try { this.noteVoiceUnavailable(roleId, participantId); } catch (err) { this.safeLog(`voice availability: ${errorName(err)}`); }
+    try { this.noteVoiceTransition(roleId, participantId, "voice_unavailable"); } catch (err) { this.safeLog(`voice availability: ${errorName(err)}`); }
   }
 
-  /** The `voice_unavailable` notice to the holder of a voice seat, past the per-role limit (it is sent only on a change or a bind). */
-  private noteVoiceUnavailable(roleId: string, participantId: string): void {
+  /**
+   * The `voice_unavailable` or `voice_available` notice to the holder of a human voice seat, past the per-role limit (it is sent only on
+   * a real transition, a bind or an opt-in).
+   */
+  private noteVoiceTransition(roleId: string, participantId: string, code: "voice_unavailable" | "voice_available"): void {
     if (!this.voice.enabled || !this.hasPlayerRole(roleId) || this.isAiRole(roleId) || !this.holds(roleId, participantId) || this.voiceStateOf(roleId) !== "voice") return;
-    this.emitVoiceNotice(roleId, "voice_unavailable");
+    this.emitVoiceNotice(roleId, code);
   }
 
   /**
