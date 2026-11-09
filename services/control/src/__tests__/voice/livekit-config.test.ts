@@ -122,3 +122,19 @@ describe("LIVEKIT_HOST shared rules (US-0072)", () => {
     for (const v of rules.livekitHost.refused) expect(errorsOf({ ...both, LIVEKIT_HOST: v }).some((e) => e.startsWith("LIVEKIT_HOST ")), v).toBe(true);
   });
 });
+
+// US-0072 (A1c review A F2): voice-ops repeats control's key and secret rule (`isLiveKitToken` in services/voice-ops/src/text.ts) and is
+// intentionally STRICTER (it writes the pair into livekit.env and LiveKit's YAML key map). Characterisation: where the two overlap they
+// agree; the cases voice-ops alone refuses are accepted here, so the difference stays deliberate.
+describe("LIVEKIT_API_KEY and LIVEKIT_API_SECRET shared rules (US-0072)", () => {
+  type Side = { accepted: string[]; refusedByBoth: string[]; refusedByVoiceOpsOnly: string[] };
+  const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../voice-ops/src/__tests__/fixtures/shared-rules.json");
+  const rules = JSON.parse(readFileSync(fixture, "utf8")) as { livekitKey: Side; livekitSecret: Side };
+  it("control agrees with voice-ops on every shared key and secret, and accepts the ones only voice-ops refuses", () => {
+    expect(rules.livekitKey.refusedByVoiceOpsOnly.length).toBeGreaterThan(0);
+    for (const k of [...rules.livekitKey.accepted, ...rules.livekitKey.refusedByVoiceOpsOnly]) expect(errorsOf({ LIVEKIT_API_KEY: k, LIVEKIT_API_SECRET: SECRET }), JSON.stringify(k)).toEqual([]);
+    for (const k of rules.livekitKey.refusedByBoth) expect(errorsOf({ LIVEKIT_API_KEY: k, LIVEKIT_API_SECRET: SECRET }).some((e) => e.startsWith("LIVEKIT_API_KEY ")), JSON.stringify(k)).toBe(true);
+    for (const v of [...rules.livekitSecret.accepted, ...rules.livekitSecret.refusedByVoiceOpsOnly]) expect(errorsOf({ LIVEKIT_API_KEY: KEY, LIVEKIT_API_SECRET: v }), JSON.stringify(v)).toEqual([]);
+    for (const v of rules.livekitSecret.refusedByBoth) expect(errorsOf({ LIVEKIT_API_KEY: KEY, LIVEKIT_API_SECRET: v }).some((e) => e.startsWith("LIVEKIT_API_SECRET ")), JSON.stringify(v)).toBe(true);
+  });
+});

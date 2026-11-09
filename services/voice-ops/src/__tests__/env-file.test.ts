@@ -3,6 +3,7 @@ import { chmodSync, chownSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, r
 import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   appendBlock, ensureVoiceSecrets, EnvFileError, MANAGED_NAMES, planSecrets, readPrivateEnv, sttRequestPath, type EnvFileErrorCode, type GitRun,
@@ -171,6 +172,11 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     ["DEVKEY / SECRET", "LIVEKIT_API_KEY=DEVKEY\nLIVEKIT_API_SECRET=SECRET\n", "dev_keys"],
     ["devkey with a long secret", `LIVEKIT_API_KEY=DevKey\nLIVEKIT_API_SECRET=${SECRET}\n`, "dev_keys"],
     ["a 31-character secret", `LIVEKIT_API_KEY=${KEY}\nLIVEKIT_API_SECRET=${"s".repeat(31)}\n`, "dev_keys"],
+    ["a secret with a quoted newline (a second LiveKit key line)", `LIVEKIT_API_KEY=${KEY}\nLIVEKIT_API_SECRET="${"s".repeat(32)}\\nevil: x"\n`, "bad_keys"],
+    ["a key with a space", `LIVEKIT_API_KEY="dev key"\nLIVEKIT_API_SECRET=${SECRET}\n`, "bad_keys"],
+    ["a key with ': ' (a second map entry)", `LIVEKIT_API_KEY="k: x"\nLIVEKIT_API_SECRET=${SECRET}\n`, "bad_keys"],
+    ["a secret with a comma", `LIVEKIT_API_KEY=${KEY}\nLIVEKIT_API_SECRET="${SECRET},x"\n`, "bad_keys"],
+    ["a 513-character secret", `LIVEKIT_API_KEY=${KEY}\nLIVEKIT_API_SECRET=${"s".repeat(513)}\n`, "bad_keys"],
     ["STT_URL=http://0.0.0.0:9000", "STT_URL=http://0.0.0.0:9000\n", "bad_stt_url"],
     ["STT_URL=http://[::1]:9000/abc", "STT_URL=http://[::1]:9000/abc\n", "bad_stt_url"],
     ["STT_URL without a port", "STT_URL=http://127.0.0.1/abc\n", "bad_stt_url"],
@@ -352,6 +358,8 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       `LIVEKIT_API_KEY=${M}k\nLIVEKIT_API_SECRET=\n`,
       `STT_URL=http://${M}.example:9000/${M}\n`,
       `STT_URL=http://[::1]:9000/${M}\n`,
+      `LIVEKIT_API_KEY="${M} x"\nLIVEKIT_API_SECRET=${SECRET}\n`,
+      `LIVEKIT_API_KEY=${KEY}\nLIVEKIT_API_SECRET="${M}${"s".repeat(32)}\\n${M}: x"\n`,
     ];
     let n = 0;
     for (const text of cases) {
@@ -389,6 +397,38 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     expect(va.LIVEKIT_API_KEY).not.toBe(vb.LIVEKIT_API_KEY);
     expect(va.LIVEKIT_API_SECRET).not.toBe(vb.LIVEKIT_API_SECRET);
     expect(sttRequestPath(new URL(va.STT_URL!))).not.toBe(sttRequestPath(new URL(vb.STT_URL!)));
+  });
+});
+
+// Review A F2: the key and the secret must pass control's rule (services/control/src/voice/livekit-config.ts isTokenText), and voice-ops is
+// stricter where the pair goes into livekit.env and LiveKit's key map. The cases are shared with control's test (fixtures/shared-rules.json).
+describe("LiveKit key and secret shared rules (US-0072, review A F2)", () => {
+  type Side = { accepted: string[]; refusedByBoth: string[]; refusedByVoiceOpsOnly: string[] };
+  const rules = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/shared-rules.json"), "utf8")) as { livekitKey: Side; livekitSecret: Side };
+  const problem = (key: string, secret: string) => {
+    const r = planSecrets("", { LIVEKIT_API_KEY: key, LIVEKIT_API_SECRET: secret, STT_URL: STT }, { random: counterRandom(), freePort: 24680 });
+    return r.ok ? null : r.code;
+  };
+  it("voice-ops accepts every accepted key and secret and refuses every other one", () => {
+    expect(rules.livekitKey.accepted.length + rules.livekitSecret.accepted.length).toBeGreaterThan(5);
+    for (const k of rules.livekitKey.accepted) expect(problem(k, SECRET), JSON.stringify(k)).toBeNull();
+    for (const k of [...rules.livekitKey.refusedByBoth, ...rules.livekitKey.refusedByVoiceOpsOnly]) expect(problem(k, SECRET), JSON.stringify(k)).not.toBeNull();
+    for (const v of rules.livekitSecret.accepted) expect(problem(KEY, v), JSON.stringify(v)).toBeNull();
+    for (const v of [...rules.livekitSecret.refusedByBoth, ...rules.livekitSecret.refusedByVoiceOpsOnly]) expect(problem(KEY, v), JSON.stringify(v)).not.toBeNull();
+  });
+  it("a bad key or secret is bad_keys naming the variable, never the value", () => {
+    expect(problem("k ey", SECRET)).toBe("bad_keys");
+    expect(problem(KEY, SECRET + "\n")).toBe("bad_keys");
+    const e = new EnvFileError("bad_keys", "LIVEKIT_API_SECRET");
+    expect(e.message).toContain("LIVEKIT_API_SECRET");
+    expect(e.message.startsWith(".env sets a LIVEKIT_API_SECRET that LiveKit's key list cannot hold")).toBe(true);
+  });
+  it("a secret of exactly 32 characters is accepted and 31 refused (review A F11)", () => {
+    expect(problem(KEY, "s".repeat(32))).toBeNull();
+    expect(problem(KEY, "s".repeat(31))).toBe("dev_keys");
+    expect(problem(KEY, "s".repeat(512))).toBeNull();
+    expect(problem("k".repeat(256), SECRET)).toBeNull();
+    expect(problem("k".repeat(257), SECRET)).toBe("bad_keys");
   });
 });
 

@@ -92,3 +92,25 @@ export function isPrivateAddress(ip: string): boolean {
   }
   return (h & 0xfe00) === 0xfc00;
 }
+
+/**
+ * Characters a LiveKit key or secret may not hold in voice-ops (review A F2), on top of control's rule: the pair is written into
+ * `livekit.env` as `LIVEKIT_KEYS=<key>: <secret>`, a Compose env file (which interpolates `$`, and where quotes, `#` and `\\` change the
+ * value) that LiveKit reads as a YAML key map (`:` and `,` split entries; `{}[]&*!|>%@?` and the backtick have a meaning there).
+ */
+export const LIVEKIT_TOKEN_REFUSED_CHARS = ":,#\"'`\\$&*!|>%@?{}[]";
+
+/**
+ * Control's LiveKit key and secret rule (`isTokenText` in services/control/src/voice/livekit-config.ts: `min` to `max` characters, each
+ * printable ASCII with no space, 0x21..0x7e), copied character by character, PLUS none of LIVEKIT_TOKEN_REFUSED_CHARS. Pinned against
+ * control by the shared fixture (`livekitKey`, `livekitSecret`).
+ */
+export function isLiveKitToken(v: string, min: number, max: number): boolean {
+  if (v.length < min || v.length > max) return false;
+  for (let i = 0; i < v.length; i++) {
+    const c = v.charCodeAt(i);
+    if (c <= 0x20 || c >= 0x7f) return false;
+    if (LIVEKIT_TOKEN_REFUSED_CHARS.includes(v[i]!)) return false;
+  }
+  return true;
+}

@@ -3,6 +3,7 @@ import { closeSync, constants as fsConstants, fstatSync, fsyncSync, lstatSync, o
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { parseSttUrl } from "@acr/adapters";
+import { isLiveKitToken } from "./text.js";
 
 /**
  * US-0072 (EPIC-0003 voice A1c, Task 2): `pnpm voice:up` generates the LiveKit key and secret and `STT_URL` into the ROOT `.env` (the
@@ -16,7 +17,8 @@ import { parseSttUrl } from "@acr/adapters";
  * - It is replaced atomically: an O_EXCL 0600 temp beside it, fsync; then the path is lstat'ed and its dev, ino, size and mtimeMs are
  *   compared with what the read descriptor saw (any change, or a link now, aborts with the file left alone); rename; fsync the directory.
  * - Refused with the file unchanged byte for byte: half a key pair, an empty assignment of a managed name, the public development keys
- *   (`devkey` / `secret`, any case, or a secret under 32 characters), an `STT_URL` that whisper-server cannot serve, a `.env` tracked by
+ *   (`devkey` / `secret`, any case, or a secret under 32 characters), a key or secret outside control's rule or holding a character that
+ *   would break `livekit.env` or LiveKit's key map (`bad_keys`), an `STT_URL` that whisper-server cannot serve, a `.env` tracked by
  *   git, and a REAL environment that sets a managed name (control merges `.env` UNDER the real environment, so a shell export would give
  *   control, LiveKit and whisper-server different values: finding 7).
  *
@@ -28,7 +30,7 @@ export type ManagedName = (typeof MANAGED_NAMES)[number];
 
 export type EnvFileErrorCode =
   | "missing" | "symlink" | "not_regular" | "not_owner" | "too_open" | "unreadable" | "dev_keys" | "half_pair" | "empty_assignment"
-  | "bad_stt_url" | "changed" | "env_override" | "tracked";
+  | "bad_keys" | "bad_stt_url" | "changed" | "env_override" | "tracked";
 
 const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => string> = {
   missing: () => ".env not found: run ./run.sh once first (it creates .env with a facilitator token), then pnpm voice:up",
@@ -40,6 +42,7 @@ const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => str
   dev_keys: () => ".env holds LiveKit development keys (devkey/secret, or a secret under 32 characters): remove LIVEKIT_API_KEY and LIVEKIT_API_SECRET so voice:up generates real ones",
   half_pair: () => ".env sets only one of LIVEKIT_API_KEY and LIVEKIT_API_SECRET: set both, or remove both so voice:up generates them",
   empty_assignment: (name) => `.env assigns an empty value to ${name ?? "a managed name"}: remove that line or give it a value, then pnpm voice:up`,
+  bad_keys: (name) => `.env sets a ${name ?? "LiveKit key or secret"} that LiveKit's key list cannot hold: use printable characters without space, quotes, backslash or any of : , # $ { } [ ] & * ! | > % @ ? (key 1 to 256, secret 32 to 512), or remove LIVEKIT_API_KEY and LIVEKIT_API_SECRET so voice:up generates them`,
   bad_stt_url: () => ".env sets an STT_URL whisper-server cannot serve: use http://127.0.0.1:<port>[/<path>] (whisper-server binds 127.0.0.1 only), or remove it so voice:up picks one",
   changed: () => ".env changed while voice:up was writing it: run pnpm voice:up again",
   env_override: (name) => `unset ${name ?? "the managed names"} in this shell: voice:up and control must read it from .env`,
@@ -65,6 +68,8 @@ export const STT_PORT_MIN = 20000;
 export const STT_PORT_MAX = 32767;
 const KEY_PREFIX = "API";
 const SECRET_MIN_CHARS = 32;
+const KEY_MAX_CHARS = 256; // control's limits (services/control/src/voice/livekit-config.ts)
+const SECRET_MAX_CHARS = 512;
 
 /** Reads `.env` through ONE descriptor (O_RDONLY | O_NOFOLLOW) and judges it by fstat. Throws EnvFileError. */
 export function readPrivateEnv(file: string): { bytes: Buffer; text: string; values: Record<string, string>; id: FileId } {
@@ -129,6 +134,8 @@ function managedProblem(text: string, values: Record<string, string>): { code: E
     const key = values.LIVEKIT_API_KEY!;
     const secret = values.LIVEKIT_API_SECRET!;
     if (key.toLowerCase() === "devkey" || secret.toLowerCase() === "secret" || secret.length < SECRET_MIN_CHARS) return { code: "dev_keys" };
+    if (!isLiveKitToken(key, 1, KEY_MAX_CHARS)) return { code: "bad_keys", name: "LIVEKIT_API_KEY" };
+    if (!isLiveKitToken(secret, SECRET_MIN_CHARS, SECRET_MAX_CHARS)) return { code: "bad_keys", name: "LIVEKIT_API_SECRET" };
   }
   if (has("STT_URL")) {
     const u = parseSttUrl(values.STT_URL);

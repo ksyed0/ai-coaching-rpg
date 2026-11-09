@@ -1,5 +1,5 @@
 {
-  "note": "US-0072 (A1c, review finding 16u): the LIVEKIT_HOST and STT_MODEL rules are duplicated in services/voice-ops (it may import only node: built-ins and @acr/adapters). voice-ops, control (livekit-config.test.ts) and the speech worker (config.test.ts) each assert that their own parser agrees with every value here.",
+  "note": "US-0072 (A1c, review finding 16u): the LIVEKIT_HOST and STT_MODEL rules are duplicated in services/voice-ops (it may import only node: built-ins and @acr/adapters). voice-ops, control (livekit-config.test.ts) and the speech worker (config.test.ts) each assert that their own parser agrees with every value here. The LiveKit key and secret rule (control's isTokenText: printable ASCII with no space, key 1 to 256, secret 32 to 512) is repeated in voice-ops' isLiveKitToken, which is intentionally STRICTER: voice-ops writes the pair into livekit.env as LIVEKIT_KEYS=<key>: <secret>, a Compose env file (interpolates $) that LiveKit reads as a YAML key map, so it also refuses the characters in refusedByVoiceOpsOnly and the public devkey; control accepts those (asserted, so the difference stays deliberate).",
   "livekitHost": {
     "accepted": [
       "http://127.0.0.1:7880",
@@ -44,6 +44,88 @@
       "small,en",
       "é",
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  "livekitKey": {
+    "accepted": [
+      "APIplaceholderkey0001",
+      "API0123456789abcdef01234567",
+      "k",
+      "key-with_dots.and~tilde+plus=eq/slash",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "refusedByBoth": [
+      "dev key",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key\nevil",
+      "key\r",
+      "tab\tkey",
+      "key",
+      "café",
+      ""
+    ],
+    "refusedByVoiceOpsOnly": [
+      "devkey",
+      "DevKey",
+      "key:x",
+      "key,x",
+      "key#x",
+      "key\"x",
+      "key'x",
+      "key`x",
+      "key\\x",
+      "key$x",
+      "key{x",
+      "key}x",
+      "key[x",
+      "key]x",
+      "key&x",
+      "key*x",
+      "key!x",
+      "key|x",
+      "key>x",
+      "key%x",
+      "key@x",
+      "key?x"
+    ]
+  },
+  "livekitSecret": {
+    "accepted": [
+      "ssssssssssssssssssssssssssssssss",
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "placeholder-secret-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+    ],
+    "refusedByBoth": [
+      "sssssssssssssssssssssssssssssss",
+      "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "ssssssssssssssssssssssssssssssss x",
+      "ssssssssssssssssssssssssssssssss\nevil: x",
+      "ssssssssssssssssssssssssssssssss\t",
+      "ssssssssssssssssssssssssssssssss£",
+      "secret"
+    ],
+    "refusedByVoiceOpsOnly": [
+      "ssssssssssssssssssssssssssssssss:",
+      "ssssssssssssssssssssssssssssssss,",
+      "ssssssssssssssssssssssssssssssss#",
+      "ssssssssssssssssssssssssssssssss\"",
+      "ssssssssssssssssssssssssssssssss'",
+      "ssssssssssssssssssssssssssssssss`",
+      "ssssssssssssssssssssssssssssssss\\",
+      "ssssssssssssssssssssssssssssssss$",
+      "ssssssssssssssssssssssssssssssss{",
+      "ssssssssssssssssssssssssssssssss}",
+      "ssssssssssssssssssssssssssssssss[",
+      "ssssssssssssssssssssssssssssssss]",
+      "ssssssssssssssssssssssssssssssss&",
+      "ssssssssssssssssssssssssssssssss*",
+      "ssssssssssssssssssssssssssssssss!",
+      "ssssssssssssssssssssssssssssssss|",
+      "ssssssssssssssssssssssssssssssss>",
+      "ssssssssssssssssssssssssssssssss%",
+      "ssssssssssssssssssssssssssssssss@",
+      "ssssssssssssssssssssssssssssssss?"
     ]
   }
 }
