@@ -20,8 +20,10 @@ describe("the real-files guard", () => {
     writeFileSync(files[0]!, '{"name":"x"}\n');
     writeFileSync(files[1]!, `LIVEKIT_API_SECRET=${MARKER}\n`);
     const before = digestFiles(files);
+    // only a sha256 per file is kept, never the contents in any encoding
+    expect(before.map((d) => d.name)).toEqual(["package.json", ".env", "absent.yaml"]);
+    for (const d of before.slice(0, 2)) expect(d.digest).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(before)).not.toContain(MARKER);
-    expect(JSON.stringify(before)).not.toContain(Buffer.from(MARKER).toString("base64").slice(0, 12));
     expect(before.map((d) => d.digest === null)).toEqual([false, false, true]);
     expect(() => assertUnchanged(before, digestFiles(files))).not.toThrow();
 
