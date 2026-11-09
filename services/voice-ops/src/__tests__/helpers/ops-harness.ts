@@ -12,7 +12,7 @@ import type { HealthAnswer } from "../../whisper.js";
  * in a private temp root: a 0600 `.env`, a model file, the state directory.
  */
 
-export type Call = { cmd: string; args: string[]; env: NodeJS.ProcessEnv | undefined; timeoutMs: number | undefined; signal?: AbortSignal };
+export type Call = { cmd: string; args: string[]; env: NodeJS.ProcessEnv | undefined; timeoutMs: number | undefined; signal?: AbortSignal; detached?: boolean };
 type RunOpts = Parameters<Run>[2];
 export type Proc = { comm: string; startedAt: number; args: string[] };
 
@@ -103,7 +103,7 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
   const run = async (cmd: string, args: readonly string[], ro: RunOpts): Promise<RunResult> => {
     // Review B2 F5: every command gets an explicit environment (realRun refuses one without); a call without it fails the test here.
     if (ro?.env === undefined) throw new Error(`the harness was asked to run ${cmd} without an explicit environment`);
-    w.calls.push({ cmd, args: [...args], env: ro.env, timeoutMs: ro.timeoutMs, ...(ro.signal ? { signal: ro.signal } : {}) });
+    w.calls.push({ cmd, args: [...args], env: ro.env, timeoutMs: ro.timeoutMs, ...(ro.signal ? { signal: ro.signal } : {}), ...(ro.detached !== undefined ? { detached: ro.detached } : {}) });
     const ok = (stdout = ""): RunResult => ({ code: 0, stdout, stderr: "" });
     if (cmd === "git") return w.git();
     if (cmd === "ps") {

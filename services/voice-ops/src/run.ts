@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, constants as fsConstants, fchmodSync, fstatSync, openSync } from "node:fs";
 import path from "node:path";
 
@@ -6,7 +6,7 @@ import path from "node:path";
  * US-0072 (EPIC-0003 voice A1c, Task 3): the command runner, the detached spawn and the process identity of `voice-ops`. Every other
  * module takes these as injected seams (tests fake them); `cli.ts` (Task 7) passes the real ones below.
  *
- * - `realRun`: `execFile`, never a shell, exactly the given environment (REQUIRED, never a default of process.env: review B2 F5; the
+ * - `realRun`: `spawn`, never a shell, exactly the given environment (REQUIRED, never a default of process.env: review B2 F5; the
  *   command is looked up in ITS `PATH`), a default timeout of
  *   120 s, output capped at 1 MiB per stream. A non-zero exit is a result, not a throw; a run that was killed (the timeout, or the cap)
  *   is `code: null`; a command that cannot be started (ENOENT) throws. Assignable to the `.env` writer's `GitRun`.
@@ -30,44 +30,63 @@ export const realSetTimer: SetTimer = (fn, ms) => {
 };
 
 export type RunResult = { code: number | null; stdout: string; stderr: string };
-/** `env` is required (review B2 F5): a call that forgets it would hand the child the whole process.env, exported keys included. */
 /**
+ * `env` is required (review B2 F5): a call that forgets it would hand the child the whole process.env, exported keys included.
  * `signal` (review B2 F6) ends the run with SIGTERM when aborted; the promise still settles only once the child has exited (SIGKILL
- * after RUN_ABORT_GRACE_MS), so a caller never starts its next command while the aborted one runs.
+ * after RUN_ABORT_GRACE_MS), so a caller never starts its next command while the aborted one runs. `detached` (review B2 F3) runs the
+ * child in its own process group, so a Ctrl-C to the terminal's group does not reach it (voice:up's rollback `compose down`).
  */
-export type Run = (cmd: string, args: readonly string[], o: { env: NodeJS.ProcessEnv; timeoutMs?: number; signal?: AbortSignal }) => Promise<RunResult>;
+export type Run = (cmd: string, args: readonly string[], o: { env: NodeJS.ProcessEnv; timeoutMs?: number; signal?: AbortSignal; detached?: boolean }) => Promise<RunResult>;
 
 export const RUN_DEFAULT_TIMEOUT_MS = 120_000;
 export const RUN_MAX_OUTPUT_BYTES = 1024 * 1024;
-/** How long an aborted run's child gets after SIGTERM before SIGKILL. */
+/** How long a child killed by the timeout, the cap or an abort gets after SIGTERM before SIGKILL. */
 export const RUN_ABORT_GRACE_MS = 10_000;
 
-/** Resolves once `child` has exited (at once when it already has, or never started); SIGKILL after `graceMs`. */
-function exitOf(child: ChildProcess, graceMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
-    const t = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, graceMs);
-    child.once("exit", () => { clearTimeout(t); resolve(); });
-  });
-}
-
+/**
+ * `spawn` (not `execFile`: it does not pass `detached` on, review B2 F3), never a shell, stdin closed, stdout and stderr collected up
+ * to RUN_MAX_OUTPUT_BYTES each. The timeout, the cap and an abort send SIGTERM (SIGKILL after RUN_ABORT_GRACE_MS) and the result is
+ * `code: null`; it settles on the child's `close`, i.e. after it has exited.
+ */
 export const realRun: Run = (cmd, args, o) => new Promise<RunResult>((resolve, reject) => {
   // Never a default of process.env: a caller (or a cast) that leaves env out is refused before anything runs.
   if (o === undefined || o === null || typeof o.env !== "object" || o.env === null) { reject(new Error(`${path.basename(cmd)} needs an explicit environment`)); return; }
-  const child = execFile(cmd, [...args], {
-    env: o.env, timeout: o.timeoutMs ?? RUN_DEFAULT_TIMEOUT_MS, maxBuffer: RUN_MAX_OUTPUT_BYTES, shell: false, windowsHide: true, encoding: "utf8",
-    ...(o.signal ? { signal: o.signal } : {}),
-  }, (err, stdout, stderr) => {
-    const out = { stdout: String(stdout ?? ""), stderr: String(stderr ?? "") };
-    if (!err) { resolve({ code: 0, ...out }); return; }
-    const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean; signal?: string | null };
-    // Aborted (review B2 F6): execFile calls back at once; wait for the child's own exit before settling.
-    if (o.signal?.aborted && (e.name === "AbortError" || e.code === "ABORT_ERR")) { void exitOf(child, RUN_ABORT_GRACE_MS).then(() => resolve({ code: null, ...out })); return; }
-    if (typeof e.code === "number") { resolve({ code: e.code, ...out }); return; }
-    // Killed by the timeout or the output cap, or by any other signal: no exit code.
-    if (e.killed || e.signal || e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") { resolve({ code: null, ...out }); return; }
-    // Could not be started (ENOENT, EACCES): a fixed message, never the command line or a path.
-    reject(new Error(`could not run ${path.basename(cmd)} (${typeof e.code === "string" ? e.code : "error"})`));
+  const fail = (code: string): void => reject(new Error(`could not run ${path.basename(cmd)} (${code})`)); // never the command line or a path
+  let child: ChildProcess;
+  try { child = spawn(cmd, [...args], { env: o.env, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], detached: o.detached === true }); }
+  catch (err) { fail(typeof (err as NodeJS.ErrnoException).code === "string" ? (err as NodeJS.ErrnoException).code! : "error"); return; }
+  const bufs = { stdout: [] as Buffer[], stderr: [] as Buffer[] };
+  const sizes = { stdout: 0, stderr: 0 };
+  let killed = false;
+  let settled = false;
+  let grace: ReturnType<typeof setTimeout> | undefined;
+  const stop = (): void => {
+    if (killed) return;
+    killed = true;
+    try { child.kill("SIGTERM"); } catch { /* gone */ }
+    grace = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, RUN_ABORT_GRACE_MS);
+  };
+  for (const name of ["stdout", "stderr"] as const) {
+    child[name]?.on("data", (c: Buffer) => {
+      const room = RUN_MAX_OUTPUT_BYTES - sizes[name];
+      if (room > 0) bufs[name].push(c.length <= room ? c : c.subarray(0, room));
+      sizes[name] += c.length;
+      if (sizes[name] > RUN_MAX_OUTPUT_BYTES) stop();
+    });
+  }
+  const timer = setTimeout(stop, o.timeoutMs ?? RUN_DEFAULT_TIMEOUT_MS);
+  const onAbort = (): void => stop();
+  if (o.signal?.aborted) stop(); else o.signal?.addEventListener("abort", onAbort, { once: true });
+  const done = (): void => { clearTimeout(timer); if (grace) clearTimeout(grace); o.signal?.removeEventListener("abort", onAbort); };
+  child.once("error", (err: NodeJS.ErrnoException) => {
+    if (settled || child.pid !== undefined) return; // a started child reports through close
+    settled = true; done(); fail(typeof err.code === "string" ? err.code : "error");
+  });
+  child.once("close", (code) => {
+    if (settled) return;
+    settled = true; done();
+    const out = { stdout: Buffer.concat(bufs.stdout).toString("utf8"), stderr: Buffer.concat(bufs.stderr).toString("utf8") };
+    resolve({ code: killed || code === null ? null : code, ...out });
   });
 });
 

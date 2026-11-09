@@ -83,6 +83,17 @@ describe("realRun (US-0072, A1c Task 3)", () => {
     expect(existsSync(ended)).toBe(true);
   });
 
+  // Review B2 F3: voice:up's rollback runs compose down detached, so a second Ctrl-C to the terminal's process group cannot cut it.
+  it("detached: true runs the child in its own process group", async () => {
+    const code = `const r=require("node:child_process").execFileSync("ps",["-o","pgid=","-p",String(process.pid)],{env:{PATH:"/usr/bin:/bin"},encoding:"utf8"});process.stdout.write(JSON.stringify({pid:process.pid,pgid:Number(r.trim())}))`;
+    const own = Number(spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } }).stdout.trim());
+    const d = JSON.parse((await realRun(process.execPath, ["-e", code], { env: {}, detached: true })).stdout) as { pid: number; pgid: number };
+    expect(d.pgid).toBe(d.pid);
+    expect(d.pgid).not.toBe(own);
+    const a = JSON.parse((await realRun(process.execPath, ["-e", code], { env: {} })).stdout) as { pid: number; pgid: number };
+    expect(a.pgid).toBe(own);
+  });
+
   it("a run whose signal is already aborted starts nothing that outlives it", async () => {
     const ctl = new AbortController();
     ctl.abort();

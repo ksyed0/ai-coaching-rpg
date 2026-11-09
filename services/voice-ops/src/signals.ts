@@ -28,3 +28,14 @@ export function installSignals(o: { cmd: string | undefined; on: (sig: Interrupt
     signal: () => got,
   };
 }
+
+/** What voice:up's rollback did (review B2 F3): "none" (nothing was started, or no interrupt or failure), "complete" or "incomplete". */
+export type RollbackOutcome = "none" | "complete" | "incomplete";
+
+/** The CLI's last line after an interrupt of `up` (null otherwise): "rolled back" only when the rollback completed (review B2 F3). */
+export function lastLine(cmd: string | undefined, sig: Interrupt | null, rollback: RollbackOutcome): string | null {
+  if (cmd !== "up" || sig === null) return null;
+  if (rollback === "complete") return `voice-ops: interrupted by ${sig}: what this run started has been rolled back`;
+  if (rollback === "incomplete") return `voice-ops: interrupted by ${sig}: the rollback is incomplete: run pnpm voice:down`;
+  return `voice-ops: interrupted by ${sig}: this run started nothing`;
+}

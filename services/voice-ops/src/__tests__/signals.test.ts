@@ -1,7 +1,7 @@
 import dgram from "node:dgram";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { makeResolver, DNS_RESOLVER_OPTIONS } from "../checks/dns.js";
-import { installSignals } from "../signals.js";
+import { installSignals, lastLine } from "../signals.js";
 
 // US-0072 (review B2 F6): the CLI's signal handling with injected seams (no real signal is sent here), and the DNS resolver's bound
 // against a real loopback UDP socket that never answers.
@@ -47,6 +47,17 @@ describe("installSignals", () => {
       expect(p.exits).toEqual([code]);
       expect(hub.signal()).toBe(sig);
     }
+  });
+});
+
+// Review B2 F3: "rolled back" only after a rollback that completed, and only for voice:up.
+describe("lastLine", () => {
+  it("names what really happened", () => {
+    expect(lastLine("up", null, "complete")).toBeNull();
+    expect(lastLine("up", "SIGINT", "complete")).toBe("voice-ops: interrupted by SIGINT: what this run started has been rolled back");
+    expect(lastLine("up", "SIGTERM", "incomplete")).toBe("voice-ops: interrupted by SIGTERM: the rollback is incomplete: run pnpm voice:down");
+    expect(lastLine("up", "SIGINT", "none")).toBe("voice-ops: interrupted by SIGINT: this run started nothing");
+    for (const cmd of ["down", "check", "timings", undefined]) expect(lastLine(cmd, "SIGINT", "none")).toBeNull();
   });
 });
 

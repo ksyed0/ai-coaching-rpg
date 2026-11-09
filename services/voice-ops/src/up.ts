@@ -6,6 +6,7 @@ import { alive, cleanStaleTemps, LOCK_BUSY_SENTENCE, sentenceOf, wait, type OpsD
 import { isOurWhisper } from "./run.js";
 import { DEFAULT_LIVEKIT_HOST, loadRootEnv, parseVoiceOpsSettings, type VoiceOpsSettings } from "./settings.js";
 import { acquireLock, clearState, loadState, openPrivateSubdir, openStateDir, releaseLock, writeState, type VoiceOpsState } from "./state.js";
+import type { RollbackOutcome } from "./signals.js";
 import { tlsRouteAnswers } from "./tls-route.js";
 import { checkModelFile, startWhisper, stopSpawned, WHISPER_READY_WAIT_MS, WHISPER_POLL_MS, WHISPER_STOP_GRACE_MS, WhisperStartError } from "./whisper.js";
 import type { SpawnedChild } from "./run.js";
@@ -70,27 +71,33 @@ function certificateProblem(certFile: string, keyFile: string): string | null {
   return null;
 }
 
-export async function voiceUp(d: OpsDeps): Promise<0 | 1 | 2> {
+export type UpOutcome = { code: 0 | 1 | 2; rollback: RollbackOutcome };
+
+export async function voiceUp(d: OpsDeps): Promise<0 | 1 | 2> { return (await voiceUpOutcome(d)).code; }
+
+/** `voiceUp` plus what its rollback did (review B2 F3: the CLI says "rolled back" only after a rollback that completed). */
+export async function voiceUpOutcome(d: OpsDeps): Promise<UpOutcome> {
   const say = (l: string): void => d.out(`voice:up: ${l}`);
+  const none = (code: 0 | 1 | 2): UpOutcome => ({ code, rollback: "none" });
   // 1. settings, from the merged view control reads
   let merged: NodeJS.ProcessEnv;
-  try { merged = loadRootEnv(d.repoRoot, d.env); } catch (err) { say((err as Error).message); return 2; }
+  try { merged = loadRootEnv(d.repoRoot, d.env); } catch (err) { say((err as Error).message); return none(2); }
   const parsed = parseVoiceOpsSettings(merged, { home: d.home, repoRoot: d.repoRoot });
-  if (!parsed.ok) { for (const e of parsed.errors) say(e); return 2; }
+  if (!parsed.ok) { for (const e of parsed.errors) say(e); return none(2); }
   const s = parsed.s;
-  if (s.livekitHost.origin !== DEFAULT_LIVEKIT_HOST) { say(`LIVEKIT_HOST must be ${DEFAULT_LIVEKIT_HOST} for voice:up (voice.yml publishes LiveKit's API on exactly that address)`); return 2; }
+  if (s.livekitHost.origin !== DEFAULT_LIVEKIT_HOST) { say(`LIVEKIT_HOST must be ${DEFAULT_LIVEKIT_HOST} for voice:up (voice.yml publishes LiveKit's API on exactly that address)`); return none(2); }
   // 2. the real environment must not set a managed name (control would read it instead of .env: finding 7)
-  for (const name of MANAGED_NAMES) if (d.env[name] !== undefined) { say(`unset ${name} in this shell: voice:up and control must read it from .env`); return 1; }
+  for (const name of MANAGED_NAMES) if (d.env[name] !== undefined) { say(`unset ${name} in this shell: voice:up and control must read it from .env`); return none(1); }
   // 3. the state directory and the lock
-  try { openStateDir(s.stateDir, { repoRoot: d.repoRoot }); } catch (err) { say(sentenceOf(err, "VOICE_STATE_DIR cannot be used")); return 1; }
-  if (acquireLock(s.stateDir, d.pid, (p) => alive(d.kill, p)) === "busy") { say(LOCK_BUSY_SENTENCE); return 1; }
+  try { openStateDir(s.stateDir, { repoRoot: d.repoRoot }); } catch (err) { say(sentenceOf(err, "VOICE_STATE_DIR cannot be used")); return none(1); }
+  if (acquireLock(s.stateDir, d.pid, (p) => alive(d.kill, p)) === "busy") { say(LOCK_BUSY_SENTENCE); return none(1); }
   try {
     cleanStaleTemps({ repoRoot: d.repoRoot, stateDir: s.stateDir, say });
     return await upLocked(d, s, merged, say);
   } finally { releaseLock(s.stateDir, d.pid); }
 }
 
-async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.ProcessEnv, say: (l: string) => void): Promise<0 | 1 | 2> {
+async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.ProcessEnv, say: (l: string) => void): Promise<UpOutcome> {
   const ctl = new AbortController();
   let interrupted = false;
   const unhook = d.onInterrupt(() => { if (interrupted) return; interrupted = true; ctl.abort(); });
@@ -128,7 +135,7 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
       const proxyUp = s.access !== "lan" || !s.lan ? true
         : await tlsRouteAnswers({ hostname: s.lan.hostname, port: s.lan.livekitTlsPort, address: node.ip, connect: d.tlsConnect });
       checkpoint();
-      if (healthy && livekitUp && proxyUp) { say("already running"); return 0; }
+      if (healthy && livekitUp && proxyUp) { say("already running"); return { code: 0, rollback: "none" }; }
       mode = "repair";
       state = { ...st };
       if (ours) { restartWhisper = false; delete state.whisper; state.whisper = st.whisper; }
@@ -240,23 +247,25 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
     else say(`next: start the web app with PUBLIC_ORIGIN=http://localhost:${s.webPort} and LIVEKIT_URL=ws://127.0.0.1:7880 (pnpm --filter @acr/web start)`);
     say(NEXT_STEPS_VOICE_OFF);
     if (s.access === "local") say("local mode serves only this machine; the two-person room test needs lan mode");
-    return 0;
+    return { code: 0, rollback: "none" };
   } catch (err) {
     const isInterrupt = err instanceof Interrupted || interrupted;
     if (err instanceof Stop && err.line) say(err.line);
     else if (isInterrupt) say("interrupted: rolling back what this run started");
     else if (!(err instanceof Stop)) say(sentenceOf(err, "voice:up failed"));
-    if (err instanceof Stop && err.code === 2) return 2;
-    if (touched) await rollback();
-    return 1;
+    if (err instanceof Stop && err.code === 2) return { code: 2, rollback: "none" };
+    if (!touched) return { code: 1, rollback: "none" };
+    return { code: 1, rollback: (await rollback()) ? "complete" : "incomplete" };
   } finally { unhook(); }
 
-  async function rollback(): Promise<void> {
+  /** True when everything this run started was stopped and its files updated (review B2 F3). */
+  async function rollback(): Promise<boolean> {
     let composeLeft = false;
     // compose first (fresh only: repair never takes a running LiveKit down)
     if (composeStarted && mode === "fresh") {
       const problem = await dockerProblem(d.env, d.run);
-      const r = problem ? null : await d.run("docker", composeArgs(d.repoRoot, s.access, "down"), { env: composeEnv(d.env, s, state?.nodeIp ?? "127.0.0.1"), timeoutMs: COMPOSE_DOWN_TIMEOUT_MS }).catch(() => null);
+      // detached (review B2 F3): its own process group, so a second Ctrl-C to the terminal cannot cut the rollback's compose down
+      const r = problem ? null : await d.run("docker", composeArgs(d.repoRoot, s.access, "down"), { env: composeEnv(d.env, s, state?.nodeIp ?? "127.0.0.1"), timeoutMs: COMPOSE_DOWN_TIMEOUT_MS, detached: true }).catch(() => null);
       if (r === null || r.code !== 0) { composeLeft = true; say(`${problem ? problem + "; " : ""}the compose services may still run: run pnpm voice:down`); }
       else if (state) delete state.compose;
     } else if (composeStarted && state && mode === "repair") {
@@ -277,7 +286,8 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
         if (!composeLeft && !whisperLeft && createdState) clearState(s.stateDir);
         else save();
       } else save();
-    } catch (err) { say(sentenceOf(err, "the voice state could not be updated")); }
+    } catch (err) { say(sentenceOf(err, "the voice state could not be updated")); return false; }
+    return !composeLeft && !whisperLeft;
   }
 }
 

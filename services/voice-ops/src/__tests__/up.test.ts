@@ -6,7 +6,7 @@ import { sentenceOf } from "../ops.js";
 import { LOCK_FILE, readState } from "../state.js";
 import { tlsRouteAnswers } from "../tls-route.js";
 import { voiceDown } from "../down.js";
-import { voiceUp } from "../up.js";
+import { voiceUp, voiceUpOutcome } from "../up.js";
 import { makeWorld, privateTmp, secretsOf, type World } from "./helpers/ops-harness.js";
 
 // US-0072 (EPIC-0003 voice A1c, Task 7): `voice:up` orchestration with every seam faked (ops-harness.ts): the step order, the refusals
@@ -570,6 +570,52 @@ describe("voiceUp lock and leftovers", () => {
 });
 
 // Review B2 F12: a writeLiveKitEnv refusal (LiveKitEnvError: a fixed sentence naming the variable) is shown as such, not "voice:up failed".
+// Review B2 F3: the CLI's last line after an interrupt says "rolled back" only when the rollback really completed.
+describe("voiceUpOutcome", () => {
+  it("a rollback that stopped everything is complete", async () => {
+    const w = world();
+    w.livekit = () => false;
+    expect(await voiceUpOutcome(w.deps())).toEqual({ code: 1, rollback: "complete" });
+  });
+
+  it("a rollback whose compose down failed is incomplete (and says to run voice:down)", async () => {
+    const w = world();
+    w.livekit = () => false;
+    w.composeDown = () => ({ code: 1, stdout: "", stderr: "" });
+    expect(await voiceUpOutcome(w.deps())).toEqual({ code: 1, rollback: "incomplete" });
+    expect(w.out.join("\n")).toContain("the compose services may still run: run pnpm voice:down");
+  });
+
+  it("a rollback that could not stop whisper-server is incomplete", async () => {
+    const w = world();
+    w.composeUp = () => ({ code: 1, stdout: "", stderr: "" });
+    w.onStep = (step) => { if (step === "compose-up") for (const pid of w.procs.keys()) w.eperm.add(pid); };
+    expect(await voiceUpOutcome(w.deps())).toEqual({ code: 1, rollback: "incomplete" });
+  });
+
+  it("a refusal, an interrupt before any start, already running and a good start have no rollback", async () => {
+    const w = world();
+    expect(await voiceUpOutcome(w.deps())).toEqual({ code: 0, rollback: "none" });
+    expect(await voiceUpOutcome(w.deps())).toEqual({ code: 0, rollback: "none" }); // already running
+    w.onStep = (s) => { if (s === "answers" && w.interrupt) w.interrupt(); };
+    expect(await voiceUpOutcome(w.deps())).toEqual({ code: 1, rollback: "none" });
+    const w2 = world({ envLines: ["VOICE_ACCESS=everywhere"] });
+    expect(await voiceUpOutcome(w2.deps())).toEqual({ code: 2, rollback: "none" });
+  });
+
+  it("the rollback's compose down runs detached (its own process group: a second Ctrl-C does not reach it); voice:down's does not", async () => {
+    const w = world();
+    w.livekit = () => false;
+    expect(await voiceUp(w.deps())).toBe(1);
+    const downs = w.calls.filter((c) => c.cmd === "docker" && c.args.includes("down"));
+    expect(downs.map((c) => c.detached)).toEqual([true]);
+    const w2 = world();
+    expect(await voiceUp(w2.deps())).toBe(0);
+    expect(await voiceDown(w2.deps())).toBe(0);
+    expect(w2.calls.filter((c) => c.cmd === "docker" && c.args.includes("down")).map((c) => c.detached ?? false)).toEqual([false]);
+  });
+});
+
 describe("voiceUp and LiveKitEnvError", () => {
   it("sentenceOf maps LiveKitEnvError to its fixed sentence and anything else to the fallback", () => {
     const e = new LiveKitEnvError("LIVEKIT_API_KEY");

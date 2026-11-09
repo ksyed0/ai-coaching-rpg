@@ -14,8 +14,8 @@ import { STT_PORT_MAX, STT_PORT_MIN } from "./env-file.js";
 import type { OpsDeps, PortProbe } from "./ops.js";
 import { realRun, realSpawnDetached, type SetTimer } from "./run.js";
 import { makeResolver } from "./checks/dns.js";
-import { exitCodeOf, installSignals } from "./signals.js";
-import { voiceUp } from "./up.js";
+import { exitCodeOf, installSignals, lastLine, type RollbackOutcome } from "./signals.js";
+import { voiceUpOutcome } from "./up.js";
 import { whisperHealth, whisperWarm } from "./whisper.js";
 
 /**
@@ -148,12 +148,14 @@ function checkDeps(root: string): CheckDeps {
   };
 }
 
+let rollback: RollbackOutcome = "none";
+
 async function main(): Promise<number> {
   const cmd = process.argv[2];
   const root = repoRoot();
   if (root === null) { say("voice-ops: VOICE_OPS_REPO_ROOT must be an absolute path to a folder holding pnpm-workspace.yaml"); return 2; }
   switch (cmd) {
-    case "up": return voiceUp(deps(root));
+    case "up": { const r = await voiceUpOutcome(deps(root)); rollback = r.rollback; return r.code; }
     case "down": return voiceDown(deps(root));
     case "check": return voiceCheck(checkDeps(root));
     case "timings": say("voice:timings: not available yet (the room-test timing record comes with a later task)"); return 2;
@@ -164,7 +166,8 @@ async function main(): Promise<number> {
 main().then(
   (code) => {
     const sig = signals.signal();
-    if (sig !== null) say(`voice-ops: interrupted by ${sig}: what this run started has been rolled back`);
+    const line = lastLine(process.argv[2], sig, rollback); // "rolled back" only after a rollback that completed (review B2 F3)
+    if (line !== null) say(line);
     process.exitCode = sig !== null ? exitCodeOf(sig) : code;
   },
   () => { say("voice-ops: failed (an unexpected error; nothing secret is printed)"); process.exitCode = 1; },
