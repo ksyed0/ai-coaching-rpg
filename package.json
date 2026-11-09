@@ -43,7 +43,11 @@
     "calibrate": "pnpm -s --filter @acr/runtime calibrate",
     "moderate": "pnpm -s --filter @acr/runtime moderate",
     "gm-eval": "pnpm -s --filter @acr/runtime gm-eval",
-    "lint:sdk": "bash scripts/check-sdk-imports.sh"
+    "lint:sdk": "bash scripts/check-sdk-imports.sh",
+    "voice:up": "pnpm -s --filter @acr/voice-ops run voice-up",
+    "voice:down": "pnpm -s --filter @acr/voice-ops run voice-down",
+    "voice:check": "pnpm -s --filter @acr/voice-ops run voice-check",
+    "voice:timings": "pnpm -s --filter @acr/voice-ops run voice-timings"
   },
   "repository": {
     "type": "git",

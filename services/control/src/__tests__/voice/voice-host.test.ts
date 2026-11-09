@@ -702,3 +702,82 @@ describe("VoiceHost and LiveKit (US-0071, A1b Task 5)", () => {
     expect(logs.slice(-3)).toEqual([`session ${ID} speech room connected`, `session ${ID} speech room failed`, `session ${ID} speech room disconnected`]);
   });
 });
+
+describe("the room-test timing record (US-0072, A1c Task 12)", () => {
+  /** A host with the timing sink and an injected clock (`clock.t`). */
+  const timed = (clock: { t: number }, sink?: string[]) => new VoiceHost({
+    spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake" }, log: (m) => logs.push(m),
+    setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+    toRuntime: (id, m) => { toRuntime.push({ id, m }); return true; }, now: () => clock.t,
+    ...(sink ? { timingLog: (l: string) => { sink.push(l); } } : {}),
+  });
+  const timedLine = (segmentId: string, startMs: number, endMs: number) => ({ type: "voice_line", segmentId, roleId: "tech_lead", participantId: "p-secret-1", text: TEXT, startMs, endMs });
+
+  it("no timing line without VOICE_TIMING_LOG (no sink), and nothing new in the log", () => {
+    const clock = { t: 5000 };
+    const v = timed(clock);
+    const w = live(v);
+    const before = logs.length;
+    w.emit(timedLine(SEG, 1000, 3000));
+    v.fromRuntime(ID, { type: "voice_line_ack", segmentId: SEG, seq: 1 });
+    expect(logs.slice(before)).toEqual([]);
+  });
+
+  it("one line per acknowledged voice line with the two numbers from the injected clock (clamped at 0)", () => {
+    const clock = { t: 0 };
+    const sink: string[] = [];
+    const v = timed(clock, sink);
+    const w = live(v);
+    w.emit(timedLine("0000000000000001", 10_000, 12_500));
+    w.emit(timedLine("0000000000000002", 20_000, 20_400));
+    clock.t = 13_250;
+    v.fromRuntime(ID, { type: "voice_line_ack", segmentId: "0000000000000001", seq: 1 });
+    clock.t = 20_100; // a worker clock ahead of control's: never a negative number
+    v.fromRuntime(ID, { type: "voice_line_ack", segmentId: "0000000000000002", seq: 2 });
+    expect(sink).toEqual([
+      `session ${ID} voice line timing end_to_append_ms=750 start_to_append_ms=3250`,
+      `session ${ID} voice line timing end_to_append_ms=0 start_to_append_ms=100`,
+    ]);
+  });
+
+  it("a timing line holds no role, segment id, participant id or text", () => {
+    const clock = { t: 9000 };
+    const sink: string[] = [];
+    const v = timed(clock, sink);
+    const w = live(v);
+    w.emit(timedLine(SEG, 1000, 2000));
+    v.fromRuntime(ID, { type: "voice_line_ack", segmentId: SEG, seq: 77 });
+    expect(sink).toHaveLength(1);
+    for (const bad of ["tech_lead", "p-secret-1", SEG, TEXT, "secret", "77", "pm"]) expect(sink[0], bad).not.toContain(bad);
+    expect(logs.join("\n")).not.toContain("timing"); // the record goes to its own sink only, never the service log
+  });
+
+  it("a refused line, a timed-out line and a line refused at once log no timing", () => {
+    const clock = { t: 9000 };
+    const sink: string[] = [];
+    const v = timed(clock, sink);
+    const w = live(v);
+    w.emit(timedLine("0000000000000001", 1000, 2000));
+    v.fromRuntime(ID, { type: "voice_line_refused", segmentId: "0000000000000001", code: "not_holder" });
+    w.emit(timedLine("0000000000000002", 1000, 2000));
+    fire(VOICE_LINE_TIMEOUT_MS);
+    v.fromRuntime(ID, { type: "voice_line_ack", segmentId: "0000000000000002", seq: 3 }); // too late: no pending entry
+    v.detach(ID);
+    w.emit(timedLine("0000000000000003", 1000, 2000)); // refused at once (no runtime)
+    expect(sink).toEqual([]);
+  });
+
+  it("a sink that throws never breaks the ack", () => {
+    const clock = { t: 9000 };
+    const v = new VoiceHost({
+      spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake" }, log: (m) => logs.push(m),
+      setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+      toRuntime: (id, m) => { toRuntime.push({ id, m }); return true; }, now: () => clock.t, timingLog: () => { throw new Error("disk full /secret/path"); },
+    });
+    const w = live(v);
+    w.emit(timedLine(SEG, 1000, 2000));
+    v.fromRuntime(ID, { type: "voice_line_ack", segmentId: SEG, seq: 5 });
+    expect(w.sent.at(-1)).toEqual({ type: "voice_line_result", segmentId: SEG, seq: 5 });
+    expect(logs.join("\n")).not.toContain("/secret/path");
+  });
+});

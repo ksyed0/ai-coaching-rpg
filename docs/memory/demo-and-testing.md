@@ -44,6 +44,12 @@ Check counts are pinned by tests: add a new check only in an opt-in room or by e
 - Environment: `LIVEKIT_LIVE_URL=ws://127.0.0.1:7880`, `LIVEKIT_LIVE_HOST=http://127.0.0.1:7880`, `LIVEKIT_LIVE_KEY`, `LIVEKIT_LIVE_SECRET`; optional shell commands `LIVEKIT_LIVE_BLIP` (freeze the server about 20 s, e.g. `docker pause`/`unpause`), `LIVEKIT_LIVE_STOP`, `LIVEKIT_LIVE_START`, `LIVEKIT_LIVE_RESTART`; `VOICE_LIVE_LONG=1` for the 11-minute token-expiry case.
 - Speech: `VOICE_LIVE=1 pnpm --filter @acr/speech exec vitest run src/__tests__/livekit.live.test.ts` (the real `livekit-room.ts` and `LiveKitIngest`, a test-only rtc-node publisher, the forked worker). Browser: `VOICE_LIVE=1 pnpm --filter @acr/web exec playwright test voice-live --trace off` after `next build --webpack` (the real stack with `SPEECH_INGEST=livekit`, the real token route, a fake microphone, the fake speech-to-text). Results of the first run (2026-11-09, LiveKit 1.13.11): A1b plan, "Batch 6c live findings".
 
+## Voice operations tests (US-0072, `services/voice-ops`)
+- No Docker, LiveKit, Caddy or Whisper in CI: the unit tests use the fake world of `src/__tests__/helpers/ops-harness.ts`; `cli.process.test.ts` runs the real root scripts (`pnpm -s voice:up|down|check|timings`) against a private repository copy (`VOICE_OPS_REPO_ROOT`) with stub `whisper-server` and `docker` executables on `PATH` (installed with an absolute shebang) and a LiveKit stand-in on 127.0.0.1:7880 (the test skips with a reason when 7880 is taken). It guards the real `package.json`, `pnpm-lock.yaml` and `.env` by sha256 digest only (`helpers/real-files.ts`).
+- Runtime's real-process tests need a SHORT `TMPDIR` (`mktemp -d /tmp/acr.XXXXXX`): tsx's IPC socket path under a long scratchpad TMPDIR exceeds the socket path limit.
+- The FIFO tests of the timing record open in a child process with a 20 s bound (a blocking open would hang the test worker).
+- The owner's first real run: `docs/VOICE_RUNBOOK.md` section 11.
+
 ## Other commands
 - `pnpm gm-eval` (offline: 14 labelled Game Master cases, 34-entry parser corpus, drift test against `showcase.yaml`), `--live --runs 3`, `--trace file`, `--build tests/gm-cases` (rebuild after editing the showcase script).
 - `pnpm evaluate <session.jsonl> [--scenario dir] [--out dir]`: draft BARS feedback reports (default output `data/reports`, git-ignored).

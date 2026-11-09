@@ -1,3 +1,4 @@
+import http from "node:http";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
@@ -70,6 +71,40 @@ describe("startControl", () => {
     await running.close();
     running = await startControl({ ...env, ...lk, SPEECH_INGEST: "livekit" }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
     expect((hosts[1] as { o: { tokens?: unknown } }).o.tokens).toBeDefined();
+  });
+
+  it("US-0072 (A1c Task 11): the LiveKit probe is wired exactly with the tokens, and it asks LIVEKIT_HOST", async () => {
+    const lk = { LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "s".repeat(40) };
+    const hosts: unknown[] = [];
+    const probeOf = (i: number) => (hosts[i] as { o: { livekitReachable?: () => Promise<boolean> } }).o.livekitReachable;
+    running = await startControl({ ...env, ...lk, SPEECH_INGEST: "file" }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+    expect(probeOf(0)).toBeUndefined();
+    await running.close();
+    const seen: string[] = [];
+    const stand = http.createServer((req, res) => { seen.push(`${req.method} ${req.url}`); res.statusCode = 404; res.end(); });
+    await new Promise<void>((r) => stand.listen(0, "127.0.0.1", () => r()));
+    try {
+      const port = (stand.address() as { port: number }).port;
+      running = await startControl({ ...env, ...lk, SPEECH_INGEST: "livekit", LIVEKIT_HOST: `http://127.0.0.1:${port}` }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+      expect(await probeOf(1)!()).toBe(true);
+      expect(seen).toEqual(["GET /"]);
+    } finally { stand.closeAllConnections(); await new Promise<void>((r) => stand.close(() => r())); }
+  });
+
+  it("US-0072 (A1c Task 12): VOICE_TIMING_LOG is exactly 0 or 1 (default 0); VOICE_TIMING_LOG=yes stops the start naming the variable only", async () => {
+    for (const bad of ["yes", "true", "2", " 1", "1 "]) {
+      const err = await startControl({ ...env, VOICE_TIMING_LOG: bad }, { port: 0 }).catch((e: Error) => e);
+      expect(String(err), bad).toContain("VOICE_TIMING_LOG must be 0 or 1");
+      expect(String(err)).not.toContain(`"${bad}"`);
+    }
+    const hosts: unknown[] = [];
+    const sinkOf = (i: number) => (hosts[i] as { o: { timingLog?: unknown } }).o.timingLog;
+    for (const [value, on] of [[undefined, false], ["", false], ["0", false], ["1", true]] as const) {
+      running = await startControl({ ...env, ...(value === undefined ? {} : { VOICE_TIMING_LOG: value }) }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+      expect(sinkOf(hosts.length - 1) !== undefined, String(value)).toBe(on);
+      await running.close();
+      running = undefined;
+    }
   });
 
   it("US-0071: starts with LiveKit configured and SPEECH_INGEST=livekit", async () => {

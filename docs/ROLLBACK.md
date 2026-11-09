@@ -527,3 +527,33 @@ Rollback trigger: a text-only session or page behaves differently from the build
 ### Rolling forward again
 
 Redeploy control, then the web app; voice stays off until `VOICE_ENABLED=1`, LiveKit keys with `SPEECH_INGEST=livekit` in control and `LIVEKIT_URL` in the web app are all set. Checks: `pnpm demo --voice` (8 of 8, file ingest, offline), `pnpm --filter @acr/web exec playwright test voice-lobby` (no LiveKit server needed), and with a throwaway LiveKit server the opt-in live checks (docs/memory/demo-and-testing.md, "Voice live checks").
+
+## US-0072: voice operations (EPIC-0003 voice slice A1c)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0072-voice-operations)
+Date: not deployed
+Rollback trigger: a text-only operator who served the web app on the LAN with the plain start script can no longer reach it, `voice:up` leaves something running that `voice:down` cannot stop, a voice session behaves worse after a LiveKit outage than before, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, `LOG_FORMAT`, any event, the consent file or the voice record.** `consent/notice-v3.md` is unchanged (its draft marker stays).
+- **New root commands** `pnpm voice:up`, `voice:down`, `voice:check`, `voice:timings` (package `services/voice-ops`, no new npm dependency) and new files `deploy/compose/voice.yml`, `livekit.yaml`, `Caddyfile`. Nothing starts them by itself.
+- **`.env`:** `pnpm voice:up` appends `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` and `STT_URL` when they are absent (one block; nothing existing changes). Outside the repository it keeps `VOICE_STATE_DIR` (default `<HOME>/.scenecoach/voice`).
+- **The web app's `start` script listens on 127.0.0.1 only** (`next start -H 127.0.0.1`): the one behaviour change for text-only users.
+- **New control setting `VOICE_TIMING_LOG`** (exactly 0 or 1, default 0; anything else stops the control service) and, with 1, the file `<CONTROL_LOG_DIR>/voice-timing.log`.
+- **Internal messages only.** The alert codes `livekit_lost` and `livekit_recovered` are IPC between control and the runtime of one checkout (drift-tested); the web console shows their fixed sentences. Control and the runtime move together.
+
+### Rolling back
+
+- **Stop the voice infrastructure:** `pnpm voice:down` stops everything A1c starts (whisper-server, the `scenecoach-voice` compose project) and removes `livekit.env`, `state.json` and `whisper.log`; `docker compose -p scenecoach-voice ps -a` should then show nothing. `caddy-data/` and `caddy-config/` in `VOICE_STATE_DIR` can be removed by hand.
+- **The generated `.env` lines** can be removed by hand (control then has no LiveKit; voice tokens are `voice_unavailable`). Keep the file mode 0600.
+- **Serving the web app on the LAN without the proxy** (not advised, see the threat model): `pnpm --filter @acr/web exec next start -H <address>`.
+- **Turn voice off:** `VOICE_ENABLED=0`, as for A1b. Set `VOICE_TIMING_LOG=0` (or unset) and delete `voice-timing.log`.
+- **Rolling back the code:** stop control, deploy the earlier build, start it. An earlier runtime drops an unknown alert code without answering; with the earlier build a LiveKit outage of about 16 s turns voice off for the rest of that session again (the A1b known limit).
+- **Smoke test after a rollback:** `pnpm demo --fast` (29), `pnpm demo --fast --security --resume` (42), `pnpm demo --web` (8), `pnpm demo --voice` (8 of 8).
+
+### Rolling forward again
+
+Redeploy control and the runtime together (the two alert codes), then the web app; run `pnpm voice:up` and `pnpm voice:check` (`docs/VOICE_RUNBOOK.md`).

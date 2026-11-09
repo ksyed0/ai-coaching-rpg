@@ -10,6 +10,14 @@ import { CLIENT_ID_MAX_CHARS, isFileSafeId, isReservedRoleId, isScenarioId } fro
  * as `voice_line_result`. See docs/superpowers/plans/2026-11-08-voice-part-a-overview.md, "Cross-slice interfaces", section 1.
  */
 
+/**
+ * US-0071: the exit code of a worker whose LiveKit ingest failed or lost a room (a failed `room.open`, an unexpected disconnect of an
+ * allowed room, JOIN_ATTEMPTS join misses, MAX_TRACK_RESTARTS track restarts, a fault in a room listener). US-0072 (A1c Task 10): the
+ * ONE source, here, so control reads it (`@acr/speech/protocol`) to tell a possible LiveKit outage from any other exit; the worker's
+ * main.ts imports it too.
+ */
+export const EXIT_LIVEKIT_LOST = 3;
+
 /** The longest transcript line the worker may send (equals the runtime's MAX_UTTERANCE_CHARS). */
 export const MAX_VOICE_TEXT_CHARS = 2000;
 /** The most seats a `voice_state` may list (the parent channel's MAX_CODES). */

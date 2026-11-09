@@ -99,6 +99,8 @@ flowchart TB
 | Identity | OIDC provider | built-in stub | Entra ID / Okta / Keycloak | same |
 | Reverse proxy | TLS, routing | Caddy container | Caddy or cloud load balancer | ingress controller |
 
+> **Deviation (EPIC-0003 voice A1c, US-0072; `docs/VOICE_RUNBOOK.md`):** for the voice pilot on the laptop, the media server (LiveKit 1.13.11) and the TLS proxy (Caddy 2.11.9) run in Docker Compose (project `scenecoach-voice`, `deploy/compose/voice.yml`, both images pinned by digest) beside a **native** whisper.cpp `whisper-server` on loopback (Metal), all three started and stopped by `pnpm voice:up` / `pnpm voice:down` (`services/voice-ops`); not LiveKit Cloud, Kubernetes or a hosted speech service. The control service and the web app are still started by the operator; the web app listens on 127.0.0.1 only, behind Caddy. Not yet run against the real services (the owner checklist in the runbook).
+
 ### Communication
 
 - `web` ↔ `api`: HTTPS (REST + server-sent events for long jobs).

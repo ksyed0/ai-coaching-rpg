@@ -23,6 +23,8 @@ import { speechSpawn } from "./voice/speech-spawn.js";
 import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
+import { livekitProbe } from "./voice/livekit-probe.js";
+import { timingLogSink } from "./voice/timing-log.js";
 import { VoiceTokens } from "./voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn } from "./voice/voice-host.js";
 
@@ -57,12 +59,16 @@ export async function startControl(
     log?: (m: string) => void; spawn?: SpawnFn; port?: number; /** Tests: a stand-in for the evaluate child. */ evalSpawn?: EvalSpawnFn;
     /** Tests and the voice demo: a stand-in for the speech worker fork, and a way to reach the VoiceHost (V-07 kills a worker by pid). */
     speechSpawn?: SpeechSpawnFn; onVoiceHost?: (v: VoiceHost) => void;
+    /** Tests: a stand-in for control's LiveKit probe (US-0072); the service probes LIVEKIT_HOST. */ livekitReachable?: () => Promise<boolean>;
   } = {},
 ): Promise<RunningControl> {
   const config = loadControlConfig(env);
   // US-0071 (A1b Task 5): a bad LiveKit setting, or SPEECH_INGEST=livekit without LiveKit, stops the start (variables named, no value).
   const lkProblems = liveKitStartProblems(env);
   if (lkProblems.length > 0) throw new Error(`invalid control service settings: ${lkProblems.join("; ")}`);
+  // US-0072 (A1c Task 12): the room test's timing record, off by default; anything but 0 or 1 stops the start (the variable named only).
+  const timingRaw = env.VOICE_TIMING_LOG ?? "";
+  if (timingRaw !== "" && timingRaw !== "0" && timingRaw !== "1") throw new Error("invalid control service settings: VOICE_TIMING_LOG must be 0 or 1");
   const lk = parseLiveKitConfig(env);
   const liveKit = lk.ok ? lk.cfg : null;
   const log = opts.log ?? (() => {});
@@ -87,11 +93,17 @@ export async function startControl(
     voice: (deps) => {
       // US-0071: the seat rooms, generations and tokens exist only when control has LiveKit settings and the workers read LiveKit
       // (batch 3 review F8: never with SPEECH_INGEST=file); the key and secret stay here.
-      const tokens = voiceTokensWanted(env, liveKit) ? new VoiceTokens({
-        cfg: liveKit, admin: createRoomAdmin({ host: liveKit.host, apiKey: liveKit.apiKey, apiSecret: liveKit.apiSecret }),
+      const lkWanted = voiceTokensWanted(env, liveKit) ? liveKit : null;
+      const tokens = lkWanted ? new VoiceTokens({
+        cfg: lkWanted, admin: createRoomAdmin({ host: lkWanted.host, apiKey: lkWanted.apiKey, apiSecret: lkWanted.apiSecret }),
         mint: mintParticipantToken, mintWorker: mintWorkerToken, random: randomBytes, setTimer: realSetTimer, log,
       }) : undefined;
-      const v = new VoiceHost({ spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, ...(tokens ? { tokens } : {}) });
+      // US-0072 (A1c Task 11): the LiveKit probe goes with the tokens (same condition), so an outage is told from a fault.
+      const v = new VoiceHost({
+        spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, now: Date.now,
+        ...(timingRaw === "1" ? { timingLog: timingLogSink(config.logDir, { log }) } : {}),
+        ...(tokens && lkWanted ? { tokens, livekitReachable: opts.livekitReachable ?? livekitProbe(lkWanted.host) } : {}),
+      });
       opts.onVoiceHost?.(v);
       return v;
     },

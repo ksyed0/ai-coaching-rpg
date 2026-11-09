@@ -14,3 +14,18 @@ export function restartDelay(attempt: number): number {
   if (!Number.isInteger(attempt) || attempt < 1 || attempt > RESTART_TRIES) throw new RangeError(`attempt must be 1 to ${RESTART_TRIES}`);
   return RESTART_BASE_MS * 2 ** (attempt - 1);
 }
+
+/**
+ * US-0072 (EPIC-0003 voice A1c, Task 11, "Restart budget: the decision"): while LiveKit does not answer control's probe (a LiveKit
+ * outage), no worker runs and the outage does not spend the budget above; the probe is asked again `livekitRetryDelay(n)` after the
+ * previous probe's answer for the n-th retry: 2, 4, 8, 16 s after the previous answer, then every 30 s, with no cap on the number of retries (a loopback GET every 30 s costs nothing, and the
+ * session goes on by text). Code review constants, not settings.
+ */
+export const LIVEKIT_RETRY_BASE_MS = 2000;
+export const LIVEKIT_RETRY_MAX_MS = 30_000;
+
+/** The delay before the `n`-th probe retry of an outage (an integer, 1 or more): min(30 000, 2000 x 2^(n-1)) ms. */
+export function livekitRetryDelay(n: number): number {
+  if (!Number.isSafeInteger(n) || n < 1) throw new RangeError("n must be an integer of 1 or more");
+  return Math.min(LIVEKIT_RETRY_MAX_MS, LIVEKIT_RETRY_BASE_MS * 2 ** (n - 1));
+}

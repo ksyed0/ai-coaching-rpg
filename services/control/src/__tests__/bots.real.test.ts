@@ -297,6 +297,8 @@ describe("AI players against the real runtime (US-0060)", () => {
     // The bot's own confirmation (it saw its utterance event) is the intent entry; only then is "once" meaningful.
     await until("the spoken intent", () => intentsOf(s, lobby.id).some((e) => e.outcome === "spoken" && e.trigger === "reply"));
     expect(am.utterances("BOT-LINE-1")).toHaveLength(1);
+    // The other human's socket gets the same broadcast independently: wait for it before counting (a loaded run saw it arrive later).
+    await until("delivery_lead to see the bot's line", () => lobby.humans.delivery_lead!.utterances("BOT-LINE-1").length > 0);
     expect(lobby.humans.delivery_lead!.utterances("BOT-LINE-1")).toHaveLength(1);
     expect(s.cap.says.filter((x) => x.text === "BOT-LINE-1")).toHaveLength(1);
     expect(sessionLog(s, lobby.id).filter((e) => e.type === "utterance" && e.text === "BOT-LINE-1")).toHaveLength(1);

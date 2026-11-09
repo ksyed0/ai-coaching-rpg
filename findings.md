@@ -52,9 +52,22 @@ Pinned to an exact version, installed into `apps/web` only (`pnpm --filter @acr/
 | --- | --- | --- | --- | --- | --- |
 | livekit-client | 2.23.0 | The participant's browser joins its own seat's LiveKit room with a microphone-only token, publishes the microphone, unpublishes it on mute and leaves on every final stream event | Apache-2.0 | 2026-10-16 | 2026-10-16 |
 
+## Voice slice A1c (`services/voice-ops`, `deploy/compose/voice.yml`, US-0072): two container images, no new npm dependency
+
+No npm package is added: `@acr/voice-ops` uses `node:` built-ins and the workspace `@acr/adapters` only. The two images below are what `deploy/compose/voice.yml` (plan Task 5) pins by digest; they are looked up, not pulled. Lookup on 2026-11-09, read-only (registry metadata only: `docker buildx imagetools inspect <image>:<tag>`, its `--raw` manifests for the layer sizes and `--format '{{json .Image}}'` for the labels; release dates from the projects' GitHub releases API); nothing was pulled or run. LiveKit's tag is `v1.13.11` (with the `v`; `livekit/livekit-server:1.13.11` does not exist). Caddy 2.11.7 is the newest 2.x release at least two weeks old on the lookup day: 2.11.8 (2026-11-04) and 2.11.9 (2026-11-05) are newer than two weeks; the Docker official image tags are rebuilt (the 2.11.7 index was last pushed 2026-10-30), so the index digest below is the one of the lookup day. **Batch 1 review A (F13), 2026-11-09:** both newer releases carry security fixes (read-only: the GitHub releases API and `repos/caddyserver/caddy/security-advisories`), so Caddy moves to 2.11.9 under the exception below; the 2.11.9 row was looked up the same day, the same way (nothing pulled or run). The 2.11.7 row stays for the record. Compressed sizes are the `linux/arm64` image (config plus layers), the pull the owner's run will make.
+
+| Image | Tag | Index digest (multi-arch) | linux/arm64 manifest | arm64 compressed | Licence | Released |
+| --- | --- | --- | --- | --- | --- | --- |
+| livekit/livekit-server | v1.13.11 | sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20 | sha256:b3d5e54f1b23e148cb3166d3ec56cce52e4481a98525b5f98e45f3e6148656d5 | 38 813 729 bytes (about 37.0 MiB) | Apache-2.0 (image label) | 2026-10-25 |
+| caddy (superseded) | 2.11.7 | sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e | sha256:cc447f149425221422153c6cdf33a123b3f458839679f950298f68a690a54a5b | 23 639 921 bytes (about 22.5 MiB) | Apache-2.0 (image label) | 2026-10-03 |
+| caddy (pinned) | 2.11.9 | sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0 | sha256:9ee998103a2bc0d4392bbe9738b4069da1562d6920b3cd8088cfd098a8270120 | 23 513 580 bytes (about 22.4 MiB) | Apache-2.0 (image label) | 2026-11-05 |
+
+**No DNS provider plugin and no custom Caddy build:** the optional DNS-challenge path (A1c plan Task 13) was skipped on 2026-11-09 because no DNS provider has been named; nothing was added for it.
+
 ## Exceptions to the two-week rule
 
 - next 16.4.1 was released 13 days before the pick. Every earlier 16.x (up to 16.4.0) and every 15.x is flagged by the npm advisory database (GHSA-673q-mjm6-r5xr and GHSA-2464-fhr4-w9xw, critical remote code execution; GHSA-p3m5-59mp-jv5r, denial of service), and `next build` refuses to run on them. 16.4.1 is the oldest release without an advisory.
+- caddy 2.11.9 (image, US-0072) was released 4 days before the pick (2026-11-05). 2.11.8 (2026-11-04) fixed, among others, GHSA-r766-rf9f-588h (high, `{host}` in file paths), GHSA-jf74-f69g-hcj9, GHSA-25cw-38mq-q7m6, GHSA-69hv-5jfc-mvmv and GHSA-f278-mgc7-46j3 (file server, rewrite, FastCGI), and completed the reverse-proxy hop-by-hop header fix of CVE-2026-55458 (GHSA-8qx7-j2v2-x6q5, low: 1xx responses and `copy_response_headers`); 2.11.9 fixes a 2.11.8 PHP regression and more security issues (GHSA-q34h-28rj-5hjm, GHSA-9cr8-wmhh-39pm, FastCGI; a `client_auth` merge that could drop a stricter mTLS rule; go-jose 4.1.6 for GHSA-mgcc-cww5-fp2q). Our Caddyfile uses `reverse_proxy` and `tls <files>` only (no `file_server`, FastCGI, `{host}` paths or mTLS), so only the reverse-proxy fix applies to it directly; 2.11.7, the newest release at least two weeks old, lacks that fix, and 2.11.9 is the oldest release with every fix above.
 - jsdom 30 declares node `^22.22.2`; CI's `node-version: '22'` resolves to the latest 22.x, which satisfies it.
 
 ## Build notes

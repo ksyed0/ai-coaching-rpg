@@ -211,6 +211,32 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       # Build only (no push): proves the runtime image builds from a clean checkout.
       - run: docker build -f deploy/compose/Dockerfile.runtime -t acr-runtime:ci .
+      # US-0072: the voice compose file (LiveKit, and Caddy in the lan profile) parses and interpolates. `config --quiet` with
+      # placeholder values only: no secret, nothing pulled, nothing started (the file is started only by `pnpm voice:up`).
+      # `--env-file /dev/null` as voice-ops passes it: no project .env is read. Two runs: lan mode, and local mode with the
+      # dummy values composeEnv gives the lan-only names (Compose interpolates the inactive caddy service too).
+      - run: docker compose -f deploy/compose/voice.yml --env-file /dev/null --profile lan config --quiet
+        env:
+          VOICE_STATE_DIR: /tmp/voice-state-placeholder
+          VOICE_NODE_IP: 192.168.1.20
+          VOICE_MEDIA_BIND: 192.168.1.20
+          VOICE_HOSTNAME: pilot.example.invalid
+          VOICE_HTTPS_PORT: '443'
+          VOICE_LIVEKIT_TLS_PORT: '7443'
+          VOICE_TLS_CERT_FILE: /tmp/placeholder-cert.pem
+          VOICE_TLS_KEY_FILE: /tmp/placeholder-key.pem
+          VOICE_WEB_UPSTREAM: host.docker.internal:3000
+      - run: docker compose -f deploy/compose/voice.yml --env-file /dev/null config --quiet
+        env:
+          VOICE_STATE_DIR: /tmp/voice-state-placeholder
+          VOICE_NODE_IP: 127.0.0.1
+          VOICE_MEDIA_BIND: 127.0.0.1
+          VOICE_HOSTNAME: voice.invalid
+          VOICE_HTTPS_PORT: '65533'
+          VOICE_LIVEKIT_TLS_PORT: '65534'
+          VOICE_TLS_CERT_FILE: /dev/null
+          VOICE_TLS_KEY_FILE: /dev/null
+          VOICE_WEB_UPSTREAM: 127.0.0.1:1
 
   demo-run:
     name: Demo Run

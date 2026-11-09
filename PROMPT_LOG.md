@@ -535,3 +535,6 @@ Summarised, not verbatim: the exact owner prompts of these sessions were not ava
 > Approve the spec and write the plan for 2b-1; have an Opus model review the plan (fixes applied, task ids and pins corrected).
 > Execute the plan subagent-driven (per-task implementer, spec and quality review, fix rounds, final whole-branch review, one fix wave).
 > "after completion of the plan implementation, update all session docs, commit all changes, wait for CI to go green, fix any issues, merge PR and clean up unused branches".
+> Implement batch 4 of the A1c plan (Tasks 10 to 12: the LiveKit probe, the exit constant and the two alert codes; a LiveKit outage no longer spends the restart budget; the timing record and `pnpm voice:timings`), test-first, with mutation checks and every gate; push, no PR.
+> Review C fix wave: `end_to_append_ms` includes the hangover (wording, end-to-end test), `O_NONBLOCK` opens, a probe watchdog, the outage retry armed first, separate once-flags, three missing tests.
+> Batch 5: skip Task 13 (no DNS provider named), write `docs/VOICE_RUNBOOK.md`, close out the documents of Task 15 except the owner-approved real run, write the PR body draft; run every gate; push, no PR.

@@ -207,11 +207,13 @@ RUNTIME_HOST=127.0.0.1 TRUST_PROXY=1 ./run.sh --dev      # note the join codes i
 
 # 2. the web app, in another terminal (Next reads its settings from the environment or apps/web/.env.local, not the root .env)
 export RUNTIME_URL=ws://127.0.0.1:8080 PUBLIC_ORIGIN=http://localhost:3000 COOKIE_KEYS="k1:$(openssl rand -base64 32)"
-pnpm --filter @acr/web build && pnpm --filter @acr/web start -H 127.0.0.1   # loopback only; or `pnpm web:dev` while developing
+pnpm --filter @acr/web build && pnpm --filter @acr/web start   # loopback only (the script is next start -H 127.0.0.1); or `pnpm web:dev` while developing
 
 # 3. the facilitator, in a third terminal
 pnpm play --facilitator --url ws://127.0.0.1:8080
 ```
+
+The web package's `start` script listens on 127.0.0.1 only (US-0072): LAN devices reach it through the TLS proxy (`pnpm voice:up` in `lan` mode), never directly, because a client that reaches the web port directly can choose its own `X-Forwarded-For` throttle key ([threat model](docs/THREAT_MODEL.md)). Extra arguments are appended to the script and the last `-H` wins, so `pnpm --filter @acr/web start -H 0.0.0.0` still binds every interface (checked once by hand on 2026-11-09); do not do that outside a closed test network. **The development server is different:** `pnpm web:dev` (`next dev`) still listens on every interface, so it is reachable from the LAN, and with no proxy in front it trusts whatever one-entry `X-Forwarded-For` a client sends (a client can choose its own throttle key). Use it only on a trusted network, never for a pilot.
 
 Each player opens `http://localhost:3000/join?session=local&role=<role>` (for example `role=delivery_lead`), types a display name and their role's join code, and lands in the lobby of `/session/local`: they read the consent notice and select **I agree** (or **Leave**). The lobby shows who is in the room and who is ready. Once every player role is held by someone who agreed, `/start` works; until then it is refused with the roles still missing. In the session the page shows the scene, its goal and a timer, the transcript, a say box (disabled while paused and after the end), the player's brief, private facts and updates. A dropped connection shows **Reconnecting** and recovers by itself without losing or repeating a line; opening the session in a second tab moves the seat there and the first tab says so.
 
@@ -239,7 +241,7 @@ pnpm control
 
 # 3. the web app in launcher mode
 export LAUNCHER_URL=http://127.0.0.1:8787 PUBLIC_ORIGIN=http://localhost:3000 COOKIE_KEYS="k1:$(openssl rand -base64 32)"
-pnpm --filter @acr/web build && pnpm --filter @acr/web start -H 127.0.0.1
+pnpm --filter @acr/web build && pnpm --filter @acr/web start   # loopback only
 ```
 
 Then open `http://localhost:3000/console`, type the facilitator secret and your name (a label for the audit trail, not an account), and:
@@ -260,6 +262,19 @@ Then open `http://localhost:3000/console`, type the facilitator secret and your 
 **Two modes, one web app.** With `LAUNCHER_URL` set (launcher mode) each player join and stream looks up its session's own runtime through the control service, and `LAUNCHER_TOKEN` is required for player routes too. With it unset, `RUNTIME_URL` works exactly as in section 4 (single-runtime mode). **The terminal facilitator path is unchanged**: `./run.sh`, `pnpm play --facilitator` and every demo run as before, and a runtime started without the control service ignores all of the new settings. The console is disabled ("The console is not set up on this server.") unless `FACILITATOR_SECRET`, `LAUNCHER_URL` and `LAUNCHER_TOKEN` are all set.
 
 Settings (documented in `.env.example`): web app `FACILITATOR_SECRET`, `LAUNCHER_URL`, `LAUNCHER_TOKEN`; control service `LAUNCHER_TOKEN`, `CONTROL_PORT` (8787), `CONTROL_DATA_DIR` (required), `MAX_SESSIONS` (10), `SCENARIOS_DIR`, `CONTROL_LOG_DIR`, `CONTROL_GRACE_MS` (30000), `CONTROL_READY_TIMEOUT_MS` (30000), `REPORT_ACCESS_DAYS` (90, from 1 to 365: how long a report link works). **Report links read reports from `<CONTROL_DATA_DIR>/reports`**: evaluate and review from the console's Report panel (step 10 above), which writes there, or, from the terminal, run `pnpm evaluate <session.jsonl> --out "$CONTROL_DATA_DIR/reports"` (export `CONTROL_DATA_DIR` first, or use the absolute path) and moderate in `$CONTROL_DATA_DIR/reports/<session id>` (`pnpm moderate open ... --by <name>`, then `release`); reports kept elsewhere are not found. **The control service also writes to that directory** (since slice 2c-2 it takes participants' self-ratings and responses from report links and appends them to `review.jsonl` under the same `review.lock` as `pnpm moderate`), so run it as the same user as `moderate`, or make `<CONTROL_DATA_DIR>/reports` group-writable by both, and never mount it read-only; if it is not writable the control service logs "reports directory is not writable: web ratings and responses are unavailable" at start-up and the ratings and responses answer "try again" or are refused. `CONTROL_MANAGED`, `SESSION_DATA_DIR` and `NO_DOTENV` are set by the control service on the runtimes it starts (`SESSION_DATA_DIR` may also be set by hand to continue a session from the terminal, see `docs/ROLLBACK.md`; leave the other two alone). The web server waits 120 s for a create, restart or whole-session reissue: keep `CONTROL_READY_TIMEOUT_MS` + 2 * `CONTROL_GRACE_MS` below that (the control service warns at startup above 110000 ms). Run one control service per `CONTROL_DATA_DIR`. The control service is not part of the Docker image built by `./run.sh`. `pnpm --filter @acr/web e2e` runs the browser tests against this stack.
+
+### 6. Voice (pre-production)
+
+Voice input (EPIC-0003) ships dark: it stays off until `VOICE_ENABLED=1` and `CONSENT_NOTICE_VERSION=v3`, and is for the owner and colleagues who agree to be recorded only, not before slice A2. Four root commands (US-0072, package `services/voice-ops`) manage its infrastructure on the pilot laptop:
+
+```bash
+pnpm voice:up       # whisper-server on loopback, then LiveKit (and the Caddy TLS proxy in lan mode) in Docker; adds missing LiveKit keys and STT_URL to .env
+pnpm voice:check    # one OK/WARN/FAIL/SKIP line per prerequisite; never prints a secret
+pnpm voice:down     # stops everything voice:up started
+pnpm voice:timings <CONTROL_LOG_DIR>/voice-timing.log   # p50/p95 of the room test's timing record (VOICE_TIMING_LOG=1)
+```
+
+`.env` must exist first (`./run.sh`); `voice:up` never downloads a speech model (set `STT_MODEL_FILE`). The web app's `start` script now listens on 127.0.0.1 only (above). Everything, including the room test and the owner checklist for the first real run (these commands are so far proven with stand-in programs only), is in [docs/VOICE_RUNBOOK.md](docs/VOICE_RUNBOOK.md).
 
 ### Resuming a session
 
@@ -590,7 +605,7 @@ pnpm --filter @acr/web e2e   # builds apps/web, then the Playwright participant 
 pnpm demo --web     # the web demo: checks W-01 to W-08 against the real stack
 ```
 
-The Playwright specs (`apps/web/e2e`) start their own stack per test: the runtime in mock mode as a separate process, a WebSocket relay and `next start` on free ports, with generated `COOKIE_KEYS`. Each browser context sends `X-Forwarded-For: 127.0.0.1`, standing in for the one entry Caddy appends in a deployment, so the BFF and the runtime key their limits on a real address. They need a Chromium for the pinned Playwright (`pnpm --filter @acr/web exec playwright install chromium`); to use another installed Chromium set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path.
+The Playwright specs (`apps/web/e2e`) start their own stack per test: the runtime in mock mode as a separate process, a WebSocket relay and `next start` on free ports, with generated `COOKIE_KEYS`. Each browser context sends `X-Forwarded-For: 127.0.0.1`, standing in for the single entry the proxy sets in a deployment (Caddy in `deploy/compose` REPLACES the header with the client's address; it never appends: Caddy's documented default; checked in the owner run, TC-0204), so the BFF and the runtime key their limits on a real address. They need a Chromium for the pinned Playwright (`pnpm --filter @acr/web exec playwright install chromium`); to use another installed Chromium set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its path.
 
 The default test run never calls a real model or touches the network.
 

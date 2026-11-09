@@ -289,8 +289,9 @@ export async function bootstrap(opts: {
       if (m.type === "voice_notice") { host.voiceNotice(m.roleId, m.participantId, m.code); return; }
       if (m.type === "voice_alert") {
         // F2: a worker that died mid-speech will send no "speech stopped" edge: the open voice turn closes now. US-0071: on every way a
-        // worker goes (down, restarting, off), before and independent of the alert, which stays rate limited.
-        if (m.code === "worker_down" || m.code === "worker_restarting" || m.code === "voice_off") host.voiceWorkerDown();
+        // worker goes (down, restarting, off), before and independent of the alert, which stays rate limited. US-0072 (A1c Task 10): a
+        // LiveKit outage (`livekit_lost`) too: its worker has exited and none runs until LiveKit answers again.
+        if (m.code === "worker_down" || m.code === "worker_restarting" || m.code === "voice_off" || m.code === "livekit_lost") host.voiceWorkerDown();
         void host.voiceAlert(m.code);
         return;
       }

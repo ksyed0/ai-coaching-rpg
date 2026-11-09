@@ -3165,6 +3165,66 @@
       "dependencies": [
         "US-0070"
       ]
+    },
+    {
+      "id": "US-0072",
+      "epicId": "EPIC-0003",
+      "title": "As the facilitator running a voice pilot, I want one command to start, check and stop the voice infrastructure safely, so that a session can use voice without hand-run servers or leaked keys.",
+      "priority": "High",
+      "estimate": "L",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0003-US-0072-voice-operations",
+      "acs": [
+        {
+          "id": "AC-0417",
+          "text": "`pnpm voice:up` starts whisper-server natively on `127.0.0.1` with the `STT_URL` port and an unguessable request path, never `--convert`, with the model file of `STT_MODEL_FILE`; refuses without that file and says how to obtain one (never downloads); waits for health and warms it; then starts the compose services and waits until they run; it is idempotent (a changed setting while running is refused; a missing service is started again without stopping a healthy whisper-server) and starts nothing it cannot stop; `pnpm voice:down` stops all of it (TC-0189); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
+          "done": false
+        },
+        {
+          "id": "AC-0418",
+          "text": "the LiveKit key and secret and `STT_URL` are generated into `.env` only when absent, never printed, never overwritten, the file kept private; a symlinked, too-open or git-tracked `.env`, half a key pair, an empty managed line, the public development keys and a shell environment that overrides a managed name are refused with the file unchanged (TC-0190); ticked 2026-11-09: env-file.test.ts (the `refuses and leaves the file byte-identical for ...` table, the append, umask and identity-recheck cases) and up.test.ts (`the real environment setting a managed name is refused`)",
+          "done": true
+        },
+        {
+          "id": "AC-0419",
+          "text": "LiveKit runs from `deploy/compose/voice.yml`, pinned by digest, never `--dev`, with only its own keys from a private file, its API on loopback only, `node_ip` the LAN address (`lan`) or loopback (`local`), media on TCP 7881 and UDP 7882; Caddy (`lan`) serves the web app and `wss` signalling under one owner-supplied certificate, forwards only `/rtc*` to LiveKit without cookies, keeps no access log and no admin endpoint (TC-0191); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
+          "done": false
+        },
+        {
+          "id": "AC-0420",
+          "text": "`pnpm voice:check` reports Whisper health and its cross-origin answer, LiveKit reachability and that control's keys are LiveKit's (a short-lived server API token for `ListRooms` on loopback; no participant token minted), a node address that changed since `voice:up`, the certificate's presence, hostname and days to expiry (warning under 21), the hostname resolving to the private node address (with a DNS-rebinding hint), free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and versions; exit 0 / 1 / 2; it never prints a secret (TC-0192); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
+          "done": false
+        },
+        {
+          "id": "AC-0421",
+          "text": "the web server listens on loopback only (`next start -H 127.0.0.1`): a request from a LAN address to its port is refused; the proxy configuration never trusts or forwards a client's `X-Forwarded-For` (TC-0193); ticked 2026-11-09: apps/web/e2e/web-bind.spec.ts, compose-files.test.ts (the Caddyfile pins), guards.test.ts `requestAddress refuses a two-entry list`",
+          "done": true
+        },
+        {
+          "id": "AC-0422",
+          "text": "a worker exit caused by a LiveKit outage (exit 3 and LiveKit unreachable by control's probe) does not count toward the restart budget: voice is unavailable, control probes 2, 4, 8, 16 s after the previous answer and then every 30 s and restarts the worker when LiveKit answers, with one alert for the loss and one for the recovery (which tells participants who lost voice to press \"Join with voice\" again: pages do not rejoin by themselves); a LiveKit that dies again within 60 s of a recovery counts, and every other exit still counts. Proven with fakes in CI; the live claim waits for the plan's Task 15 real outage run (TC-0194)",
+          "done": false
+        },
+        {
+          "id": "AC-0423",
+          "text": "with `VOICE_TIMING_LOG=1` control logs, per appended voice line, only the voice-detector-end-to-append (the hangover included) and start-to-append milliseconds (to a private, bounded `voice-timing.log`); `pnpm voice:timings <log>` prints count, p50, p95 and max (TC-0195); ticked 2026-11-09: voice-host.test.ts (the timing describe), timing-log.test.ts (marker scan, 0600, no link or FIFO, 1 MiB), timing-chain.test.ts, timings.test.ts, cli.process.test.ts (`pnpm -s voice:timings`)",
+          "done": true
+        },
+        {
+          "id": "AC-0424",
+          "text": "`docs/VOICE_RUNBOOK.md` covers start, check, stop, the secure context, router DNS rebinding, the macOS firewall and the native LiveKit failure, headsets, excluding the audio directory from backups, the same-room cross-talk risk and the owner-run room test with how to read its results (TC-0196); ticked 2026-11-09: docs/VOICE_RUNBOOK.md sections 1 to 11",
+          "done": true
+        },
+        {
+          "id": "AC-0425",
+          "text": "the threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, `findings.md` (the two images; no new npm dependency) and the memory files describe A1c; `VOICE_ENABLED` stays `0` by default (TC-0197); ticked 2026-11-09: THREAT_MODEL \"Voice operations, slice A1c\", ROLLBACK \"US-0072\", the ARCHITECTURE deviation note, README section 6, `.env.example`, findings.md, docs/memory",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0070",
+        "US-0071"
+      ]
     }
   ],
   "tasks": [
@@ -4187,6 +4247,16 @@
       "status": "Done",
       "branch": "feature/EPIC-0003-US-0071-voice-livekit-consent",
       "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1b-livekit-consent.md (Tasks 0 to 19, in six batches): the `lint:sdk` rule for the LiveKit packages, the LiveKit, health, slot and availability messages, started, mute and availability in `recording`, the LiveKit token adapter behind `@acr/adapters/livekit`, per-seat rooms, generations and identity removal in control, one leased speech-to-text budget, the LiveKit `AudioIngest` with a generation per frame, worker restart with bounded backoff, Whisper health polling, the owner-approved notice v3 wording, the BFF voice routes, the session page headers, the console voice fields, the participant page voice choice, mic check, mute and teardown, the console speaking indicator, end-to-end and opt-in live checks, and the close-out. Covers AC-0405 to AC-0416 (TC-0171 to TC-0182). 2026-11-09: Tasks 0 to 18 done (code and tests, six batches, 57 commits eed360a to afd24f5, two independent reviews and their fix waves, the opt-in live checks against a real LiveKit server and their two fixes); Task 19 (documents, gates, the final independent review and the PR) in progress, so the task stays In Progress."
+    },
+    {
+      "id": "TASK-0108",
+      "storyId": "US-0072",
+      "title": "Build the voice operations commands (slice A1c)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0003-US-0072-voice-operations",
+      "notes": "Plan: docs/superpowers/plans/2026-11-09-voice-a1c-operations.md (Revision 2, Tasks 0 to 15 in five batches, with independent reviews A, B, B2 and C after batches 1 to 4 and a final one in Task 15): the `voice-ops` package and its settings, an HTTP probe in `@acr/adapters`, the `.env` secrets writer, the private state directory and process identity, whisper-server hardening, the compose services (LiveKit and Caddy) pinned by digest, the loopback-only web server, `voice:up` and `voice:down` with repair and rollback, the checks and `voice:check`, the LiveKit-outage path in control's restart budget, the timing record, the runbook and the close-out. Covers AC-0417 to AC-0425 (TC-0189 to TC-0197)."
     }
   ],
   "testCases": [
@@ -6059,6 +6129,166 @@
       "type": "Functional",
       "status": "Not Run",
       "defect": "None"
+    },
+    {
+      "id": "TC-0189",
+      "title": "`pnpm voice:up` starts a hardened whisper-server and the compose services, and `pnpm voice:down` stops them",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0190",
+      "title": "LiveKit keys and STT_URL are generated into `.env` once, privately, and every unsafe `.env` is refused unchanged",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0418",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0191",
+      "title": "The compose services are pinned and hardened",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0419",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0192",
+      "title": "`pnpm voice:check` reports every voice prerequisite without printing a secret",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0420",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0193",
+      "title": "The web server listens on loopback only and the proxy never trusts a client's `X-Forwarded-For`",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0421",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0194",
+      "title": "A LiveKit outage does not spend the speech worker's restart budget",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0422",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0195",
+      "title": "The timing record holds numbers only and `pnpm voice:timings` summarises it",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0423",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0196",
+      "title": "The voice runbook covers start, check, stop and the room test",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0424",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0197",
+      "title": "The documents describe A1c and voice stays off by default",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0425",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0198",
+      "title": "An `.env` that is not what `voice:up` expects is refused or merged without changing one existing byte",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0418",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0199",
+      "title": "`voice:up` failing half way or interrupted leaves nothing `voice:down` cannot stop",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0200",
+      "title": "`voice:down` never signals a process that is not the whisper-server `voice:up` started",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0201",
+      "title": "The LiveKit outage table, the crash loop and the probe faults",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0422",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0202",
+      "title": "A LAN client cannot reach the web port, and its own `X-Forwarded-For` never survives the proxy",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0421",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0203",
+      "title": "The wrapper and the environment around `voice-ops`",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417, AC-0418",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0204",
+      "title": "The real stack (owner-approved run; not in CI)",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417, AC-0419, AC-0420, AC-0422, AC-0423",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -6474,427 +6704,433 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0070": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0071": {
       "projectedUsd": 0.9,
-      "costUsd": 11.260369,
+      "costUsd": 11.103975,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0072": {
+      "projectedUsd": 1600,
+      "costUsd": 11.103975,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -7680,6 +7916,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": false
+    },
+    "US-0072": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -8050,12 +8293,28 @@
       "context": "",
       "date": "2026-11-09",
       "bugIds": []
+    },
+    {
+      "id": "L-0042",
+      "title": "A package script must never share a name with a package-manager built-in",
+      "rule": "Before naming a script that a root script hands over to (`pnpm --filter <pkg> <name>`), run `pnpm help <name>`: pnpm resolves a built-in (or its alias) before a script of the same name. Give the script a name no built-in has, and write `run` explicitly in every handing-over root script; pin both with a test that reads `package.json`.\n_Learned in the A1c plan review (US-0072, K13): `pnpm -s --filter @acr/voice-ops up` would have run `pnpm update` (its alias `up`) in that package and rewritten its `package.json` and the lockfile, instead of starting voice. The scripts became `voice-up` and friends, called with `run`._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0043",
+      "title": "`fetch` and Node's global agent follow an environment proxy: probes that carry a secret use `node:http` with `agent: false`",
+      "rule": "With `NODE_USE_ENV_PROXY=1` (Node 22.21 and later) global `fetch` and the default `http` agent send requests, the full URL included, to `HTTP_PROXY`. Any request whose URL or headers carry a secret (a secret request path, an admin token) goes through `node:http` with `agent: false`, to a literal loopback address only, and a test runs it in a child Node started with the proxy variables set (Node reads them at start-up) with the child's own default-agent request as the proof that the proxy was live.\n_Learned in A1c (US-0072, review A F10 and review B F2): the `STT_URL` path and the LiveKit admin token would have reached a proxy; the first test set the variables at run time and so proved nothing._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-09T15:35:57.475Z",
-  "commitSha": "cf3cdf0",
-  "buildNumber": "557",
-  "branch": "docs/EPIC-0003-a1c-plan",
+  "generatedAt": "2026-11-09T20:23:03.610Z",
+  "commitSha": "9c698b4",
+  "buildNumber": "627",
+  "branch": "feature/EPIC-0003-US-0072-voice-operations",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -8199,7 +8458,7 @@
   "budget": {
     "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 12054.9,
+    "totalProjected": 13654.9,
     "percentUsed": 99,
     "burnRate": 0,
     "daysRemaining": null,
@@ -8219,64 +8478,64 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 157.645166,
-        "spent": 157.645166,
+        "budget": 155.45565000000002,
+        "spent": 155.45565000000002,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 203.58664199999998,
-        "spent": 202.68664199999998,
+        "budget": 200.77155,
+        "spent": 199.87154999999998,
         "remaining": 0.9000000000000057,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0003",
         "title": "Slice 3 — voice over LiveKit",
-        "budget": 22.520738,
-        "spent": 22.520738,
+        "budget": 33.311925,
+        "spent": 33.311925,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 157.645166,
-        "spent": 157.645166,
+        "budget": 155.45565000000002,
+        "spent": 155.45565000000002,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 168.905535,
-        "spent": 168.905535,
+        "budget": 166.559625,
+        "spent": 166.559625,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 48.641476000000004,
-        "spent": 45.041476,
+        "budget": 48.0159,
+        "spent": 44.4159,
         "remaining": 3.6000000000000014,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 36.48110700000001,
-        "spent": 33.781107000000006,
+        "budget": 36.011925000000005,
+        "spent": 33.311925,
         "remaining": 2.700000000000003,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 12.160369000000001,
-        "spent": 11.260369,
+        "budget": 12.003975,
+        "spent": 11.103975,
         "remaining": 0.9000000000000004,
         "percentUsed": 93
       },
@@ -8292,9 +8551,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 22",
-    "rangeStart": "Jun 26",
-    "rangeEnd": "Oct 18",
+    "likelyDate": "Aug 30",
+    "rangeStart": "Jul 3",
+    "rangeEnd": "Oct 28",
     "velocityWeeks": 5,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.4
@@ -8324,7 +8583,13 @@
       "2026-11-09T08:23:11.057Z",
       "2026-11-09T09:05:12.201Z",
       "2026-11-09T15:05:52.083Z",
-      "2026-11-09T15:35:57.568Z"
+      "2026-11-09T15:35:57.568Z",
+      "2026-11-09T16:36:31.736Z",
+      "2026-11-09T17:10:02.269Z",
+      "2026-11-09T17:43:48.273Z",
+      "2026-11-09T18:19:05.586Z",
+      "2026-11-09T19:32:10.800Z",
+      "2026-11-09T20:23:03.700Z"
     ],
     "doneCounts": [
       0,
@@ -8336,6 +8601,12 @@
       4,
       4,
       4,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
       6,
       6,
       6,
@@ -8376,7 +8647,13 @@
       71,
       71,
       71,
-      71
+      71,
+      72,
+      72,
+      72,
+      72,
+      72,
+      72
     ],
     "aiCosts": [
       54.2322,
@@ -8402,9 +8679,21 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
       null,
       null,
       null,
@@ -8454,6 +8743,12 @@
       29,
       29,
       29,
+      29,
+      29,
+      29,
+      29,
+      29,
+      29,
       29
     ],
     "openBugs": [
@@ -8480,9 +8775,21 @@
       1,
       1,
       1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
       1
     ],
     "atRisk": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0,
       0,
@@ -8532,10 +8839,22 @@
       33019880,
       33019880,
       33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8584,7 +8903,13 @@
       1.136923076923077,
       1.1323076923076922,
       1.1323076923076922,
-      1.1323076923076922
+      1.1323076923076922,
+      1.1363636363636365,
+      1.1363636363636365,
+      1.1363636363636365,
+      1.1363636363636365,
+      1.1363636363636365,
+      1.1363636363636365
     ],
     "velocityByWeek": {
       "labels": [

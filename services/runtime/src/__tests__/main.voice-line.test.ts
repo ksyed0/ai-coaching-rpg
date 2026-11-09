@@ -128,6 +128,28 @@ describe("main and the voice worker and availability messages (US-0071, Task 3)"
     expect(down).toHaveBeenCalledTimes(3);
   });
 
+  it("US-0072 (A1c Task 10): livekit_lost closes an open voice turn (voiceWorkerDown); livekit_recovered does not", async () => {
+    const b = await boot();
+    const down = vi.spyOn(b.host, "voiceWorkerDown");
+    b.send({ type: "voice_alert", code: "livekit_recovered" });
+    expect(down).not.toHaveBeenCalled();
+    b.send({ type: "voice_alert", code: "livekit_lost" });
+    expect(down).toHaveBeenCalledTimes(1);
+  });
+
+  it("US-0072 (A1c Task 10): livekit_lost and livekit_recovered append their fixed facilitator sentences", async () => {
+    const b = await boot();
+    for (const code of ["livekit_lost", "livekit_recovered"] as const) b.send({ type: "voice_alert", code });
+    await vi.waitFor(async () => {
+      const r = b.host.engine.eventsAfter(0);
+      const alerts = r.complete ? [...r.events].flatMap((e) => (e.type === "facilitator.alert" ? [[e.message, e.level]] : [])) : [];
+      expect(alerts).toEqual(expect.arrayContaining([
+        ["Voice input lost the LiveKit media server. It reconnects when the server answers; participants can continue by text.", "warning"],
+        ["The LiveKit media server answers again; voice input is restarting. Participants who lost voice press Join with voice again.", "info"],
+      ]));
+    });
+  });
+
   it("two worker_restarting within 30 s give two voiceWorkerDown calls and one facilitator alert", async () => {
     const b = await boot();
     const down = vi.spyOn(b.host, "voiceWorkerDown");

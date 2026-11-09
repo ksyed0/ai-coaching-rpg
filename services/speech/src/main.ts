@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 import { LimitedSpeechToText, WhisperHttpSpeechToText, type SpeechToText } from "@acr/adapters";
 import { parseWorkerConfig } from "./config.js";
 import { loadFakeScript } from "./fake-script.js";
-import { ControlToWorkerSchema, WorkerMessageSchema, type WorkerMessage } from "./protocol.js";
+import { ControlToWorkerSchema, EXIT_LIVEKIT_LOST, WorkerMessageSchema, type WorkerMessage } from "./protocol.js";
 import type { AudioIngest } from "./ingest/audio-ingest.js";
 import { LiveKitIngest, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
 import type { RoomPort } from "./ingest/room-port.js";
@@ -11,8 +11,6 @@ import { startWorker, type RunningWorker } from "./worker.js";
 
 /** After the parent's IPC channel closes: exit this long later whatever happens (a hung stop must not leave an orphan). */
 export const HARD_EXIT_MS = 5_000;
-/** US-0071: the exit code of a worker whose LiveKit ingest failed or lost a room: control restarts it, and it asks for fresh tokens. */
-export const EXIT_LIVEKIT_LOST = 3;
 
 const realSetTimer = (fn: () => void, ms: number): (() => void) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
 const realSleep = (ms: number, signal?: AbortSignal): Promise<void> => new Promise((resolve, reject) => {

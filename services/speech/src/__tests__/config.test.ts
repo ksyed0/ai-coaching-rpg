@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -143,5 +145,17 @@ describe("parseWorkerConfig: LiveKit ingest and STT_MODEL (US-0071, A1b Task 7, 
       expect(e[0]).toContain("STT_MODEL");
       expect(e[0]).not.toContain(bad);
     }
+  });
+});
+
+// US-0072 (EPIC-0003 voice A1c, Task 1, review finding 16u): services/voice-ops repeats the STT_MODEL rule (it may not import the worker).
+// The shared fixture is read by voice-ops, control and the speech worker; each asserts its own parser agrees with every value.
+describe("STT_MODEL shared rules (US-0072)", () => {
+  const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../voice-ops/src/__tests__/fixtures/shared-rules.json");
+  const rules = JSON.parse(readFileSync(fixture, "utf8")) as { sttModel: { accepted: string[]; refused: string[] } };
+  it("the worker agrees with every shared-rules STT_MODEL value", () => {
+    expect(rules.sttModel.accepted.length).toBeGreaterThan(0);
+    for (const v of rules.sttModel.accepted) expect(errorsOf(base({ STT_MODEL: v })), v).toEqual([]);
+    for (const v of rules.sttModel.refused) expect(errorsOf(base({ STT_MODEL: v })).some((e) => e.startsWith("STT_MODEL ")), v).toBe(true);
   });
 });

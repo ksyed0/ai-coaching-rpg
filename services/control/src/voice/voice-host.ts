@@ -1,10 +1,11 @@
 import path from "node:path";
 import { isSafeId } from "@acr/events";
-import { WorkerMessageSchema, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
+import { EXIT_LIVEKIT_LOST, WorkerMessageSchema, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage, VoiceAlertCode } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
-import { RESTART_TRIES, RESTART_STABLE_MS, restartDelay } from "./restart.js";
+import { LIVEKIT_PROBE_TIMEOUT_MS } from "./livekit-probe.js";
+import { RESTART_TRIES, RESTART_STABLE_MS, livekitRetryDelay, restartDelay } from "./restart.js";
 import { buildSpeechEnv } from "./speech-env.js";
 import { STT_GLOBAL_IN_FLIGHT, SttSlots, sttLeaseMs } from "./stt-slots.js";
 import { VoiceTokenRefused, type VoiceTokens } from "./tokens.js";
@@ -35,6 +36,7 @@ export type VoiceFromRuntime = Extract<ChildMessage, { type: "voice_seats" | "vo
 type Seats = Extract<ChildMessage, { type: "voice_seats" }>;
 
 /** `stable` cancels the RESTART_STABLE_MS timer armed at `worker_ready` (it resets the session's failure count). */
+type Pending = { cancel: () => void; startMs: number; endMs: number };
 type Worker = { handle: WorkerHandle; ready: boolean; exited: boolean; stopping: boolean; stable?: () => void };
 type Session = {
   worker?: Worker;
@@ -57,9 +59,27 @@ type Session = {
   ended: boolean;
   /** The latest seats the runtime reported (cleared when that runtime exits). */
   seats?: Seats;
-  pending: Map<string, () => void>;
+  /** Lines waiting for the runtime's answer: the timeout's cancel, and (US-0072, Task 12) the segment's wall-clock start and end. */
+  pending: Map<string, Pending>;
   /** The last `voice_turn` the runtime reported (for the demo's V-07 and tests). */
   turnOpen?: boolean;
+  /** US-0072 (A1c Task 11): LiveKit does not answer control's probe: no worker runs, nothing is spawned until a probe answers. */
+  mediaLost: boolean;
+  /**
+   * US-0072 (review finding 13): set at a recovery, cleared when the recovered worker's RESTART_STABLE_MS timer fires (the timer that
+   * resets `failures`): a LiveKit that is lost again meanwhile is crash-looping, and that re-loss counts once toward the budget.
+   */
+  mediaUnstable: boolean;
+  /** US-0072: the probe retries of the current outage so far (the next delay is livekitRetryDelay(mediaTries + 1)). */
+  mediaTries: number;
+  /** US-0072: cancels the pending probe-retry timer; absent when none is pending. */
+  mediaRetry?: () => void;
+  /** US-0072: a probe is in flight (at an exit 3 or a retry): attach spawns nothing meanwhile. */
+  probeInFlight: boolean;
+  /** US-0072 (review C M2): cancels the in-flight probe's watchdog; absent when no probe is out. */
+  probeWatchdog?: () => void;
+  /** US-0072: bumped by every probe, `end` and `shutdown`; a probe answer whose token is no longer current is ignored. */
+  probing: number;
 };
 
 /**
@@ -72,6 +92,9 @@ type Session = {
  *  - US-0071 (A1b Task 8): a worker exit while the session runs (or a spawn that throws) is restarted with a bounded consecutive
  *    backoff (restart.ts), each one announced `worker_restarting`; after RESTART_TRIES failed restarts in a row voice is off for the
  *    session (one `voice_off` alert, tokens refused). The session keeps running throughout (people continue by text).
+ *  - US-0072 (A1c Task 11): a worker exit EXIT_LIVEKIT_LOST while LiveKit does not answer control's probe is an outage, not a fault:
+ *    no worker runs, the budget is not spent, one `livekit_lost`; the probe retries (livekitRetryDelay, no cap) and when LiveKit answers
+ *    a new worker starts with one `livekit_recovered`. A re-loss within RESTART_STABLE_MS of a recovery counts once (crash loop).
  *  - US-0071 (A1b Task 6): one speech-to-text budget across every session (SttSlots); a stuck worker loses its slot and is killed.
  *  - US-0071 (A1b Task 9): `voice_availability { available, off }` (worker up, speech-to-text healthy, not off) goes to the runtime on
  *    every change and every runtime ready; `stt_unavailable` / `stt_recovered` alerts on a health change only.
@@ -91,6 +114,19 @@ export class VoiceHost {
     bots?: { voiceTurn(sessionId: string, open: boolean): void };
     /** US-0071 (A1b Task 5): the seat rooms, generations and tokens; absent when control has no LiveKit settings. */
     tokens?: VoiceTokens;
+    /**
+     * US-0072 (A1c Task 11): whether LiveKit answers (livekit-probe.ts; main.ts passes it exactly when it passes `tokens`). Asked at a
+     * worker exit EXIT_LIVEKIT_LOST of a LiveKit ingest, and again on the outage schedule. Absent: every exit counts, as in A1b.
+     */
+    livekitReachable?: () => Promise<boolean>;
+    /** US-0072 (A1c Task 12): control's clock for the timing record (default Date.now). */
+    now?: () => number;
+    /**
+     * US-0072 (A1c Task 12, VOICE_TIMING_LOG=1): where one timing line per acknowledged voice line goes (timing-log.ts: a private,
+     * bounded file); absent, nothing is recorded. The line is `session <id> voice line timing end_to_append_ms=<n>
+     * start_to_append_ms=<m>`: no role, segment, participant or text.
+     */
+    timingLog?: (line: string) => void;
   }) {
     // A generation reaches the worker only for a LiveKit ingest: a file-ingest worker would drop every frame (none of its frames has one).
     this.livekitIngest = o.tokens !== undefined && o.parentEnv.SPEECH_INGEST === "livekit";
@@ -106,7 +142,10 @@ export class VoiceHost {
 
   private session(id: string): Session {
     let s = this.sessions.get(id);
-    if (!s) { s = { failures: 0, voiceOff: false, roles: [], runtimeUp: false, ended: false, pending: new Map() }; this.sessions.set(id, s); }
+    if (!s) {
+      s = { failures: 0, voiceOff: false, roles: [], runtimeUp: false, ended: false, pending: new Map(), mediaLost: false, mediaUnstable: false, mediaTries: 0, probeInFlight: false, probing: 0 };
+      this.sessions.set(id, s);
+    }
     return s;
   }
 
@@ -128,6 +167,9 @@ export class VoiceHost {
     // US-0071 (Task 8): the worker re-attaches without the runtime's help: a ready worker gets the current state at every runtime ready.
     if (s.worker) { this.pushState(sessionId, s); return; }
     if (s.voiceOff || s.restart) return; // off for good, or a restart is already waiting for its backoff (it uses these roles)
+    // US-0072 (A1c Task 11): during a LiveKit outage (or while the probe that decides one is out) nothing is spawned: the recovery
+    // spawns with these roles. The runtime was told `available: false` just above.
+    if (s.mediaLost || s.probeInFlight) return;
     this.spawnWorker(sessionId, s);
   }
 
@@ -171,13 +213,13 @@ export class VoiceHost {
     const w: Worker = { handle, ready: false, exited: false, stopping: false };
     s.worker = w;
     handle.onMessage((raw) => { try { this.fromWorker(sessionId, w, raw); } catch (err) { this.failed(sessionId, err); } });
-    handle.onExit(() => { try { this.workerExited(sessionId, w); } catch (err) { this.failed(sessionId, err); } });
+    handle.onExit((code) => { try { this.workerExited(sessionId, w, code); } catch (err) { this.failed(sessionId, err); } });
     this.o.log(`session ${sessionId} speech worker started`);
   }
 
   /**
-   * US-0071 (A1b Task 8, AC-0410): the worker stopped unexpectedly (any exit code: 3, a lost LiveKit room, included) or could not be
-   * spawned. Up to RESTART_TRIES restarts in a row, each after restartDelay(n), each announced `worker_restarting` (the runtime closes
+   * US-0071 (A1b Task 8, AC-0410): the worker stopped unexpectedly (any exit code; an exit 3 only when LiveKit still answers, US-0072
+   * Task 11) or could not be spawned. Up to RESTART_TRIES restarts in a row, each after restartDelay(n), each announced `worker_restarting` (the runtime closes
    * an open voice turn on every one and rate-limits the facilitator alert); when the worker of the last restart fails too, voice is off
    * for the session: ONE `voice_off` alert, every seat's LiveKit identity goes and every later token is refused `voice_off`.
    */
@@ -195,11 +237,116 @@ export class VoiceHost {
       s.restart = cancel;
       return;
     }
+    this.turnVoiceOff(sessionId, s);
+  }
+
+  /** RESTART_TRIES failed restarts in a row (or the crash-looping LiveKit of US-0072): voice is off for the session, for good. */
+  private turnVoiceOff(sessionId: string, s: Session): void {
     s.voiceOff = true;
+    this.cancelMedia(s);
     this.o.log(`session ${sessionId} voice is off after repeated speech worker faults`);
     this.tellAvailability(sessionId, s);
     this.alert(sessionId, "voice_off");
     try { this.o.tokens?.voiceOff(sessionId); } catch (err) { this.failed(sessionId, err); }
+  }
+
+  /**
+   * US-0072 (EPIC-0003 voice A1c, Task 11, "Restart budget: the decision"): asks the probe whether LiveKit answers, after a worker exit
+   * EXIT_LIVEKIT_LOST (`exit`) or at a retry of an outage (`retry`). An answer that comes after `end`, `shutdown`, voice off or a newer
+   * probe is ignored (`probing` token). A probe that rejects (or throws) is no evidence of an outage: at an exit it counts, as any fault.
+   */
+  private checkMedia(sessionId: string, s: Session, kind: "exit" | "retry"): void {
+    const token = ++s.probing;
+    s.probeInFlight = true;
+    let done = false;
+    const settle = (r: "answers" | "silent" | "error"): void => {
+      // The one guard: `end`, `shutdown` and voice off all bump `probing` (cancelMedia), so a late answer is never acted on; `done`
+      // keeps the real answer out once the watchdog has settled this probe.
+      if (done || token !== s.probing) return;
+      done = true;
+      s.probeWatchdog?.();
+      delete s.probeWatchdog;
+      s.probeInFlight = false;
+      try { this.mediaAnswer(sessionId, s, kind, r); } catch (err) { this.failed(sessionId, err); this.keepGoing(sessionId, s); }
+    };
+    // Review C M2: a probe that never settles is ended as an error (bounded: httpAnswers itself stops at LIVEKIT_PROBE_TIMEOUT_MS, so this
+    // only catches a broken probe); a probe that throws or returns a non-promise is wrapped by Promise.resolve().then.
+    s.probeWatchdog = this.o.setTimer(() => settle("error"), 2 * LIVEKIT_PROBE_TIMEOUT_MS);
+    Promise.resolve().then(() => this.o.livekitReachable!()).then((ok) => settle(ok === true ? "answers" : "silent"), () => settle("error"));
+  }
+
+  /**
+   * Review C M3: after a fault inside a probe's handling, voice must not be left waiting with nothing scheduled: no worker, no backoff,
+   * no probe retry and no probe out means the budget path takes over (counted, bounded by RESTART_TRIES).
+   */
+  private keepGoing(sessionId: string, s: Session): void {
+    try {
+      if (this.closed || s.ended || s.voiceOff || s.worker || s.restart || s.mediaRetry || s.probeInFlight || this.sessions.get(sessionId) !== s) return;
+      s.mediaLost = false;
+      this.workerFailed(sessionId, s);
+    } catch (err) { this.failed(sessionId, err); }
+  }
+
+  private mediaAnswer(sessionId: string, s: Session, kind: "exit" | "retry", r: "answers" | "silent" | "error"): void {
+    if (kind === "exit") {
+      if (r !== "silent") { this.workerFailed(sessionId, s); return; } // LiveKit answers (a LiveKit-shaped fault) or the probe broke: counted
+      if (s.mediaUnstable) {
+        // Review finding 13: LiveKit died again within RESTART_STABLE_MS of a recovery: counted once, as workerFailed counts.
+        s.failures += 1;
+        if (s.failures > RESTART_TRIES) { this.turnVoiceOff(sessionId, s); return; }
+      }
+      this.enterOutage(sessionId, s);
+      return;
+    }
+    if (r === "silent") { this.scheduleMediaRetry(sessionId, s); return; }
+    if (r === "error") {
+      // An unexpected probe fault in the middle of an outage: stop waiting and let the budget decide (bounded: five tries).
+      s.mediaLost = false;
+      this.workerFailed(sessionId, s);
+      return;
+    }
+    try { this.leaveOutage(sessionId, s); }
+    finally { if (!s.worker) this.spawnWorker(sessionId, s); } // not counted; a spawn that throws counts (spawnWorker -> workerFailed)
+  }
+
+  /** US-0072: LiveKit does not answer: no worker, no budget spent, ONE `livekit_lost` (the runtime closes an open voice turn on it). */
+  private enterOutage(sessionId: string, s: Session): void {
+    s.mediaLost = true;
+    s.mediaTries = 0;
+    this.scheduleMediaRetry(sessionId, s); // first (review C M3): nothing below may leave the outage without a retry armed
+    this.o.log(`session ${sessionId} LiveKit does not answer; voice waits for it`);
+    this.tellAvailability(sessionId, s); // already false since the exit: sends nothing new
+    this.alert(sessionId, "livekit_lost");
+  }
+
+  /** US-0072: LiveKit answers again: ONE `livekit_recovered`; the caller spawns the new worker. Until it is stable, a re-loss counts. */
+  private leaveOutage(sessionId: string, s: Session): void {
+    s.mediaLost = false;
+    s.mediaUnstable = true; // set before anything that could throw (review C M3)
+    this.o.log(`session ${sessionId} LiveKit answers again`);
+    this.alert(sessionId, "livekit_recovered");
+  }
+
+  private scheduleMediaRetry(sessionId: string, s: Session): void {
+    s.mediaTries += 1;
+    const cancel = this.o.setTimer(() => {
+      if (s.mediaRetry !== cancel) return;
+      delete s.mediaRetry;
+      if (this.closed || s.ended || s.voiceOff || !s.mediaLost || this.sessions.get(sessionId) !== s) return;
+      this.checkMedia(sessionId, s, "retry");
+    }, livekitRetryDelay(s.mediaTries));
+    s.mediaRetry = cancel;
+  }
+
+  /** US-0072: cancels a pending probe retry and makes any probe answer still on its way stale (end, shutdown, voice off). */
+  private cancelMedia(s: Session): void {
+    const cancel = s.mediaRetry;
+    delete s.mediaRetry;
+    cancel?.();
+    s.probeWatchdog?.();
+    delete s.probeWatchdog;
+    s.probing += 1;
+    s.probeInFlight = false;
   }
 
   /** Cancels a pending restart (end, shutdown). */
@@ -226,7 +373,8 @@ export class VoiceHost {
       const answer = s.pending.get(m.segmentId);
       if (!answer) return; // timed out already, or never asked
       s.pending.delete(m.segmentId);
-      answer();
+      answer.cancel();
+      if (m.type === "voice_line_ack") this.timing(sessionId, answer);
       if (m.type === "voice_line_ack") this.toWorker(s, { type: "voice_line_result", segmentId: m.segmentId, seq: m.seq });
       else this.toWorker(s, { type: "voice_line_result", segmentId: m.segmentId, refused: m.code });
     } catch (err) { this.failed(sessionId, err); }
@@ -254,6 +402,7 @@ export class VoiceHost {
       if (first) {
         s.ended = true;
         this.cancelRestart(s); // US-0071: an ended session is never respawned
+        this.cancelMedia(s); // US-0072: nor probed again; a late probe answer is ignored
         this.toWorker(s, { type: "voice_state", paused: s.seats?.paused ?? false, ended: true, holders: s.seats?.holders ?? [] });
       }
       // Review finding (case 8): every seat room is deleted only AFTER the worker was sent `ended` (its final flush): deleting a room
@@ -275,7 +424,7 @@ export class VoiceHost {
   /** Disconnects every worker (they exit on their own), waits up to graceMs, then force-kills what is left. Never alerts. */
   async shutdown(): Promise<void> {
     this.closed = true;
-    for (const s of this.sessions.values()) this.cancelRestart(s);
+    for (const s of this.sessions.values()) { this.cancelRestart(s); this.cancelMedia(s); }
     const live = [...this.sessions.values()].flatMap((s) => (s.worker && !s.worker.exited ? [s.worker] : []));
     for (const w of live) { w.stopping = true; try { w.handle.disconnect(); } catch { /* channel already closed */ } }
     if (live.length === 0) return;
@@ -320,7 +469,8 @@ export class VoiceHost {
         if (w.ready) return; // once per worker
         w.ready = true;
         // US-0071 (Task 8): a worker ready for RESTART_STABLE_MS resets the session's failure count (cancelled at its exit).
-        w.stable = this.o.setTimer(() => { if (s.worker === w && !w.exited) s.failures = 0; }, RESTART_STABLE_MS);
+        // US-0072 (review finding 13): the same timer ends the crash-loop watch after a LiveKit recovery (`mediaUnstable`).
+        w.stable = this.o.setTimer(() => { if (s.worker === w && !w.exited) { s.failures = 0; s.mediaUnstable = false; } }, RESTART_STABLE_MS);
         // US-0071 (Task 9): the warm-up result counts as a health result, so a restarted worker that warms up is healthy at once.
         this.sttHealth(sessionId, s, m.stt === "ok");
         this.pushState(sessionId, s);
@@ -334,8 +484,9 @@ export class VoiceHost {
         if (s.ended || !s.runtimeUp || s.pending.has(m.segmentId) || s.pending.size >= MAX_PENDING_LINES) { refuse(); return; }
         const sent = this.o.toRuntime(sessionId, { type: "voice_line", segmentId: m.segmentId, roleId: m.roleId, participantId: m.participantId, text: m.text });
         if (!sent) { refuse(); return; }
-        const cancel = this.o.setTimer(() => { if (s.pending.get(m.segmentId) === cancel) { s.pending.delete(m.segmentId); refuse(); } }, VOICE_LINE_TIMEOUT_MS);
-        s.pending.set(m.segmentId, cancel);
+        const entry: Pending = { cancel: () => {}, startMs: m.startMs, endMs: m.endMs };
+        entry.cancel = this.o.setTimer(() => { if (s.pending.get(m.segmentId) === entry) { s.pending.delete(m.segmentId); refuse(); } }, VOICE_LINE_TIMEOUT_MS);
+        s.pending.set(m.segmentId, entry);
         return;
       }
       case "speech_activity":
@@ -386,7 +537,7 @@ export class VoiceHost {
     }
   }
 
-  private workerExited(sessionId: string, w: Worker): void {
+  private workerExited(sessionId: string, w: Worker, code: number | null): void {
     if (w.exited) return; // one exit per worker
     w.exited = true;
     w.stable?.();
@@ -394,18 +545,21 @@ export class VoiceHost {
     if (!s || s.worker !== w) return;
     delete s.worker;
     this.slots.releaseAll(sessionId); // US-0071 (Task 6): a dead worker's slots go back at once, its waiters are dropped
-    for (const cancel of s.pending.values()) cancel(); // the worker is gone: nobody to answer
+    for (const p of s.pending.values()) p.cancel(); // the worker is gone: nobody to answer
     s.pending.clear();
     if (s.ended) { this.drop(sessionId, s); return; } // F9b: the session is over and its worker has stopped
     if (w.stopping || this.closed) return; // a clean stop (the end, control's shutdown) is not a failure
     this.o.log(`session ${sessionId} speech worker stopped unexpectedly`);
     this.tellAvailability(sessionId, s); // no worker: not available until the next one is ready (Task 9)
+    // US-0072 (A1c Task 11, K7): exit 3 is both "LiveKit is gone" and "a LiveKit-shaped fault while LiveKit is up"; control's own probe
+    // tells them apart. The `livekit_lost` alert (which closes an open voice turn) therefore waits for the probe: up to its 2 s timeout.
+    if (code === EXIT_LIVEKIT_LOST && this.livekitIngest && this.o.livekitReachable) { this.checkMedia(sessionId, s, "exit"); return; }
     this.workerFailed(sessionId, s);
   }
 
   /** F9b: forgets an ended session whose worker has stopped (or that never had one). */
   private drop(sessionId: string, s: Session): void {
-    for (const cancel of s.pending.values()) cancel();
+    for (const p of s.pending.values()) p.cancel();
     this.slots.releaseAll(sessionId);
     if (this.sessions.get(sessionId) === s) this.sessions.delete(sessionId);
   }
@@ -431,11 +585,28 @@ export class VoiceHost {
   }
 
   private failPending(s: Session): void {
-    for (const [segmentId, cancel] of [...s.pending]) {
-      cancel();
+    for (const [segmentId, p] of [...s.pending]) {
+      p.cancel();
       s.pending.delete(segmentId);
       this.toWorker(s, { type: "voice_line_result", segmentId, refused: "failed" });
     }
+  }
+
+  /**
+   * US-0072 (A1c Task 12): the room test's measurement points (plan R17): control's clock at the runtime's ack minus the segment's
+   * `endMs` (`end_to_append_ms`: from the VOICE-DETECTOR END of the segment, which INCLUDES the hangover, VOICE_HANGOVER_MS of silence
+   * after the last speech frame; review C I1, pinned by timing-chain.test.ts) and minus its `startMs` (`start_to_append_ms`: the segment's
+   * first frame, lead-in included, approximating "first word to line"). Integers clamped at 0 (the worker's wall clock may run ahead).
+   * Never throws: a broken sink must not break the ack.
+   */
+  private timing(sessionId: string, p: Pending): void {
+    const sink = this.o.timingLog;
+    if (!sink) return;
+    try {
+      const now = (this.o.now ?? Date.now)();
+      const ms = (from: number): number => Math.max(0, Math.round(now - from));
+      sink(`session ${sessionId} voice line timing end_to_append_ms=${ms(p.endMs)} start_to_append_ms=${ms(p.startMs)}`);
+    } catch (err) { this.failed(sessionId, err); }
   }
 
   private toWorker(s: Session, m: ControlToWorker): void {
