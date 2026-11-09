@@ -11,7 +11,8 @@ const STT_URL_RULE = "STT_URL is invalid: use http://127.0.0.1:<port>[/<path>] o
 /**
  * US-0070 (spec 9, overview C9): the speech worker reaches whisper-server on loopback ONLY. `http:` with the host exactly `127.0.0.1` or
  * `[::1]`, an explicit port, an optional path prefix (whisper-server's `--request-path`), no user info, no query, no fragment. The error
- * names the setting and the rule, never the value.
+ * names the setting and the rule, never the value. An explicit `:80` is refused too, on purpose: the WHATWG URL parser normalises the
+ * default port away (`url.port === ""`), so it cannot be told from a missing port (F9d; pinned by a test).
  */
 export function parseSttUrl(raw: string | undefined): { ok: true; url: URL } | { ok: false; error: string } {
   if (raw === undefined || raw.trim() === "") return { ok: false, error: "STT_URL is required when voice is enabled (a loopback http address of the whisper-server)" };

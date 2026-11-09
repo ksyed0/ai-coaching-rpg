@@ -35,6 +35,13 @@ describe("parseSttUrl (US-0070)", () => {
     const missing = parseSttUrl(undefined);
     expect(missing.ok).toBe(false);
   });
+
+  // F9d (review fix wave): kept on purpose and pinned. WHATWG URL drops the default port (":80" becomes ""), so an explicit :80 cannot
+  // be told from no port at all; whisper-server is never on 80 in this design, and "an explicit port" stays the one simple rule.
+  it("refuses an explicit :80 (the URL parser normalises the default port away, so it reads as no port)", () => {
+    for (const raw of ["http://127.0.0.1:80", "http://[::1]:80/abc"]) expect(parseSttUrl(raw).ok, raw).toBe(false);
+    expect(parseSttUrl("http://127.0.0.1:8080").ok).toBe(true);
+  });
 });
 
 describe("WhisperHttpSpeechToText (US-0070)", () => {
