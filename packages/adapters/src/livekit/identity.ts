@@ -8,6 +8,8 @@ import { isReservedRoleId, isScenarioId } from "@acr/events";
  */
 export const GENERATION_HEX_CHARS = 8;
 export const WORKER_IDENTITY_PREFIX = "SPEECH.";
+/** The longest seat identity built or parsed (review F13): a longer input is refused before it is split or matched. */
+export const MAX_IDENTITY_CHARS = 128;
 
 /** Exactly `length` lower-case hex characters, checked character by character (no regular expression). */
 function isLowerHex(v: unknown, length: number): v is string {
@@ -21,19 +23,21 @@ function isLowerHex(v: unknown, length: number): v is string {
 
 const isSeatRole = (roleId: unknown): roleId is string => typeof roleId === "string" && roleId.length > 0 && isScenarioId(roleId) && !isReservedRoleId(roleId);
 
-/** The seat identity `<roleId>.g<generation>`. Throws RangeError (a fixed message) for a role or a generation that is not valid. */
+/** The seat identity `<roleId>.g<generation>`. Throws RangeError (a fixed message) for a role or a generation that is not valid, or past MAX_IDENTITY_CHARS. */
 export function participantIdentity(roleId: string, generation: string): string {
   if (!isSeatRole(roleId)) throw new RangeError("participantIdentity: invalid role id");
   if (!isLowerHex(generation, GENERATION_HEX_CHARS)) throw new RangeError("participantIdentity: invalid generation");
-  return `${roleId}.g${generation}`;
+  const identity = `${roleId}.g${generation}`;
+  if (identity.length > MAX_IDENTITY_CHARS) throw new RangeError("participantIdentity: role id too long");
+  return identity;
 }
 
 /**
  * The role and generation of a seat identity, or null for anything else (the worker's identity, a reserved or malformed role, a bad
- * generation, extra dots). Splits on the LAST dot.
+ * generation, extra dots, longer than MAX_IDENTITY_CHARS). Splits on the LAST dot.
  */
 export function parseParticipantIdentity(identity: string): { roleId: string; generation: string } | null {
-  if (typeof identity !== "string") return null;
+  if (typeof identity !== "string" || identity.length > MAX_IDENTITY_CHARS) return null;
   const dot = identity.lastIndexOf(".");
   if (dot <= 0) return null;
   const roleId = identity.slice(0, dot);
