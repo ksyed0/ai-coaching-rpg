@@ -587,6 +587,25 @@ Sections (each with exact commands; no secret ever shown in an example; placehol
 
 ---
 
+## Batch 1 implementation notes (2026-11-09)
+
+Tasks 0, 1 and 2, on `feature/EPIC-0003-US-0072-voice-operations` (cut from `develop` at fcdfd6d by the controller, so Task 0 Step 1 was already done).
+
+**Ids filed (Task 0):** the registry's next free ids were the plan's proposals: US-0072, TASK-0108, AC-0417..AC-0425 (AC-a to AC-i in order), TC-0189..TC-0197 (one per AC, Not Run). No AC-j (the DNS path waits for the owner). The registry's next free ids are now US-0073, TASK-0109, AC-0426, TC-0198.
+
+**Images (Task 0 Step 3), looked up 2026-11-09, read-only** (`docker buildx imagetools inspect`, its `--raw` manifests and `--format '{{json .Image}}'` labels; release dates from the GitHub releases API; nothing pulled or run):
+
+| Image | Tag | Index digest | linux/arm64 compressed | Licence | Released |
+| --- | --- | --- | --- | --- | --- |
+| `livekit/livekit-server` | `v1.13.11` | `sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20` | 38 813 729 bytes (about 37.0 MiB) | Apache-2.0 | 2026-10-25 |
+| `caddy` | `2.11.7` | `sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e` | 23 639 921 bytes (about 22.5 MiB) | Apache-2.0 | 2026-10-03 |
+
+Task 5 pins `livekit/livekit-server:v1.13.11@sha256:25cd902d...` and `caddy:2.11.7@sha256:36c24ad9...` (the full digests above). `findings.md` has the two rows now (K8), with the arm64 manifest digests too.
+
+**Deviations:**
+- **D1 (Task 0):** LiveKit's image tag is `v1.13.11`; `livekit/livekit-server:1.13.11` (the plan's K8 and Task 0 Step 3 spelling) is "not found" in the registry. Task 5 uses the `v` tag.
+- **D2 (Task 0):** Caddy 2.11.7 is the newest 2.x at least two weeks old; 2.11.8 (2026-11-04) and 2.11.9 (2026-11-05) are newer and were not checked for security content. The Docker official image tags are rebuilt (2.11.7's index last pushed 2026-10-30), so the digest is that of the lookup day; re-look it up if Task 5 runs much later. Owner note: consider moving to 2.11.9 once it is two weeks old (2026-11-19).
+
 ## Open Questions (owner; recommended default in parentheses, used by the tasks above; Revision 2 adds the independent review's view)
 
 1. **The pilot hostname** (`VOICE_HOSTNAME`, US-0048). (None assumed. Until the owner has one, `VOICE_ACCESS=local` is the default: one machine, `http://localhost:3000`, `ws://127.0.0.1:7880`, nothing on the LAN.) *Review: agree with `local` as the default, but `local` cannot host the two-person room test (a second device needs `lan` with a hostname and certificate); `voice:up` says so in `local` mode and the runbook's room test requires `lan`.*

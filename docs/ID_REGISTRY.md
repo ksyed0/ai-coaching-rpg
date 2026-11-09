@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0072               | US-0071           |
-| TASK         | TASK-0108             | TASK-0107         |
-| AC           | AC-0417               | AC-0416           |
-| TC           | TC-0189               | TC-0188           |
+| US           | US-0073               | US-0072           |
+| TASK         | TASK-0109             | TASK-0108         |
+| AC           | AC-0426               | AC-0425           |
+| TC           | TC-0198               | TC-0197           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0042                | L-0041            |
 
@@ -99,3 +99,5 @@ Assigned 2026-11-08 (EPIC-0003 voice A1b, feature/EPIC-0003-US-0071-voice-liveki
 Assigned 2026-11-09 (EPIC-0003 voice A1b close-out, feature/EPIC-0003-US-0071-voice-livekit-consent): TC-0183..TC-0188 (US-0071 edge and negative cases: the subscription gate and per-frame generation, the sweep of a reconnecting removed browser, insecure page, denied permission and no transport, the session page headers, the ten live-only LiveKit cases, the browser matrix). No new US, TASK, AC or BUG.
 
 Assigned 2026-11-09 (EPIC-0003 voice A1b close-out, lessons): L-0037..L-0041 (re-request subscriptions after a reconnect and bound every wait; per-item generation check; fakes must hang where the real thing hangs; no state on a rate-limited alert path; read the installed library source).
+
+Assigned 2026-11-09 (EPIC-0003 voice A1c, feature/EPIC-0003-US-0072-voice-operations): US-0072 (voice operations: `pnpm voice:up`, `voice:check`, `voice:down`, `voice:timings`); TASK-0108 (US-0072); AC-0417..AC-0425 (all under US-0072, in the A1c plan's order AC-a to AC-i; no AC-j: the DNS-challenge path waits for the owner); TC-0189..TC-0197 (one per AC, in order; the edge cases of the plan's Task 15 get the next free ids then). A2 and A3 are not filed: the overview's proposed story numbers for them are not reserved.

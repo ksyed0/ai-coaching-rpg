@@ -52,6 +52,15 @@ Pinned to an exact version, installed into `apps/web` only (`pnpm --filter @acr/
 | --- | --- | --- | --- | --- | --- |
 | livekit-client | 2.23.0 | The participant's browser joins its own seat's LiveKit room with a microphone-only token, publishes the microphone, unpublishes it on mute and leaves on every final stream event | Apache-2.0 | 2026-10-16 | 2026-10-16 |
 
+## Voice slice A1c (`services/voice-ops`, `deploy/compose/voice.yml`, US-0072): two container images, no new npm dependency
+
+No npm package is added: `@acr/voice-ops` uses `node:` built-ins and the workspace `@acr/adapters` only. The two images below are what `deploy/compose/voice.yml` (plan Task 5) pins by digest; they are looked up, not pulled. Lookup on 2026-11-09, read-only (registry metadata only: `docker buildx imagetools inspect <image>:<tag>`, its `--raw` manifests for the layer sizes and `--format '{{json .Image}}'` for the labels; release dates from the projects' GitHub releases API); nothing was pulled or run. LiveKit's tag is `v1.13.11` (with the `v`; `livekit/livekit-server:1.13.11` does not exist). Caddy 2.11.7 is the newest 2.x release at least two weeks old on the lookup day: 2.11.8 (2026-11-04) and 2.11.9 (2026-11-05) are newer than two weeks and were not checked for security fixes; the Docker official image tags are rebuilt (the 2.11.7 index was last pushed 2026-10-30), so the index digest below is the one of the lookup day. Compressed sizes are the `linux/arm64` image (config plus layers), the pull the owner's run will make.
+
+| Image | Tag | Index digest (multi-arch) | linux/arm64 manifest | arm64 compressed | Licence | Released |
+| --- | --- | --- | --- | --- | --- | --- |
+| livekit/livekit-server | v1.13.11 | sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20 | sha256:b3d5e54f1b23e148cb3166d3ec56cce52e4481a98525b5f98e45f3e6148656d5 | 38 813 729 bytes (about 37.0 MiB) | Apache-2.0 (image label) | 2026-10-25 |
+| caddy | 2.11.7 | sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e | sha256:cc447f149425221422153c6cdf33a123b3f458839679f950298f68a690a54a5b | 23 639 921 bytes (about 22.5 MiB) | Apache-2.0 (image label) | 2026-10-03 |
+
 ## Exceptions to the two-week rule
 
 - next 16.4.1 was released 13 days before the pick. Every earlier 16.x (up to 16.4.0) and every 15.x is flagged by the npm advisory database (GHSA-673q-mjm6-r5xr and GHSA-2464-fhr4-w9xw, critical remote code execution; GHSA-p3m5-59mp-jv5r, denial of service), and `next build` refuses to run on them. 16.4.1 is the oldest release without an advisory.

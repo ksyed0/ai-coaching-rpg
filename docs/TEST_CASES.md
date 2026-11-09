@@ -2899,3 +2899,134 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Only Chromium (headless shell 1223 with a fake microphone) was tested in A1b. Needs a human, real hardware and a pilot `wss://` server; part of the room test before any pilot (go-live checklist).
+
+## US-0072: voice operations (EPIC-0003 voice A1c)
+
+TC-0189: `pnpm voice:up` starts a hardened whisper-server and the compose services, and `pnpm voice:down` stops them
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417
+Type: Functional
+Preconditions: A checkout with dependencies installed; no real whisper-server, LiveKit, Caddy or Docker engine is used (stub executables on `PATH`, a private repository copy, a private `HOME`).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/whisper.test.ts src/__tests__/up.test.ts src/__tests__/down.test.ts src/__tests__/cli.process.test.ts`.
+Expected Result: whisper-server is started with exactly `--host 127.0.0.1 --port <port> --request-path /<32 hex> -m <STT_MODEL_FILE> -sns --public <empty dir> --tmp-dir <state>/tmp` and never `--convert`; a missing model file is refused before anything is generated or started; compose is started with `up -d --no-build --wait --wait-timeout 60 --quiet-pull`; a second `voice:up` says "already running"; a changed setting is refused; repair restarts only what is missing; `voice:down` stops everything and clears the state.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story. The real stack is run only in the plan's Task 15 owner-approved run.
+
+TC-0190: LiveKit keys and STT_URL are generated into `.env` once, privately, and every unsafe `.env` is refused unchanged
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0418
+Type: Negative
+Preconditions: A checkout with dependencies installed; private temporary directories with fabricated `.env` files (never the owner's `.env`).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/env-file.test.ts src/__tests__/up.test.ts`.
+Expected Result: The key (`API` + 24 hex), the secret (64 hex) and `STT_URL` (`http://127.0.0.1:<20000..32767>/<32 hex>`) are appended once, only when absent, as one block; existing bytes are kept; the file stays mode 600 and is replaced atomically; a symlink, a directory, a missing file (the sentence says to run `./run.sh` first), mode 0644 (the sentence says `chmod 600 .env`), half a key pair, an empty managed assignment, the public `devkey`/`secret` pair, a short secret, a bad or `[::1]` `STT_URL`, a file changed between the read and the rename, a git-tracked `.env` and a real environment that sets a managed name are refused with the file byte-identical; no value appears in any message.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0191: The compose services are pinned and hardened
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0419
+Type: Functional
+Preconditions: A checkout with dependencies installed; no container is started.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose.test.ts`.
+  2. `docker compose -f deploy/compose/voice.yml config --quiet` with placeholder values (interpolation only, nothing pulled).
+Expected Result: Both images are pinned by digest; LiveKit never runs with `--dev`, takes its keys only from the private `livekit.env`, publishes its API on `127.0.0.1` only and its media on the node address only; the Caddyfile has `admin off`, no `log`, no `trusted_proxies`, no `X-Forwarded-For` directive, and forwards only `/rtc*` to LiveKit without the cookie.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0192: `pnpm voice:check` reports every voice prerequisite without printing a secret
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0420
+Type: Functional
+Preconditions: A checkout with dependencies installed; injected seams and stub executables only.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/checks src/__tests__/check.test.ts`.
+  2. From the repository root against a private copy: `pnpm -s voice:check`.
+Expected Result: Whisper health and its cross-origin answer, LiveKit reachability and the keys check, a changed node address, the certificate (warning under 21 days), the hostname's resolution, free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and the versions are reported; exit 0, 1 or 2; no output line holds a secret.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0193: The web server listens on loopback only and the proxy never trusts a client's `X-Forwarded-For`
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0421
+Type: Negative
+Preconditions: The web app built; a runner with a non-internal IPv4 address (the spec skips with a reason otherwise).
+Steps:
+  1. `pnpm --filter @acr/web exec playwright test web-bind`.
+  2. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose.test.ts` (the Caddyfile pins).
+Expected Result: A connection to `127.0.0.1:<port>` is answered; one to the machine's LAN address on the same port is refused; the Caddyfile sets no `trusted_proxies` and no `X-Forwarded-For` header; the BFF still refuses a two-entry list.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0194: A LiveKit outage does not spend the speech worker's restart budget
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0422
+Type: Functional
+Preconditions: A checkout with dependencies installed; fake worker, fake probe and manual timers (no LiveKit).
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/livekit-outage.test.ts src/__tests__/voice/restart.test.ts`.
+Expected Result: Exit 3 with LiveKit unreachable is an outage: not counted, one `livekit_lost` alert, probes after 2, 4, 8, 16 and then every 30 s, a new worker and one `livekit_recovered` alert when LiveKit answers; exit 3 with LiveKit answering, any other exit, and a LiveKit that dies again within 60 s of a recovery are counted and reach voice off after the fifth failed restart.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story. The live claim waits for the plan's Task 15 real outage run.
+
+TC-0195: The timing record holds numbers only and `pnpm voice:timings` summarises it
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0423
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control` and `services/voice-ops`: the timing tests of the plan's Task 12.
+Expected Result: With `VOICE_TIMING_LOG=1` each appended voice line logs only the two millisecond values; `voice:timings <log>` prints count, p50, p95 and max.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0196: The voice runbook covers start, check, stop and the room test
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0424
+Type: Functional
+Preconditions: The branch's documents.
+Steps:
+  1. Read `docs/VOICE_RUNBOOK.md` and run its commands' tests (the plan's Task 14).
+Expected Result: Start, check, stop, the secure context, router DNS rebinding, the macOS firewall and the native LiveKit failure, headsets, the backup exclusion, the same-room cross-talk risk and the owner-run room test with how to read its results are covered.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0197: The documents describe A1c and voice stays off by default
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0425
+Type: Regression
+Preconditions: The branch's documents.
+Steps:
+  1. Read the threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, `findings.md` and the memory files; check the voice settings tests that `VOICE_ENABLED` defaults to `0`.
+Expected Result: Each document describes A1c; `findings.md` lists the two images (no new npm dependency); `VOICE_ENABLED` stays `0` by default.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
