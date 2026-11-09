@@ -70,6 +70,22 @@ describe("normalise (US-0070, spec 7.3): the conservative transcript cleaner", (
     expect(normalise(fits)).toBe(fits);
   });
 
+  // F9a (review fix wave): the cut can expose a currency word that had a letter after it ("$5 dollarsX"); the rule applies after the cut too.
+  it("a cut that exposes a currency word after an amount drops it (table case)", () => {
+    const raw = "a".repeat(1989) + " $5 dollarsX and more";
+    expect(normalise(raw)).toBe("a".repeat(1989) + " $5");
+  });
+
+  it("is idempotent over every cut position near a currency phrase", () => {
+    for (const tail of [" $5 dollarsX more", " £250 poundsy more", " €3.50 eurosz more", " $11,000 dollar dollarsQ", " $5 dollars dollars"]) {
+      for (let n = 1970; n <= 2000; n++) {
+        const once = normalise("a".repeat(n) + tail);
+        expect(normalise(once), `${n}${tail}`).toBe(once);
+        expect(once.length).toBeLessThanOrEqual(MAX_LINE_CHARS);
+      }
+    }
+  });
+
   it("a cut that ends on a space is trimmed", () => {
     expect(normalise("a".repeat(1999) + " bcd")).toBe("a".repeat(1999));
   });

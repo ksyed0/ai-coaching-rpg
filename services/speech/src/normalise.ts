@@ -27,6 +27,8 @@ export function normalise(raw: string): string {
     s = s.slice(0, MAX_LINE_CHARS);
     const last = s.charCodeAt(s.length - 1);
     if (last >= 0xd800 && last <= 0xdbff) s = s.slice(0, -1); // a high surrogate whose pair was cut off
+    // F9a: the cut can expose a currency word that had a letter after it ("$5 dollarsX"): the rule applies again (it only shortens).
+    for (const re of CURRENCY) s = s.replace(re, "$1");
     s = s.trimEnd();
   }
   return s;
