@@ -1,0 +1,10 @@
+# US-0072 (EPIC-0003 voice A1c): LiveKit's configuration for deploy/compose/voice.yml. No keys here: they come only from livekit.env in
+# the private voice state directory (LIVEKIT_KEYS). No development mode, no TURN, no Redis (one node). Logs at warn: at info LiveKit is
+# expected to name rooms and participant identities (not verified), and room names and identities are never logged (A1b).
+port: 7880
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+logging:
+  level: warn

@@ -1,0 +1,33 @@
+# US-0072 (EPIC-0003 voice A1c): the TLS proxy of deploy/compose/voice.yml (profile `lan`). One hostname and one owner-supplied
+# certificate, two sites: the web app on VOICE_HTTPS_PORT and LiveKit signalling on VOICE_LIVEKIT_TLS_PORT.
+#
+# - No log directive anywhere: the LiveKit token travels in the signalling URL's query, so an access log would record it.
+# - No trusted_proxies and no header directive for X-Forwarded-For: Caddy then REPLACES that header with the client's own address,
+#   which the web app's throttles rely on (docs/THREAT_MODEL.md, "Client address, TRUST_PROXY and the per-role throttles").
+# - The LiveKit site forwards only /rtc* (signalling and validation) and drops the Cookie header: the __Host-scenecoach cookie is sent
+#   to every port of the host, and LiveKit's HTTP port also serves its server API. Everything else answers 404.
+# - admin off (no admin endpoint); HTTP/1.1 and HTTP/2 only (UDP is not published, so no HTTP/3); no port 80 redirect server.
+{
+	admin off
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$VOICE_HOSTNAME}:{$VOICE_HTTPS_PORT} {
+	tls /certs/cert.pem /certs/key.pem
+	reverse_proxy {$VOICE_WEB_UPSTREAM}
+}
+
+{$VOICE_HOSTNAME}:{$VOICE_LIVEKIT_TLS_PORT} {
+	tls /certs/cert.pem /certs/key.pem
+	handle /rtc* {
+		reverse_proxy livekit:7880 {
+			header_up -Cookie
+		}
+	}
+	handle {
+		respond 404
+	}
+}

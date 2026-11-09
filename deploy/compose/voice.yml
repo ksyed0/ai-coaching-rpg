@@ -1,0 +1,60 @@
+# US-0072 (EPIC-0003 voice A1c): the voice media server (LiveKit) and, in the `lan` profile, the TLS proxy (Caddy) on the pilot laptop.
+# Started and stopped only by `pnpm voice:up` / `pnpm voice:down` (services/voice-ops), which set every ${...} below from the voice
+# settings; a missing one stops compose before anything starts (`:?`). whisper-server runs natively beside it (loopback only), not here.
+# CI only runs `docker compose -f deploy/compose/voice.yml config --quiet` with placeholder values: nothing is pulled or started.
+name: scenecoach-voice
+
+services:
+  livekit:
+    # Pinned by digest (findings.md, "Voice slice A1c"): the tag documents the version, the digest decides what runs.
+    image: livekit/livekit-server:v1.13.11@sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20
+    # Never `--dev` (debug logs and the public development key pair). Inside the container it binds every interface; who can reach it is
+    # decided by the `ports` lines below. The node address is the LAN address in `lan` mode and 127.0.0.1 in `local` mode.
+    command:
+      - --config
+      - /etc/livekit.yaml
+      - --bind
+      - 0.0.0.0
+      - --node-ip
+      - ${VOICE_NODE_IP:?}
+    # ONLY LiveKit's own keys (one line, LIVEKIT_KEYS=<key>: <secret>), from a 0600 file in the 0700 voice state directory that voice:up
+    # writes from the values control reads. Never the root .env: it holds every other secret. `required: false` lets `voice:down` run
+    # after a crash removed the file (Compose 2.24.0 or newer); voice:up checks that the file exists before `up`.
+    env_file:
+      - path: ${VOICE_STATE_DIR:?}/livekit.env
+        required: false
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      # The server API and signalling: loopback only (control and the speech worker). Participants reach signalling through Caddy.
+      - "127.0.0.1:7880:7880"
+      # Media: TCP 7881 and one UDP port 7882, on the node address only.
+      - "${VOICE_MEDIA_BIND:?}:7881:7881/tcp"
+      - "${VOICE_MEDIA_BIND:?}:7882:7882/udp"
+    # A crash restarts by itself (control's outage path waits for LiveKit to answer again); at most 5 tries. voice:down owns the stop.
+    restart: on-failure:5
+
+  caddy:
+    # Only with VOICE_ACCESS=lan: participants on the LAN open https://<VOICE_HOSTNAME> and wss://<VOICE_HOSTNAME>:<VOICE_LIVEKIT_TLS_PORT>.
+    profiles: ["lan"]
+    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+    # The TLS ports on the node address only. No UDP: the Caddyfile serves HTTP/1.1 and HTTP/2 only (no HTTP/3).
+    ports:
+      - "${VOICE_MEDIA_BIND:?}:${VOICE_HTTPS_PORT:?}:${VOICE_HTTPS_PORT:?}"
+      - "${VOICE_MEDIA_BIND:?}:${VOICE_LIVEKIT_TLS_PORT:?}:${VOICE_LIVEKIT_TLS_PORT:?}"
+    # Non-secret values only: the Caddyfile reads them as {$NAME}. The web app is reached on the host's loopback through the engine.
+    environment:
+      VOICE_HOSTNAME: ${VOICE_HOSTNAME:?}
+      VOICE_HTTPS_PORT: ${VOICE_HTTPS_PORT:?}
+      VOICE_LIVEKIT_TLS_PORT: ${VOICE_LIVEKIT_TLS_PORT:?}
+      VOICE_WEB_UPSTREAM: ${VOICE_WEB_UPSTREAM:?}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The owner-supplied certificate and key, read-only (VOICE_TLS_MODE=files).
+      - ${VOICE_TLS_CERT_FILE:?}:/certs/cert.pem:ro
+      - ${VOICE_TLS_KEY_FILE:?}:/certs/key.pem:ro
+      - ${VOICE_STATE_DIR:?}/caddy-data:/data
+    # Docker Desktop and OrbStack provide host.docker.internal already; the mapping makes it work on Linux too.
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: [livekit]
+    restart: on-failure:5
