@@ -51,7 +51,7 @@ export function MicButton({ client, started, paused, inScene, unavailable, serve
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
   const muteRef = useRef<HTMLButtonElement>(null);
-  /** Set by a successful join from the button: the Mute button that replaces it takes the focus once. */
+  /** Set by a join from the button: the Mute button that replaces it takes the focus once. */
   const focusMute = useRef(false);
 
   const connected = state === "live" || state === "muted";
@@ -75,7 +75,14 @@ export function MicButton({ client, started, paused, inScene, unavailable, serve
     }
   }
 
-  const join = () => run(onJoin, () => { focusMute.current = true; if (muteRef.current) { focusMute.current = false; muteRef.current.focus(); } });
+  // The flag is set before the join starts: the effect above moves the focus when the Mute button appears; a failed join clears it
+  // (focus stays on "Join with voice", which is never unmounted or disabled while joining).
+  const join = () => run(async () => {
+    focusMute.current = true;
+    const r = await onJoin();
+    if (!r.ok) focusMute.current = false;
+    return r;
+  });
   const toggleMute = () => run(() => (muted ? client.unmute() : client.mute()));
   const stop = () => run(async () => { await client.leave(); return onOptOut(); });
 

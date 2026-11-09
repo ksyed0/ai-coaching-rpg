@@ -101,8 +101,9 @@ type Harness = ReturnType<typeof mountLive>;
 function mountLive(o: { roomFails?: boolean } = {}) {
   const log: string[] = [];
   let tokens = 0;
+  const hooks = { onToken: () => {} };
   const f = fakeFetch((url, body) => {
-    if (url === "/api/v1/voice/token") { tokens++; log.push("token"); return { status: 200, body: ok({ token: `t.${tokens}.s`, url: "ws://127.0.0.1:7880", expiresAt: 1 }) }; }
+    if (url === "/api/v1/voice/token") { tokens++; log.push("token"); hooks.onToken(); return { status: 200, body: ok({ token: `t.${tokens}.s`, url: "ws://127.0.0.1:7880", expiresAt: 1 }) }; }
     const b = (body ?? {}) as { choice?: string; mute?: boolean };
     if (b.mute !== undefined) log.push(`post mute ${b.mute}`);
     if (b.choice) log.push(`post choice ${b.choice}`);
@@ -118,7 +119,7 @@ function mountLive(o: { roomFails?: boolean } = {}) {
     voice: { secure: () => true, loadRoom, getUserMedia, audioContext: () => new FakeAudioContext(), raf: frames.raf, caf: frames.caf },
   };
   const r = render(<SessionScreen sessionId="sess-1" voiceTransport deps={deps} />);
-  return { ...r, f, log, clock, loadRoom, getUserMedia, streams, deps, tokens: () => tokens, es: () => FakeEventSource.last(), room: () => FakeRoom.made.at(-1)! };
+  return { ...r, f, log, hooks, clock, loadRoom, getUserMedia, streams, deps, tokens: () => tokens, es: () => FakeEventSource.last(), room: () => FakeRoom.made.at(-1)! };
 }
 const voiceJoined = (m: { clock: FakeClock }, over: Record<string, unknown> = {}) => joinedFrame({ consent: V3, voice: { state: "voice", muted: false }, state: running(m.clock), ...over });
 async function joinVoice(m: Harness) {
@@ -151,8 +152,9 @@ describe("SessionScreen: Join with voice and teardown", () => {
     emit(m.es(), "joined", joinedFrame({ consent: V3, voice: { state: "voice", muted: false } }));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.micCheck })); });
     expect(m.streams).toHaveLength(1);
+    // Checked at the very start of the join (its token request), before anything re-renders: the join itself stops the check.
     const stopped: boolean[] = [];
-    m.loadRoom.mockImplementationOnce(async () => { stopped.push(m.streams[0]!.tracks.every((t) => t.stopped)); return new FakeRoom(m.log); });
+    m.hooks.onToken = () => { stopped.push(m.streams[0]!.tracks.every((t) => t.stopped)); };
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.voiceJoin })); });
     expect(stopped).toEqual([true]);
     expect(m.log.indexOf("gum")).toBeLessThan(m.log.indexOf("token"));
