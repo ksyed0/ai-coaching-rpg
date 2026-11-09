@@ -374,6 +374,29 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
       expect(readFileSync(file, "utf8")).toBe("A=1\n");
     }
+    // Review A F8: only the change time moved (a chmod; `utimes` can put mtime back but never ctime). The loop repeats the chmod until
+    // the file system's clock has ticked, so a coarse timestamp cannot make the case vacuous; the self-check proves it did.
+    {
+      const file = envFile("A=1\n");
+      const r = readPrivateEnv(file);
+      for (let i = 0; i < 1_000_000 && lstatSync(file).ctimeMs === r.id.ctimeMs; i++) chmodSync(file, 0o600);
+      const now = lstatSync(file);
+      expect([now.ctimeMs !== r.id.ctimeMs, now.mtimeMs, now.size, now.ino]).toEqual([true, r.id.mtimeMs, r.id.size, r.id.ino]);
+      expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
+      expect(readFileSync(file, "utf8")).toBe("A=1\n");
+      expect(leftovers(path.dirname(file))).toEqual([]);
+    }
+    // Review A F8: a hard link added after the read (the rename would leave the other name with the old bytes).
+    {
+      const file = envFile("A=1\n");
+      const r = readPrivateEnv(file);
+      const other = path.join(path.dirname(file), "other-name");
+      linkSync(file, other);
+      // Undo everything a link changes except the link count: ctime is the only other field, and it is checked above.
+      expect(() => appendBlock(file, r.bytes, "X=1\n", { ...r.id, ctimeMs: lstatSync(file).ctimeMs })).toThrow(expect.objectContaining({ code: "changed" }));
+      expect(readFileSync(other, "utf8")).toBe("A=1\n");
+      expect(statSync(file).ino).toBe(statSync(other).ino);
+    }
     // Replaced by a symlink.
     {
       const file = envFile("A=1\n");
@@ -587,7 +610,7 @@ describe("readPrivateEnv (US-0072)", () => {
     expect(r.text).toBe("A=1\nB=\"two\"\n");
     expect(r.bytes.equals(Buffer.from("A=1\nB=\"two\"\n"))).toBe(true);
     expect(r.values).toEqual({ A: "1", B: "two" });
-    expect(r.id).toEqual({ dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs });
+    expect(r.id).toEqual({ dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, nlink: 1 });
   });
 
   it("refuses a file over 1 MiB as too_large, with its own sentence (review A F3)", () => {

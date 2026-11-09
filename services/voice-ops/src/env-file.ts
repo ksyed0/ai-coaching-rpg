@@ -15,7 +15,7 @@ import { isLiveKitToken, isRequestPath } from "./text.js";
  *   or other permission bits and one hard link. A symlink, a second hard link, a directory, another owner, mode 0644 and a missing file are refused (a missing `.env` is NOT
  *   created: `run.sh` gives a facilitator token only to a NEW `.env`, so a `.env` made here would leave the server open).
  * - It is replaced atomically: an O_EXCL 0600 temp beside it, fsync; then the path is lstat'ed and its dev, ino, size and mtimeMs are
- *   compared with what the read descriptor saw (any change, or a link now, aborts with the file left alone); rename; fsync the directory.
+ *   compared with what the read descriptor saw, and so are ctimeMs and nlink (any change, or a link now, aborts with the file left alone); rename; fsync the directory.
  * - Refused with the file unchanged byte for byte: half a key pair, an empty assignment of a managed name, the public development keys
  *   (`devkey` / `secret`, any case, or a secret under 32 characters), a key or secret outside control's rule or holding a character that
  *   would break `livekit.env` or LiveKit's key map (`bad_keys`), an `STT_URL` that whisper-server cannot serve, a `.env` tracked by
@@ -70,7 +70,7 @@ function guard<T>(code: EnvFileErrorCode, fn: () => T): T {
 }
 
 /** The identity of the file the read descriptor saw; compared with an lstat of the path right before the rename. */
-export type FileId = { dev: number; ino: number; size: number; mtimeMs: number };
+export type FileId = { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number; nlink: number };
 
 /** The command runner seam (Task 3's `Run` has this shape). Only `git ls-files` runs through it here. */
 export type GitRun = (cmd: string, args: readonly string[], o?: { env?: NodeJS.ProcessEnv; timeoutMs?: number }) => Promise<{ code: number | null; stdout: string; stderr: string }>;
@@ -107,7 +107,7 @@ export function readPrivateEnv(file: string): { bytes: Buffer; text: string; val
     const text = buf.toString("utf8");
     let values: Record<string, string>;
     try { values = parseEnv(text) as Record<string, string>; } catch { throw new EnvFileError("unreadable"); }
-    return { bytes: buf, text, values, id: { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs } };
+    return { bytes: buf, text, values, id: { dev: st.dev, ino: st.ino, size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, nlink: st.nlink } };
   } finally {
     try { closeSync(fd); } catch { /* a read-only descriptor: a failed close loses nothing that was read */ }
   }
@@ -219,7 +219,10 @@ export function appendBlock(file: string, bytes: Buffer, block: string, readId: 
     } finally { guard("unwritable", () => closeSync(fd)); }
     let now: ReturnType<typeof lstatSync>;
     try { now = lstatSync(file); } catch { throw new EnvFileError("changed"); }
-    if (!now.isFile() || now.dev !== readId.dev || now.ino !== readId.ino || now.size !== readId.size || now.mtimeMs !== readId.mtimeMs) {
+    // ctime too (review A F8): `utimes` can put mtime back after a same-size write, never ctime; and nlink, so a link made after the read
+    // (whose other name would keep the old bytes) aborts as well.
+    if (!now.isFile() || now.dev !== readId.dev || now.ino !== readId.ino || now.size !== readId.size || now.mtimeMs !== readId.mtimeMs
+      || now.ctimeMs !== readId.ctimeMs || now.nlink !== readId.nlink || now.nlink !== 1) {
       throw new EnvFileError("changed");
     }
     guard("unwritable", () => renameSync(tmp, file));
