@@ -175,6 +175,7 @@ function useVoice(sessionId: string, s: ReturnType<typeof useSession>, deps: { f
  * the seat has consented (the opt-in needs the notice the seat agreed to). With voice not enabled this renders nothing.
  */
 function VoiceArea({ v, lobby }: { v: VoiceUi; lobby: boolean }) {
+  const textRef = useRef<HTMLInputElement>(null);
   const voice = v.ui.voice;
   if (!voice || voice.state === "off" || v.ui.joined?.consent?.given !== true) return null;
   const secure = v.deps.secure();
@@ -183,11 +184,13 @@ function VoiceArea({ v, lobby }: { v: VoiceUi; lobby: boolean }) {
   const idle = v.client.state === "idle" || v.client.state === "failed";
   return (
     <>
-      <VoiceChoice state={voice.state} voiceTransport={v.voiceTransport} secure={secure} onChoose={v.onChoose} />
+      <VoiceChoice state={voice.state} voiceTransport={v.voiceTransport} secure={secure} onChoose={v.onChoose} textRef={textRef} />
       {usable && lobby && idle ? <MicCheck deps={v.deps} register={v.registerCheck} /> : null}
       {usable ? (
         <MicButton client={v.client} started={view !== null && view.status !== "idle"} paused={view?.paused ?? false} inScene={!!view?.scene}
-          unavailable={v.ui.voiceUnavailable} serverMuted={voice.muted} onJoin={v.onJoin} onOptOut={v.onOptOut} />
+          unavailable={v.ui.voiceUnavailable} serverMuted={voice.muted} onJoin={v.onJoin}
+          // The Stop button disappears with the opt-out: the focus goes to the choice that is now saved.
+          onOptOut={async () => { const r = await v.onOptOut(); if (r.ok) textRef.current?.focus(); return r; }} />
       ) : null}
     </>
   );

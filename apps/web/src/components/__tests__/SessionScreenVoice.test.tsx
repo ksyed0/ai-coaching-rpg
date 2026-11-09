@@ -272,6 +272,17 @@ describe("SessionScreen: Join with voice and teardown", () => {
     expect(screen.queryByRole("button", { name: MESSAGES.voiceMute })).toBeNull();
   });
 
+  it("after Stop using voice the focus moves to the saved choice, Take part by text only (the controls that had it are gone)", async () => {
+    const m = mountLive();
+    emit(m.es(), "joined", voiceJoined(m));
+    await joinVoice(m);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.voiceStop })); });
+    expect(m.log.slice(-2)).toEqual(["disconnect", "post choice text_only"]);
+    const text = screen.getByRole("radio", { name: MESSAGES.voiceText }) as HTMLInputElement;
+    expect(text.checked).toBe(true);
+    expect(document.activeElement).toBe(text);
+  });
+
   it("a failed join keeps the text box usable", async () => {
     const m = mountLive({ roomFails: true });
     emit(m.es(), "joined", voiceJoined(m));

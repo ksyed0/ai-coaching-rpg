@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent, type RefObject } from "react";
 import type { ActionResult } from "../lib/api";
 import { MESSAGES } from "../lib/messages";
 import type { VoiceChoiceValue, VoiceState } from "../lib/use-session";
@@ -18,6 +18,8 @@ export type VoiceChoiceProps = {
   /** Whether this page can open a microphone at all (a secure context with mediaDevices). */
   secure: boolean;
   onChoose: (choice: VoiceChoiceValue) => Promise<ActionResult>;
+  /** The "text only" radio, for the page to move the focus to after "Stop using voice" (whose button then disappears). */
+  textRef?: RefObject<HTMLInputElement | null>;
 };
 
 const STATE_WORDS: Record<VoiceState, { icon: string; words: string }> = {
@@ -29,7 +31,7 @@ const STATE_WORDS: Record<VoiceState, { icon: string; words: string }> = {
 
 const saved = (s: VoiceState): VoiceChoiceValue | null => (s === "voice" ? "voice" : s === "text_only" ? "text_only" : null);
 
-export function VoiceChoice({ state, voiceTransport, secure, onChoose }: VoiceChoiceProps) {
+export function VoiceChoice({ state, voiceTransport, secure, onChoose, textRef }: VoiceChoiceProps) {
   const id = useId();
   // The selection follows the saved state whenever the saved state changes (an answer, a fresh joined); a refusal puts it back.
   const [selected, setSelected] = useState<VoiceChoiceValue | null>(saved(state));
@@ -72,7 +74,7 @@ export function VoiceChoice({ state, voiceTransport, secure, onChoose }: VoiceCh
             <span>{MESSAGES.voiceWith}</span>
           </label>
           <label className="check">
-            <input type="radio" name={`${id}-choice`} value="text_only" checked={selected === "text_only"} onChange={() => setSelected("text_only")} />
+            <input ref={textRef} type="radio" name={`${id}-choice`} value="text_only" checked={selected === "text_only"} onChange={() => setSelected("text_only")} />
             <span>{MESSAGES.voiceText}</span>
           </label>
           {reason !== null ? <p className="hint muted" id={reasonId}>{reason}</p> : null}
