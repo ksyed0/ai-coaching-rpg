@@ -65,4 +65,12 @@ describe("requestAddress", () => {
   it("is the shared key unknown when no proxy header is present (a deployment requirement: the proxy always sets it)", () => {
     expect(requestAddress(req({}))).toBe("unknown");
   });
+  // US-0072 (A1c Task 6, characterisation): why deploy/compose/Caddyfile never trusts a client's X-Forwarded-For and the web server
+  // listens on loopback only. A list is refused, but ONE entry is taken as it comes, so whoever can set the header chooses its own key.
+  it("requestAddress refuses a two-entry list", () => {
+    expect(requestAddress(req({ "X-Forwarded-For": "198.51.100.7, 203.0.113.9" }))).toBeNull();
+  });
+  it("requestAddress keeps one spoofed entry as the key (so the proxy must replace the header, and nothing may bypass the proxy)", () => {
+    expect(requestAddress(req({ "X-Forwarded-For": "198.51.100.77" }))).toBe("198.51.100.77");
+  });
 });

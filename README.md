@@ -207,11 +207,13 @@ RUNTIME_HOST=127.0.0.1 TRUST_PROXY=1 ./run.sh --dev      # note the join codes i
 
 # 2. the web app, in another terminal (Next reads its settings from the environment or apps/web/.env.local, not the root .env)
 export RUNTIME_URL=ws://127.0.0.1:8080 PUBLIC_ORIGIN=http://localhost:3000 COOKIE_KEYS="k1:$(openssl rand -base64 32)"
-pnpm --filter @acr/web build && pnpm --filter @acr/web start -H 127.0.0.1   # loopback only; or `pnpm web:dev` while developing
+pnpm --filter @acr/web build && pnpm --filter @acr/web start   # loopback only (the script is next start -H 127.0.0.1); or `pnpm web:dev` while developing
 
 # 3. the facilitator, in a third terminal
 pnpm play --facilitator --url ws://127.0.0.1:8080
 ```
+
+The web package's `start` script listens on 127.0.0.1 only (US-0072): LAN devices reach it through the TLS proxy (`pnpm voice:up` in `lan` mode), never directly, because a client that reaches the web port directly can choose its own `X-Forwarded-For` throttle key ([threat model](docs/THREAT_MODEL.md)). Extra arguments are appended to the script and the last `-H` wins, so `pnpm --filter @acr/web start -H 0.0.0.0` still binds every interface (checked once by hand on 2026-11-09); do not do that outside a closed test network.
 
 Each player opens `http://localhost:3000/join?session=local&role=<role>` (for example `role=delivery_lead`), types a display name and their role's join code, and lands in the lobby of `/session/local`: they read the consent notice and select **I agree** (or **Leave**). The lobby shows who is in the room and who is ready. Once every player role is held by someone who agreed, `/start` works; until then it is refused with the roles still missing. In the session the page shows the scene, its goal and a timer, the transcript, a say box (disabled while paused and after the end), the player's brief, private facts and updates. A dropped connection shows **Reconnecting** and recovers by itself without losing or repeating a line; opening the session in a second tab moves the seat there and the first tab says so.
 
@@ -239,7 +241,7 @@ pnpm control
 
 # 3. the web app in launcher mode
 export LAUNCHER_URL=http://127.0.0.1:8787 PUBLIC_ORIGIN=http://localhost:3000 COOKIE_KEYS="k1:$(openssl rand -base64 32)"
-pnpm --filter @acr/web build && pnpm --filter @acr/web start -H 127.0.0.1
+pnpm --filter @acr/web build && pnpm --filter @acr/web start   # loopback only
 ```
 
 Then open `http://localhost:3000/console`, type the facilitator secret and your name (a label for the audit trail, not an account), and:
