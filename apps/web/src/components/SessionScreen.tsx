@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { realClock, type Clock } from "../lib/clock";
 import { MESSAGES } from "../lib/messages";
 import { roleLabel } from "../lib/names";
 import { useSession, type EventSourceCtor, type SessionDeps, type SessionUi, type VoiceChoiceValue } from "../lib/use-session";
 import type { ActionResult } from "../lib/api";
+import type { AudioContextLike, Caf, MediaStreamLike, Raf } from "../lib/mic-level";
+import { tokenFetcher, VoiceClient, type BrowserRoom } from "../lib/voice-client";
+import { MicButton, useVoiceClientState } from "./MicButton";
+import { MicCheck } from "./MicCheck";
 import { AppHeader } from "./AppHeader";
 import { BriefPanel } from "./BriefPanel";
 import { ConsentPanel } from "./ConsentPanel";
@@ -25,6 +29,12 @@ import { VoiceNotices } from "./VoiceNotices";
 export type VoiceDeps = {
   /** Whether this page can open a microphone at all: a secure context (https, or a loopback address) with mediaDevices. */
   secure: () => boolean;
+  /** The LiveKit room; the default loads livekit-client by a dynamic import, on the first "Join with voice" only. */
+  loadRoom: () => Promise<BrowserRoom>;
+  getUserMedia: (c: MediaStreamConstraints) => Promise<MediaStreamLike>;
+  audioContext: () => AudioContextLike;
+  raf: Raf;
+  caf: Caf;
 };
 export type SessionScreenProps = {
   sessionId: string;
@@ -40,6 +50,11 @@ const browserDeps = (): SessionDeps => ({
 
 const browserVoice = (): VoiceDeps => ({
   secure: () => typeof window !== "undefined" && window.isSecureContext === true && typeof navigator.mediaDevices?.getUserMedia === "function",
+  loadRoom: () => import("../lib/livekit-room-browser").then((m) => m.createBrowserRoom()),
+  getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
+  audioContext: () => new AudioContext(),
+  raf: (fn) => requestAnimationFrame(fn),
+  caf: (id) => cancelAnimationFrame(id),
 });
 
 export function SessionScreen({ sessionId, voiceTransport = false, deps = {} }: SessionScreenProps) {
@@ -47,7 +62,8 @@ export function SessionScreen({ sessionId, voiceTransport = false, deps = {} }: 
   const [resolved] = useState(() => ({ ...browserDeps(), ...deps, clock: deps.clock ?? realClock, voice: { ...browserVoice(), ...deps.voice } }));
   const s = useSession(sessionId, resolved);
   const { conn, final, joined, view, roster, notice } = s.state;
-  const voiceUi: VoiceUi = { ui: s.state, voiceTransport, secure: resolved.voice.secure, onChoose: s.chooseVoice };
+  const voice = useVoice(sessionId, s, resolved);
+  const voiceUi: VoiceUi = { ui: s.state, voiceTransport, deps: resolved.voice, ...voice };
 
   const status: StatusKind = conn === "reconnecting" ? "reconnecting"
     : !view ? "connecting"
@@ -103,16 +119,78 @@ function FinalScreen({ kind, message }: { kind: string; message: string }) {
 type Joined = NonNullable<ReturnType<typeof useSession>["state"]["joined"]>;
 type Action = () => Promise<ActionResult>;
 
-type VoiceUi = { ui: SessionUi; voiceTransport: boolean; secure: () => boolean; onChoose: (c: VoiceChoiceValue) => Promise<ActionResult> };
+type VoiceUi = {
+  ui: SessionUi; voiceTransport: boolean; deps: VoiceDeps; client: VoiceClient;
+  onChoose: (c: VoiceChoiceValue) => Promise<ActionResult>; onJoin: () => Promise<ActionResult>; onOptOut: () => Promise<ActionResult>;
+  registerCheck: (stop: (() => void) | null) => void;
+};
+
+/**
+ * US-0071 (A1b Task 15): the page's voice connection. The VoiceClient object is cheap and made once; livekit-client itself is loaded
+ * only by the first "Join with voice". It leaves the room on every final stream event, when the session ends in the view, on the
+ * person's own leave and withdraw (both are final `left`), on `pagehide`, when the seat stops being a voice seat, when the session id
+ * changes and on unmount; it leaves when the runtime stream drops, and on each fresh `joined` it reconnects once with a fresh token and
+ * re-posts a local mute. The microphone is never opened here: only MicCheck's click and "Join with voice" open it.
+ */
+function useVoice(sessionId: string, s: ReturnType<typeof useSession>, deps: { fetch: typeof fetch; voice: VoiceDeps }) {
+  const setMutedRef = useRef(s.setMuted);
+  setMutedRef.current = s.setMuted;
+  const [client] = useState(() => new VoiceClient({
+    room: () => deps.voice.loadRoom(),
+    fetchToken: tokenFetcher(deps.fetch),
+    postMute: (muted) => setMutedRef.current(muted),
+  }));
+  const state = useVoiceClientState(client);
+  const checkStop = useRef<(() => void) | null>(null);
+  const { final, conn, joins, voice, view } = s.state;
+
+  useEffect(() => { if (final) void client.leave(); }, [client, final]);
+  useEffect(() => { if (view?.status === "ended") void client.leave(); }, [client, view?.status]);
+  // No connection without the controls to see and stop it: the voice UI shows only for a consented voice seat.
+  const consented = s.state.joined?.consent?.given === true;
+  useEffect(() => { if (voice?.state !== "voice" || !consented) void client.leave(); }, [client, voice?.state, consented]);
+  useEffect(() => { if (conn === "reconnecting") void client.dropped(); }, [client, conn]);
+  useEffect(() => { if (joins > 0) void client.rejoined(); }, [client, joins]);
+  useEffect(() => () => { void client.leave(); }, [client, sessionId]);
+  useEffect(() => {
+    const hide = () => { void client.leave(); };
+    window.addEventListener("pagehide", hide);
+    return () => window.removeEventListener("pagehide", hide);
+  }, [client]);
+
+  const chooseVoice = s.chooseVoice;
+  return {
+    client, state,
+    // "Text only" while connected: leave the room first, then tell the runtime.
+    onChoose: async (c: VoiceChoiceValue) => { if (c === "text_only") await client.leave(); return chooseVoice(c); },
+    // One microphone capture at a time: the check's tracks are stopped before the join opens the microphone again.
+    onJoin: () => { checkStop.current?.(); checkStop.current = null; return client.join(); },
+    onOptOut: () => chooseVoice("text_only"),
+    registerCheck: (stop: (() => void) | null) => { checkStop.current = stop; },
+  };
+}
 
 /**
  * US-0071: the voice part of the lobby and the scene: only when the runtime sent this seat a voice state that is not `off`, and only once
  * the seat has consented (the opt-in needs the notice the seat agreed to). With voice not enabled this renders nothing.
  */
-function VoiceArea({ v }: { v: VoiceUi }) {
+function VoiceArea({ v, lobby }: { v: VoiceUi; lobby: boolean }) {
   const voice = v.ui.voice;
   if (!voice || voice.state === "off" || v.ui.joined?.consent?.given !== true) return null;
-  return <VoiceChoice state={voice.state} voiceTransport={v.voiceTransport} secure={v.secure()} onChoose={v.onChoose} />;
+  const secure = v.deps.secure();
+  const usable = voice.state === "voice" && secure && v.voiceTransport;
+  const view = v.ui.view;
+  const idle = v.client.state === "idle" || v.client.state === "failed";
+  return (
+    <>
+      <VoiceChoice state={voice.state} voiceTransport={v.voiceTransport} secure={secure} onChoose={v.onChoose} />
+      {usable && lobby && idle ? <MicCheck deps={v.deps} register={v.registerCheck} /> : null}
+      {usable ? (
+        <MicButton client={v.client} started={view !== null && view.status !== "idle"} paused={view?.paused ?? false} inScene={!!view?.scene}
+          unavailable={v.ui.voiceUnavailable} serverMuted={voice.muted} onJoin={v.onJoin} onOptOut={v.onOptOut} />
+      ) : null}
+    </>
+  );
 }
 
 function Lobby({ joined, roster, onConsent, onWithdraw, onLeave, voice }: { joined: Joined; roster: ReturnType<typeof useSession>["state"]["roster"]; onConsent: Action; onWithdraw: Action; onLeave: Action; voice: VoiceUi }) {
@@ -132,7 +210,7 @@ function Lobby({ joined, roster, onConsent, onWithdraw, onLeave, voice }: { join
           {joined.consent ? (
             <ConsentPanel noticeVersion={joined.consent.noticeVersion} notice={joined.consent.notice} given={given} onConsent={onConsent} onWithdraw={onWithdraw} />
           ) : null}
-          <VoiceArea v={voice} />
+          <VoiceArea v={voice} lobby />
           {!given ? <LeaveButton onLeave={onLeave} /> : null}
         </div>
         <section className="col" aria-labelledby="room-h">
@@ -193,7 +271,7 @@ function Scene({ state, clock, onSay, voice }: { state: ReturnType<typeof useSes
               <p className="muted small">This seat agreed to a consent notice earlier. The text above is the current notice.</p>
             </details>
           ) : null}
-          {ended ? null : <VoiceArea v={voice} />}
+          {ended ? null : <VoiceArea v={voice} lobby={false} />}
           <BriefPanel roleId={joined.roleId} brief={joined.brief} privateFacts={joined.privateFacts} injects={view.injects} />
           <section aria-labelledby="room-h2">
             <h2 className="s" id="room-h2">Who is in the room</h2>

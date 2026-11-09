@@ -47,6 +47,8 @@ export type SessionUi = {
   voiceNotice: { code: VoiceNoticeCode; n: number } | null;
   /** The latest of voice_unavailable / voice_available: whether the runtime can capture speech at all (state, not a toast). */
   voiceUnavailable: boolean;
+  /** US-0071: counts the `joined` frames (each one is a fresh runtime connection): the voice client reconnects and re-posts its mute on each. */
+  joins: number;
 };
 
 const FINAL_MESSAGES: Record<FinalKind, string> = {
@@ -74,7 +76,7 @@ type Action =
   | { type: "voice"; voice: SeatVoice }
   | { type: "voice_notice"; code: VoiceNoticeCode };
 
-export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null, voice: null, voiceNotice: null, voiceUnavailable: false };
+export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null, voice: null, voiceNotice: null, voiceUnavailable: false, joins: 0 };
 
 const capped = (v: PlayerView): PlayerView => (v.transcript.length > MAX_TRANSCRIPT_LINES ? { ...v, transcript: v.transcript.slice(-MAX_TRANSCRIPT_LINES) } : v);
 
@@ -90,7 +92,7 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       // (and a reset follows when the replay could not be complete).
       const sameLog = s.joined !== null && s.joined.logIdentity === a.joined.logIdentity;
       const view = s.view !== null && sameLog ? s.view : capped(initPlayerView(a.state));
-      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false };
+      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false, joins: s.joins + 1 };
     }
     case "reset":
       return { ...s, conn: "live", view: capped(a.view), notice: null };

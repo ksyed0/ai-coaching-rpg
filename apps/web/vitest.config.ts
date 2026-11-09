@@ -15,7 +15,9 @@ export default defineConfig({
       // src/proxy.ts (Next 16's middleware) is measured: headers.test.ts runs it.
       // src/demo is the web demo (`pnpm demo --web`): a test harness over a production build and real processes, run as its own
       // CI step (Web E2E), never by vitest.
-      exclude: ["src/app/**", "src/demo/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**"],
+      // src/lib/livekit-room-browser.ts (US-0071) is the thin wrapper over livekit-client, the one file that imports it: unit tests run
+      // VoiceClient against a fake room instead; the wrapper is covered by the opt-in live checks and the browser e2e.
+      exclude: ["src/app/**", "src/demo/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**", "src/lib/livekit-room-browser.ts"],
       thresholds: { lines: 80 },
     },
   },

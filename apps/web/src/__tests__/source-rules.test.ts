@@ -74,6 +74,32 @@ describe("source rules", () => {
   });
 });
 
+describe("US-0071: livekit-client is loaded lazily, by one wrapper", () => {
+  const WRAPPER = join("lib", "livekit-room-browser.ts");
+  it("only lib/livekit-room-browser.ts imports livekit-client", () => {
+    const hits = source.filter((p) => /(?:from\s*|import\s*\(?\s*|require\s*\(\s*)["'`]livekit-client/.test(read(p))).map(rel);
+    expect(hits).toEqual([WRAPPER]);
+  });
+
+  it("no module imports the wrapper statically; SessionScreen loads it with a dynamic import", () => {
+    const statics = source.filter((p) => /(?:from\s*|import\s+)["'][^"']*livekit-room-browser["']/.test(read(p))).map(rel);
+    expect(statics).toEqual([]);
+    expect(read(join(SRC, "components", "SessionScreen.tsx"))).toMatch(/import\(\s*"\.\.\/lib\/livekit-room-browser"\s*\)/);
+  });
+
+  it("the wrapper keeps the library quiet, stops the microphone track on mute and unpublishes it", () => {
+    const w = read(join(SRC, WRAPPER));
+    expect(w).toMatch(/setLogLevel\("warn"\)/);
+    expect(w).toMatch(/stopMicTrackOnMute:\s*true/);
+    expect(w).toMatch(/unpublishTrack\(pub\.track,\s*true\)/);
+    expect(w).not.toMatch(/console\.|localStorage|sessionStorage/);
+  });
+
+  it("no client module logs or stores a token", () => {
+    for (const p of clientSide.filter((q) => /voice|Mic|livekit/i.test(q))) expect(read(p), rel(p)).not.toMatch(/console\.(log|info|warn|error|debug)/);
+  });
+});
+
 describe("pages", () => {
   it("/join and the session page are noindex", async () => {
     const join = await import("../app/join/page");

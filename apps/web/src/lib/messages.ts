@@ -113,6 +113,31 @@ export const MESSAGES = {
   voiceStateOn: "Voice: on",
   voiceStateText: "Voice: off (text only)",
   voiceStateNone: "Voice: not chosen",
+  // US-0071 (A1b Task 15): the lobby's microphone check (MicCheck). The level words are plain text, never announced.
+  micCheck: "Check my microphone",
+  micStopCheck: "Stop the check",
+  micLevelLabel: "Microphone level",
+  micSpeak: "Speak normally for a few seconds and watch the level.",
+  micHeadset: "Use a headset in a private place if you can: other people near you may be heard and recorded.",
+  micHearing: "Hearing you",
+  micTooQuiet: "Too quiet",
+  micNoSound: "No sound yet",
+  micDenied: "The browser did not allow the microphone. You can take part by text, or allow the microphone and try again.",
+  micFailed: "The microphone could not be opened. You can take part by text, or check the microphone and try again.",
+  // "Join with voice", mute and the microphone state (MicButton). The Mute label never changes; aria-pressed carries the state.
+  voiceJoin: "Join with voice",
+  voiceMute: "Mute microphone",
+  voiceStop: "Stop using voice",
+  voiceCouldNotConnect: "Voice could not connect. Use the text box.",
+  // Equals TOKEN_ANSWERS.voice_off in src/server/handlers.ts (a test keeps them together).
+  voiceOffSession: "Voice is off for this session. Use the text box.",
+  micRecording: "Microphone on, recording",
+  micNotStarted: "Microphone on, not recorded until the session starts",
+  micPausedWords: "Microphone on, not recorded while paused",
+  micBetweenScenes: "Microphone on, not recorded between scenes",
+  micUnavailableWords: "Microphone on, not recorded while voice is unavailable",
+  micMuted: "Microphone muted",
+  micNotConnected: "Voice not connected",
 } as const;
 
 /**
