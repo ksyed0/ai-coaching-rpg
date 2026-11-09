@@ -40,7 +40,8 @@ type Session = {
   seats?: TokenSeats;
   off: boolean;
   /**
-   * Roles whose seat was reissued (or removed) and that nobody has bound since: no identity is expected for them, even when a report
+   * Roles whose seat was reissued (or removed), or whose seat room's holder left (a report with no holder and the role not open; F9),
+   * and that nobody has bound since: no identity is expected for them, even when a report
    * shows them open (a whole-session reissue relaunches the runtime, whose first report shows every seat open). Cleared per role by
    * the first report that lists a holder for it.
    */
@@ -157,6 +158,9 @@ export class VoiceTokens {
     if (!s) return;
     s.seats = next;
     for (const roleId of [...s.reissued]) if (next.holders.some((h) => h.roleId === roleId)) s.reissued.delete(roleId);
+    // Batch 3 review F9: a seat room whose holder left (no holder, not open) is remembered here too, so a runtime restart (whose first
+    // report shows the seat open again: the runtime's vacated set is in its memory only) does not let the old identity back in.
+    for (const roleId of s.rooms.keys()) if (!next.holders.some((h) => h.roleId === roleId) && !next.open.includes(roleId)) s.reissued.add(roleId);
     for (const w of [...s.waiters.values()]) {
       if (next.ended) w.settle({ ok: false, code: "voice_unavailable" });
       else if (s.reissued.has(w.roleId)) continue; // still nobody bound since the reissue

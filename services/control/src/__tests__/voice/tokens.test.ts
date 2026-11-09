@@ -329,6 +329,24 @@ describe("VoiceTokens: removing stale identities (US-0071, A1b Task 5, R7, AC-c)
     expect(h.admin.in(room)).toEqual([p2]);
   });
 
+  it("a seat whose holder left stays none-expected across a runtime restart whose report shows it open (batch 3 review F9)", async () => {
+    const { h, room, p1 } = await seated();
+    h.tokens.seatsChanged(S1, seats([])); // p1 left: no holder, not open (the runtime's vacated set)
+    await settle();
+    expect(h.admin.in(room)).toEqual([]);
+    h.tokens.runtimeExited(S1); // the runtime crashes and forgets vacated
+    h.tokens.seatsChanged(S1, seats([], ["tech_lead"])); // the new runtime shows the seat open
+    h.admin.join(room, p1); // the old browser reconnects with its still-valid token
+    h.tokens.seatsChanged(S1, seats([], ["tech_lead"]));
+    await settle();
+    expect(h.admin.in(room)).toEqual([]);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")])); // p1 joins again and binds: expected again
+    h.admin.join(room, p1);
+    h.tokens.seatsChanged(S1, seats([], ["tech_lead"])); // and a reload of theirs keeps them
+    await settle();
+    expect(h.admin.in(room)).toEqual([p1]);
+  });
+
   it("voiceOff removes every seat identity", async () => {
     const { h, room, p1 } = await seated();
     h.tokens.voiceOff(S1);
