@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadScenario, type Scenario } from "@acr/script";
 import { MockModelProvider } from "@acr/adapters";
-import { SessionEngine } from "../../engine/session-engine.js";
+import { EngineError, SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
 import { PlayerCredentials } from "../../engine/credentials.js";
@@ -368,6 +368,55 @@ describe("SessionHost voice turns (US-0070, AC-0400)", () => {
     expect(h.rounds).toHaveBeenCalledTimes(1);
     expect(gmTicks).toHaveBeenCalledTimes(1);
     expect(h.host.voiceTurnOpen).toBe(true);
+  });
+
+  // F1 (review fix wave): a turn that recorded no line (a cough under 300 ms, an empty or failed segment, a refused line) must not make
+  // an AI character speak unprompted: no round runs for it, and no boundary is recorded.
+  it("a turn whose only segment was dropped (no line at all) runs no round", async () => {
+    const h = makeHost();
+    await startVoice(h);
+    h.host.onSpeechActivity("tech_lead", true);
+    h.host.onSpeechActivity("tech_lead", false, 0);
+    h.timers.fire();
+    await h.host.idle(); await turn(); await turn();
+    expect(h.rounds).toHaveBeenCalledTimes(0);
+    expect(h.host.voiceTurnEnds).toEqual([]);
+  });
+
+  it("a turn whose only line was refused runs no round (not_holder, and an engine refusal)", async () => {
+    const h = makeHost();
+    await startVoice(h);
+    h.host.onSpeechActivity("tech_lead", true);
+    await expect(h.host.onVoiceUtterance("tech_lead", "someone-else", "Not mine.")).rejects.toMatchObject({ code: "not_holder" });
+    vi.spyOn(h.engine, "say").mockRejectedValueOnce(new EngineError("not_in_scene"));
+    await expect(h.host.onVoiceUtterance("tech_lead", PID("tech_lead"), "Between scenes.")).rejects.toMatchObject({ code: "not_in_scene" });
+    h.host.onSpeechActivity("tech_lead", false, 0);
+    h.timers.fire();
+    await h.host.idle(); await turn(); await turn();
+    expect(h.rounds).toHaveBeenCalledTimes(0);
+  });
+
+  it("after an answered turn, an empty turn runs no second round; the next turn with a line runs exactly one", async () => {
+    const h = makeHost();
+    await startVoice(h);
+    h.host.onSpeechActivity("tech_lead", true);
+    await h.host.onVoiceUtterance("tech_lead", PID("tech_lead"), "A real line.");
+    h.host.onSpeechActivity("tech_lead", false, 0);
+    h.timers.fire();
+    await vi.waitFor(() => expect(h.rounds).toHaveBeenCalledTimes(1));
+    await h.host.idle();
+    h.host.onSpeechActivity("delivery_lead", true); // a cough
+    h.host.onSpeechActivity("delivery_lead", false, 0);
+    h.timers.fire();
+    await h.host.idle(); await turn(); await turn();
+    expect(h.rounds).toHaveBeenCalledTimes(1);
+    h.host.onSpeechActivity("delivery_lead", true);
+    await h.host.onVoiceUtterance("delivery_lead", PID("delivery_lead"), "Now a real answer.");
+    h.host.onSpeechActivity("delivery_lead", false, 0);
+    h.timers.fire();
+    await vi.waitFor(() => expect(h.rounds).toHaveBeenCalledTimes(2));
+    await h.host.idle(); await turn();
+    expect(h.rounds).toHaveBeenCalledTimes(2);
   });
 
   it("onVoiceTurn reports each open and close, in order", async () => {

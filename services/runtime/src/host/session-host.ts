@@ -100,6 +100,8 @@ export class SessionHost {
    * waits on it, so it never starts before the turn's last line is in the log.
    */
   private voiceChain: Promise<number> = Promise.resolve(0);
+  /** US-0070 (F1): the highest voice-line seq a voice turn's round was scheduled for; a turn that recorded nothing newer runs no round. */
+  private lastAnsweredVoiceSeq = 0;
   private readonly voiceTurnListeners = new Set<(open: boolean) => void>();
   private readonly voiceNoticeListeners = new Set<(roleId: string, code: VoiceNoticeCode) => void>();
   /** US-0070: when each `role\ncode` notice and each alert code was last sent (host clock), for the rate limits. */
@@ -722,7 +724,7 @@ export class SessionHost {
 
   /**
    * US-0070 (C3): a voice turn ended. Its round starts only once every voice line received so far is recorded (the chain), and not at all
-   * when a pause or the end cleared the turn meanwhile. The turn's last recorded seq becomes a boundary for the Game Master's count.
+   * when a pause or the end cleared the turn meanwhile, or when no voice line newer than the last answered one was recorded (F1). The turn's last recorded seq becomes a boundary for the Game Master's count.
    */
   private endVoiceTurn(): void {
     const turns = this.turns;
@@ -730,7 +732,10 @@ export class SessionHost {
     const epoch = turns.epoch;
     void this.voiceChain.then((seq) => {
       if (turns.epoch !== epoch || this.fatal !== null) return;
-      if (seq > 0) turns.recordTurnEnd(seq);
+      // F1: a turn that recorded no new line (a dropped, empty or failed segment, a refused line) makes no AI character speak.
+      if (seq <= this.lastAnsweredVoiceSeq) return;
+      this.lastAnsweredVoiceSeq = seq;
+      turns.recordTurnEnd(seq);
       this.scheduleRound();
     });
   }
