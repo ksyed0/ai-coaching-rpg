@@ -13,6 +13,8 @@ import { voiceDown } from "./down.js";
 import { STT_PORT_MAX, STT_PORT_MIN } from "./env-file.js";
 import type { OpsDeps, PortProbe } from "./ops.js";
 import { realRun, realSpawnDetached, type SetTimer } from "./run.js";
+import { makeResolver } from "./checks/dns.js";
+import { exitCodeOf, installSignals } from "./signals.js";
 import { voiceUp } from "./up.js";
 import { whisperHealth, whisperWarm } from "./whisper.js";
 
@@ -23,8 +25,8 @@ import { whisperHealth, whisperWarm } from "./whisper.js";
  * - The package scripts run `node --import tsx` directly, not the `tsx` command (batch 3 note D20): `tsx`'s own wrapper process was
  *   seen to end the CLI before its rollback finished when a Ctrl-C reached the whole process group (pnpm, tsx and the CLI); with
  *   `node --import tsx` the CLI is pnpm's direct child and its rollback completes.
- * - Signals: the first SIGINT or SIGTERM fires the interrupt (voice:up rolls back what it started); every later SIGINT and SIGTERM is
- *   ignored (pnpm relays the terminal's Ctrl-C again and adds a SIGTERM) until the command ends; then the exit is 130 (SIGINT) or 143.
+ * - Signals (`signals.ts`): for `up` the first SIGINT or SIGTERM fires the interrupt (voice:up rolls back what it started) and every
+ *   later one is ignored until the command ends, then the exit is 130 (SIGINT) or 143; every other command exits at the first signal.
  * - The repository root: VOICE_OPS_REPO_ROOT when set (absolute, holding pnpm-workspace.yaml: the process tests act on a private copy),
  *   else the nearest parent of this file holding pnpm-workspace.yaml.
  */
@@ -100,15 +102,7 @@ function tlsConnect(host: string, port: number, servername: string): Promise<{ a
   });
 }
 
-let interruptSignal: NodeJS.Signals | null = null;
-const interruptHandlers = new Set<() => void>();
-for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, () => {
-    if (interruptSignal !== null) return; // ignored from the second signal on: the rollback must finish
-    interruptSignal = sig;
-    for (const fn of interruptHandlers) fn();
-  });
-}
+const signals = installSignals({ cmd: process.argv[2], on: (sig, fn) => { process.on(sig, fn); }, exit: (code) => { process.exit(code); } });
 
 function deps(root: string): OpsDeps {
   return {
@@ -116,7 +110,7 @@ function deps(root: string): OpsDeps {
     run: realRun, spawnDetached: realSpawnDetached, kill: (pid, sig) => { process.kill(pid, sig); }, pid: process.pid,
     freePort, portFree, random: (n) => randomBytes(n), now: () => Date.now(), setTimer: refSetTimer,
     interfaces: () => os.networkInterfaces(),
-    onInterrupt: (fn) => { if (interruptSignal !== null) queueMicrotask(fn); interruptHandlers.add(fn); return () => { interruptHandlers.delete(fn); }; },
+    onInterrupt: signals.onInterrupt,
     tlsConnect,
     health: (u) => whisperHealth(u), warm: (u) => whisperWarm(u), answers: (u) => httpAnswers(u),
   };
@@ -144,7 +138,7 @@ function whisperPath(): string | null {
 }
 
 function checkDeps(root: string): CheckDeps {
-  const resolver = new dns.promises.Resolver();
+  const resolver = makeResolver(); // bounded: review B2 F6
   return {
     ...deps(root),
     resolve4: (h) => resolver.resolve4(h), resolve6: (h) => resolver.resolve6(h),
@@ -169,8 +163,9 @@ async function main(): Promise<number> {
 
 main().then(
   (code) => {
-    if (interruptSignal !== null) say(`voice-ops: interrupted by ${interruptSignal}: what this run started has been rolled back`);
-    process.exitCode = interruptSignal === "SIGINT" ? 130 : interruptSignal === "SIGTERM" ? 143 : code;
+    const sig = signals.signal();
+    if (sig !== null) say(`voice-ops: interrupted by ${sig}: what this run started has been rolled back`);
+    process.exitCode = sig !== null ? exitCodeOf(sig) : code;
   },
   () => { say("voice-ops: failed (an unexpected error; nothing secret is printed)"); process.exitCode = 1; },
 );

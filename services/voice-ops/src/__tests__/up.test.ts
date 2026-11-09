@@ -317,6 +317,27 @@ describe("voiceUp rollback", () => {
     expect(existsSync(w.statePath)).toBe(false);
   });
 
+  // Review B2 F6: a SIGTERM-only interrupt (no Ctrl-C reaching docker compose) used to wait for compose up's 600 s runner timeout. The
+  // run now gets the abort signal; voice:up still waits for that run's END before compose down (D24: never race up and down).
+  it("an interrupt during compose up aborts that run, waits for its end, then rolls back", async () => {
+    const w = world();
+    let got: AbortSignal | undefined;
+    let upEnded = false;
+    let downAfterUpEnded: boolean | null = null;
+    w.composeUp = (o) => {
+      got = o?.signal;
+      if (!got) return { code: 0, stdout: "", stderr: "" };
+      return new Promise((resolve) => got!.addEventListener("abort", () => queueMicrotask(() => { upEnded = true; resolve({ code: null, stdout: "", stderr: "" }); }), { once: true }));
+    };
+    w.onStep = (step) => { if (step === "compose-up") queueMicrotask(() => w.interrupt!()); if (step === "compose-down") downAfterUpEnded = upEnded; };
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(got?.aborted).toBe(true);
+    expect(downAfterUpEnded).toBe(true);
+    expect(w.composeVerbs()).toEqual(["up", "down"]);
+    expect(w.procs.size).toBe(0);
+    expect(existsSync(w.statePath)).toBe(false);
+  });
+
   it("a whisper-server that cannot be stopped keeps its record in the state (not_stopped)", async () => {
     const w = world();
     w.composeUp = () => ({ code: 1, stdout: "", stderr: "" });

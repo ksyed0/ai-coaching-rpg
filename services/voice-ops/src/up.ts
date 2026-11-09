@@ -23,7 +23,8 @@ export type { OpsDeps, PortProbe } from "./ops.js";
  * interrupt before that changes nothing, so a running stack keeps the state voice:down needs): compose down (after `dockerProblem`) if this run started
  * compose on a fresh start, whisper-server through its own spawn handle, then (fresh) `livekit.env` and the state. Repair mode never runs
  * compose down and never stops a whisper-server it did not start. An interrupt is handled once; the interrupt handler only sets a flag
- * and aborts the waits, the main flow does the rollback (so a second Ctrl-C cannot start a second rollback).
+ * and aborts the waits and the running `compose up` (review B2 F6: its run settles only after docker compose has exited, so `down`
+ * never races `up`), the main flow does the rollback (so a second Ctrl-C cannot start a second rollback).
  *
  * Nothing printed holds a secret: the lines are fixed sentences plus the mode, the hostname, ports, the node address and the model label.
  */
@@ -215,7 +216,7 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
     state!.compose = { project: COMPOSE_PROJECT, profiles };
     save(); // before the start: a crash during `up` leaves a record voice:down acts on
     composeStarted = true;
-    const up = await d.run("docker", composeArgs(d.repoRoot, s.access, "up"), { env: composeEnv(d.env, s, nodeIp), timeoutMs: COMPOSE_UP_TIMEOUT_MS }).catch(() => null);
+    const up = await d.run("docker", composeArgs(d.repoRoot, s.access, "up"), { env: composeEnv(d.env, s, nodeIp), timeoutMs: COMPOSE_UP_TIMEOUT_MS, signal: ctl.signal }).catch(() => null); // review B2 F6
     checkpoint();
     if (up === null || up.code !== 0) throw new Stop(1, `docker compose up failed${up?.code != null ? ` (exit ${up.code})` : ""}: see docker compose -p ${COMPOSE_PROJECT} logs`);
 

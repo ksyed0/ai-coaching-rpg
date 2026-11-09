@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFil
 import os from "node:os";
 import path from "node:path";
 import type { OpsDeps, PortProbe } from "../../ops.js";
-import type { RunResult } from "../../run.js";
+import type { Run, RunResult } from "../../run.js";
 import type { HealthAnswer } from "../../whisper.js";
 
 /**
@@ -12,7 +12,8 @@ import type { HealthAnswer } from "../../whisper.js";
  * in a private temp root: a 0600 `.env`, a model file, the state directory.
  */
 
-export type Call = { cmd: string; args: string[]; env: NodeJS.ProcessEnv | undefined; timeoutMs: number | undefined };
+export type Call = { cmd: string; args: string[]; env: NodeJS.ProcessEnv | undefined; timeoutMs: number | undefined; signal?: AbortSignal };
+type RunOpts = Parameters<Run>[2];
 export type Proc = { comm: string; startedAt: number; args: string[] };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -69,8 +70,8 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     stubborn: new Set<number>(),
     ports: new Map<string, PortProbe>(),
     portsAsked: [] as string[],
-    composeUp: (): Promise<RunResult> | RunResult => ({ code: 0, stdout: "", stderr: "" }),
-    composeDown: (): Promise<RunResult> | RunResult => ({ code: 0, stdout: "", stderr: "" }),
+    composeUp: (_o?: RunOpts): Promise<RunResult> | RunResult => ({ code: 0, stdout: "", stderr: "" }),
+    composeDown: (_o?: RunOpts): Promise<RunResult> | RunResult => ({ code: 0, stdout: "", stderr: "" }),
     composeVersion: "2.24.0",
     contextHost: "unix:///var/run/docker.sock",
     dockerMissing: false,
@@ -99,10 +100,10 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     if (sig === "SIGKILL" || !w.stubborn.has(pid)) w.procs.delete(pid);
   };
 
-  const run = async (cmd: string, args: readonly string[], ro: { env: NodeJS.ProcessEnv; timeoutMs?: number }): Promise<RunResult> => {
+  const run = async (cmd: string, args: readonly string[], ro: RunOpts): Promise<RunResult> => {
     // Review B2 F5: every command gets an explicit environment (realRun refuses one without); a call without it fails the test here.
     if (ro?.env === undefined) throw new Error(`the harness was asked to run ${cmd} without an explicit environment`);
-    w.calls.push({ cmd, args: [...args], env: ro.env, timeoutMs: ro.timeoutMs });
+    w.calls.push({ cmd, args: [...args], env: ro.env, timeoutMs: ro.timeoutMs, ...(ro.signal ? { signal: ro.signal } : {}) });
     const ok = (stdout = ""): RunResult => ({ code: 0, stdout, stderr: "" });
     if (cmd === "git") return w.git();
     if (cmd === "ps") {
@@ -119,8 +120,8 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
       if (w.dockerMissing) throw new Error("could not run docker (ENOENT)");
       if (args[0] === "compose" && args[1] === "version") return ok(w.composeVersion + "\n");
       if (args[0] === "context") return ok(w.contextHost + "\n");
-      if (args.includes("up")) { w.onStep("compose-up"); const r = await w.composeUp(); if (r.code === 0) w.composeIsUp = true; return r; }
-      if (args.includes("down")) { w.onStep("compose-down"); const r = await w.composeDown(); if (r.code === 0) w.composeIsUp = false; return r; }
+      if (args.includes("up")) { w.onStep("compose-up"); const r = await w.composeUp(ro); if (r.code === 0) w.composeIsUp = true; return r; }
+      if (args.includes("down")) { w.onStep("compose-down"); const r = await w.composeDown(ro); if (r.code === 0) w.composeIsUp = false; return r; }
       return ok();
     }
     if (cmd === "tmutil") return ok(`[Excluded]    ${args[1]}\n`);

@@ -1,3 +1,4 @@
+import dns from "node:dns";
 import { isPrivateAddress, parseIPv4 } from "../text.js";
 import type { CheckResult } from "./types.js";
 
@@ -7,6 +8,13 @@ import type { CheckResult } from "./types.js";
  * a router that drops the answer (DNS-rebinding protection), so its answer is reported as a line of its own. Addresses and the hostname
  * are not secret; nothing else is printed.
  */
+/** Review B2 F6: c-ares' defaults (5 s, 4 tries, doubling) keep voice:check waiting over a minute for a DNS server that drops queries. */
+export const DNS_RESOLVER_OPTIONS = { timeout: 3_000, tries: 2 } as const;
+/** The resolver of the DNS line (what the router's DNS says), bounded by DNS_RESOLVER_OPTIONS. */
+export function makeResolver(Ctor: new (o: dns.ResolverOptions) => dns.promises.Resolver = dns.promises.Resolver): dns.promises.Resolver {
+  return new Ctor({ ...DNS_RESOLVER_OPTIONS });
+}
+
 export const REBINDING_HINT = "some routers drop public DNS answers that point to a private address (DNS-rebinding protection): allow the hostname in the router, or add a local DNS entry";
 
 /** An IPv6 address in one spelling (WHATWG URL serialisation: lower case, zeros compressed), without a zone; null when it is not one. */

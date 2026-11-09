@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { closeSync, constants as fsConstants, fchmodSync, fstatSync, openSync } from "node:fs";
 import path from "node:path";
 
@@ -31,20 +31,38 @@ export const realSetTimer: SetTimer = (fn, ms) => {
 
 export type RunResult = { code: number | null; stdout: string; stderr: string };
 /** `env` is required (review B2 F5): a call that forgets it would hand the child the whole process.env, exported keys included. */
-export type Run = (cmd: string, args: readonly string[], o: { env: NodeJS.ProcessEnv; timeoutMs?: number }) => Promise<RunResult>;
+/**
+ * `signal` (review B2 F6) ends the run with SIGTERM when aborted; the promise still settles only once the child has exited (SIGKILL
+ * after RUN_ABORT_GRACE_MS), so a caller never starts its next command while the aborted one runs.
+ */
+export type Run = (cmd: string, args: readonly string[], o: { env: NodeJS.ProcessEnv; timeoutMs?: number; signal?: AbortSignal }) => Promise<RunResult>;
 
 export const RUN_DEFAULT_TIMEOUT_MS = 120_000;
 export const RUN_MAX_OUTPUT_BYTES = 1024 * 1024;
+/** How long an aborted run's child gets after SIGTERM before SIGKILL. */
+export const RUN_ABORT_GRACE_MS = 10_000;
+
+/** Resolves once `child` has exited (at once when it already has, or never started); SIGKILL after `graceMs`. */
+function exitOf(child: ChildProcess, graceMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
+    const t = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, graceMs);
+    child.once("exit", () => { clearTimeout(t); resolve(); });
+  });
+}
 
 export const realRun: Run = (cmd, args, o) => new Promise<RunResult>((resolve, reject) => {
   // Never a default of process.env: a caller (or a cast) that leaves env out is refused before anything runs.
   if (o === undefined || o === null || typeof o.env !== "object" || o.env === null) { reject(new Error(`${path.basename(cmd)} needs an explicit environment`)); return; }
-  execFile(cmd, [...args], {
+  const child = execFile(cmd, [...args], {
     env: o.env, timeout: o.timeoutMs ?? RUN_DEFAULT_TIMEOUT_MS, maxBuffer: RUN_MAX_OUTPUT_BYTES, shell: false, windowsHide: true, encoding: "utf8",
+    ...(o.signal ? { signal: o.signal } : {}),
   }, (err, stdout, stderr) => {
     const out = { stdout: String(stdout ?? ""), stderr: String(stderr ?? "") };
     if (!err) { resolve({ code: 0, ...out }); return; }
     const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean; signal?: string | null };
+    // Aborted (review B2 F6): execFile calls back at once; wait for the child's own exit before settling.
+    if (o.signal?.aborted && (e.name === "AbortError" || e.code === "ABORT_ERR")) { void exitOf(child, RUN_ABORT_GRACE_MS).then(() => resolve({ code: null, ...out })); return; }
     if (typeof e.code === "number") { resolve({ code: e.code, ...out }); return; }
     // Killed by the timeout or the output cap, or by any other signal: no exit code.
     if (e.killed || e.signal || e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") { resolve({ code: null, ...out }); return; }

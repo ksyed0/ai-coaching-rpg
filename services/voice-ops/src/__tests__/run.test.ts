@@ -67,6 +67,29 @@ describe("realRun (US-0072, A1c Task 3)", () => {
     expect(r.stdout.length).toBeLessThanOrEqual(1024 * 1024);
   });
 
+  // Review B2 F6: an abort signal ends the run (SIGTERM to the child), and the promise settles only once the child has EXITED (voice:up
+  // must never start compose down while compose up still runs, D24).
+  it("an aborted run is code null and settles only after the child has exited", async () => {
+    const dir = newDir();
+    const ready = path.join(dir, "ready");
+    const ended = path.join(dir, "ended");
+    const code = `const fs=require("node:fs");process.on("SIGTERM",()=>{setTimeout(()=>{fs.writeFileSync(${JSON.stringify(ended)},"x");process.exit(0)},300)});fs.writeFileSync(${JSON.stringify(ready)},"x");setInterval(()=>{},1000)`;
+    const ctl = new AbortController();
+    const p = realRun(process.execPath, ["-e", code], { env: {}, signal: ctl.signal, timeoutMs: 60_000 });
+    await vi.waitFor(() => { expect(existsSync(ready)).toBe(true); }, { timeout: 60_000, interval: 20 });
+    ctl.abort();
+    const r = await p;
+    expect(r.code).toBeNull();
+    expect(existsSync(ended)).toBe(true);
+  });
+
+  it("a run whose signal is already aborted starts nothing that outlives it", async () => {
+    const ctl = new AbortController();
+    ctl.abort();
+    const r = await realRun(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { env: {}, signal: ctl.signal, timeoutMs: 60_000 });
+    expect(r.code).toBeNull();
+  });
+
   // Review B2 F5: a call that forgets the environment would get the whole process.env (the keys a shell exported included): refused.
   it("refuses a call without an environment and starts nothing", async () => {
     const loose = realRun as unknown as (cmd: string, args: string[], o?: object) => Promise<unknown>;
