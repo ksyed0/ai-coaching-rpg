@@ -4102,7 +4102,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
-      "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md (Tasks 0 to 21): speech package and worker protocol, parent-channel voice messages, voice settings and draft notice v3, the voice record, opt-in and opt-out, voice lines through the host, the turn timer, Game Master and bot cadence, notices and alerts, the speech-to-text adapter, the Whisper client, the segmenter, noise gate and normaliser, the worker pipeline, control's VoiceHost and `pnpm demo --voice`. Covers AC-0396 to AC-0404 (TC-0162 to TC-0170). 2026-11-08: Tasks 0 to 20 done (code and tests, four batches, commits 6b81e84 to 2952053); Task 21 (documents, gates, independent review, PR) in progress, so the task stays In Progress. Deviations from the plan recorded by the batches: the runtime's first `voice_seats`, sent in the same turn as `ready`, is held by the supervisor's `awaitReady` (it was dropped before); control sends `voice_state` only after the worker's `worker_ready`; file ingest starts with the first `voice_state` in which a seat records and the session is not paused; control refuses a line at once (`failed`) beyond 256 pending per session (`MAX_PENDING_LINES`); the limiter also treats a call as cold while another cold call is pending; the fake script gives each role its own fake adapter outside the limiter; the `--voice` flag tests are in `services/runtime/src/demo/__tests__/voice-flag.test.ts`, and `supervisor.voice.test.ts` and `session-store.voice.test.ts` were added."
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md (Tasks 0 to 21): speech package and worker protocol, parent-channel voice messages, voice settings and draft notice v3, the voice record, opt-in and opt-out, voice lines through the host, the turn timer, Game Master and bot cadence, notices and alerts, the speech-to-text adapter, the Whisper client, the segmenter, noise gate and normaliser, the worker pipeline, control's VoiceHost and `pnpm demo --voice`. Covers AC-0396 to AC-0404 (TC-0162 to TC-0170). 2026-11-08: Tasks 0 to 20 done (code and tests, four batches, commits 6b81e84 to 2952053); Task 21 (documents, gates, independent review, PR) in progress, so the task stays In Progress. Deviations from the plan recorded by the batches: the runtime's first `voice_seats`, sent in the same turn as `ready`, is held by the supervisor's `awaitReady` (it was dropped before); control sends `voice_state` only after the worker's `worker_ready`; file ingest starts with the first `voice_state` in which a seat records and the session is not paused; control refuses a line at once (`failed`) beyond 256 pending per session (`MAX_PENDING_LINES`); the limiter also treats a call as cold while another cold call is pending; the fake script gives each role its own fake adapter outside the limiter; the `--voice` flag tests are in `services/runtime/src/demo/__tests__/voice-flag.test.ts`, and `supervisor.voice.test.ts` and `session-store.voice.test.ts` were added. Review fix wave (2026-11-08): F1 to F10 fixed test-first (see US-0070 notes); the STT in-flight cap stays per worker (A1b moves it to control), `STT_MODEL` is unread and the `voice_unavailable` notice unused in A1a, `closedTurnEnds` is unbounded for the session (noted)."
     }
   ],
   "testCases": [
@@ -7735,9 +7735,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-09T00:06:40.521Z",
-  "commitSha": "44865f4",
-  "buildNumber": "581",
+  "generatedAt": "2026-11-09T00:34:43.349Z",
+  "commitSha": "aec2147",
+  "buildNumber": "596",
   "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
   "sessionTimeline": [
     {
@@ -7996,7 +7996,7 @@
       "2026-11-08T17:39:47.895Z",
       "2026-11-08T18:12:59.796Z",
       "2026-11-08T22:40:07.074Z",
-      "2026-11-09T00:06:40.596Z"
+      "2026-11-09T00:34:43.432Z"
     ],
     "doneCounts": [
       0,
