@@ -168,6 +168,9 @@ async function main(): Promise<number> {
 }
 
 main().then(
-  (code) => { process.exitCode = interruptSignal === "SIGINT" ? 130 : interruptSignal === "SIGTERM" ? 143 : code; },
+  (code) => {
+    if (interruptSignal !== null) say(`voice-ops: interrupted by ${interruptSignal}: what this run started has been rolled back`);
+    process.exitCode = interruptSignal === "SIGINT" ? 130 : interruptSignal === "SIGTERM" ? 143 : code;
+  },
   () => { say("voice-ops: failed (an unexpected error; nothing secret is printed)"); process.exitCode = 1; },
 );

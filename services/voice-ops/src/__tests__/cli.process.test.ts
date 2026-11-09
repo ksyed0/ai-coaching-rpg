@@ -25,6 +25,7 @@ function findOnPath(name: string): string | null {
   return null;
 }
 const PNPM = findOnPath("pnpm");
+const PNPM_IS_COREPACK_SHIM = PNPM !== null && readFileSync(PNPM).subarray(0, 4096).toString("latin1").includes("COREPACK");
 
 function portTaken(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -156,7 +157,10 @@ describe("the root voice scripts as real processes (US-0072, A1c Tasks 7 and 9)"
     expect(isAlive(w.pid)).toBe(true);
     process.kill(-pid, "SIGINT"); // the whole group, as a terminal's Ctrl-C reaches pnpm and the CLI together
     const r = await done;
-    expect(r.code === 130 || r.signal === "SIGINT").toBe(true);
+    // the CLI's own last line: it ran to the end of its rollback (the wrappers did not kill it first)
+    expect(r.out).toContain("voice-ops: interrupted by SIGINT: what this run started has been rolled back");
+    // pnpm passes the CLI's 130 on; corepack's node shim for pnpm (the Linux container) was seen to exit 0 instead
+    expect(r.code === 130 || r.signal === "SIGINT" || PNPM_IS_COREPACK_SHIM).toBe(true);
     await vi.waitFor(() => { expect(isAlive(w.pid)).toBe(false); }, { timeout: 20_000, interval: 100 });
     expect(existsSync(path.join(s.stateDir, "state.json"))).toBe(false);
     expect(existsSync(path.join(s.stateDir, "livekit.env"))).toBe(false);
