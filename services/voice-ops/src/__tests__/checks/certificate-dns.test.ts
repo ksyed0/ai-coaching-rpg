@@ -70,7 +70,7 @@ describe("certificateCheck", () => {
 });
 
 describe("dnsCheck", () => {
-  const base = { hostname: "voice.pilot.example", nodeIp: "192.168.1.20" };
+  const base = { hostname: "voice.pilot.example", nodeIp: "192.168.1.20", ownAddresses: ["127.0.0.1", "::1", "192.168.1.20", "fd00:1:2:3::20", "fe80::1c2b:3a4f:fe5d:6e7f"] };
   const none = async (): Promise<string[]> => { throw Object.assign(new Error("queryA ENODATA"), { code: "ENODATA" }); };
   const sys = (...a: string[]) => async () => a.map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
   const at = (r: CheckResult[], n: string): CheckResult | undefined => r.find((x) => x.name === n);
@@ -108,12 +108,27 @@ describe("dnsCheck", () => {
     const r = await dnsCheck({ ...base, resolve4: async () => ["192.168.1.20"], resolve6: none, lookup: sys("127.0.0.1") });
     expect(at(r, "dns-system")).toEqual({ name: "dns-system", level: "warn", line: "this machine resolves voice.pilot.example through its hosts file or another resolver; other devices use DNS" });
   });
-  it("a public AAAA warns, a unique-local one does not", async () => {
-    const pub = await dnsCheck({ ...base, resolve4: async () => ["192.168.1.20"], resolve6: async () => ["2001:db8::5"], lookup: sys("192.168.1.20", "2001:db8::5") });
-    expect(at(pub, "dns-ipv6")).toEqual({ name: "dns-ipv6", level: "warn", line: "DNS: voice.pilot.example also has an IPv6 (AAAA) address that is not a local one: browsers may prefer it and miss this machine; remove the AAAA record" });
-    const ula = await dnsCheck({ ...base, resolve4: async () => ["192.168.1.20"], resolve6: async () => ["fd12:3456::5"], lookup: sys("192.168.1.20", "fd12:3456::5") });
-    expect(at(ula, "dns-ipv6")).toBeUndefined();
-    expect(at(ula, "dns")!.level).toBe("ok");
+  // Review B2 F8: an AAAA that is not one of this machine's own addresses sends a browser elsewhere (with a certificate for this name it
+  // fails TLS there, with no fallback to the A record): FAIL, a unique-local one included. This machine's own IPv6 address only warns:
+  // Caddy binds IPv4 only and Happy Eyeballs falls back to the A record.
+  it("an AAAA that is not this machine's fails, a unique-local one included", async () => {
+    for (const aaaa of ["2001:db8::5", "fd12:3456::5"]) {
+      const r = await dnsCheck({ ...base, resolve4: async () => ["192.168.1.20"], resolve6: async () => [aaaa], lookup: sys("192.168.1.20", aaaa) });
+      expect(at(r, "dns-ipv6"), aaaa).toEqual({ name: "dns-ipv6", level: "fail", line: `DNS: voice.pilot.example has an IPv6 (AAAA) address that is not this machine (${aaaa}): browsers may use it and fail; remove the AAAA record` });
+      expect(at(r, "dns")!.level).toBe("ok");
+    }
+  });
+  it("an AAAA of this machine's own (any spelling) only warns", async () => {
+    for (const aaaa of ["fd00:1:2:3::20", "FD00:0001:0002:0003:0000:0000:0000:0020"]) {
+      const r = await dnsCheck({ ...base, resolve4: async () => ["192.168.1.20"], resolve6: async () => [aaaa], lookup: sys("192.168.1.20", aaaa) });
+      expect(at(r, "dns-ipv6"), aaaa).toEqual({ name: "dns-ipv6", level: "warn", line: "DNS: voice.pilot.example also has an IPv6 (AAAA) address of this machine: the proxy listens on IPv4 only; browsers fall back to IPv4, but remove the AAAA record if connecting is slow" });
+    }
+  });
+  it("a loopback or link-local A answer is not called a public address", async () => {
+    for (const a of ["127.0.0.1", "169.254.10.20"]) {
+      const r = await dnsCheck({ ...base, resolve4: async () => [a], resolve6: none, lookup: sys(a) });
+      expect(at(r, "dns"), a).toEqual({ name: "dns", level: "fail", line: `DNS: voice.pilot.example points to a loopback or link-local address (${a}): point it to this machine's LAN address 192.168.1.20` });
+    }
   });
   it("a system resolver that fails warns", async () => {
     const r = await dnsCheck({ ...base, resolve4: async () => ["192.168.1.20"], resolve6: none, lookup: async () => { throw new Error("ENOTFOUND"); } });

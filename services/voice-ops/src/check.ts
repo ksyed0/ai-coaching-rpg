@@ -95,7 +95,8 @@ export async function voiceCheck(d: CheckDeps): Promise<0 | 1 | 2> {
       const keyMode = ((): number | null => { if (lan.tls.mode !== "files") return 0o600; try { return statSync(lan.tls.keyFile).mode; } catch { return null; } })();
       return certificateCheck({ certPem: certFile === null ? null : readSmall(certFile), keyMode, hostname: lan.hostname, now: d.now() });
     });
-    await guarded("dns", () => dnsCheck({ hostname: lan.hostname, nodeIp, resolve4: d.resolve4, resolve6: d.resolve6, lookup: d.lookup }));
+    const ownAddresses = Object.values(d.interfaces()).flatMap((l) => (l ?? []).map((i) => i.address));
+    await guarded("dns", () => dnsCheck({ hostname: lan.hostname, nodeIp, resolve4: d.resolve4, resolve6: d.resolve6, lookup: d.lookup, ownAddresses }));
     await guarded("tls-route", () => tlsRouteCheck({ hostname: lan.hostname, port: lan.livekitTlsPort, connect: d.tlsConnect }));
   }
   await guarded("web", () => webCheck({
