@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { REPO_ROOT } from "../../main.js";
 import { MAX_NOTICE_CHARS, loadConsentNotice } from "../consent-notice.js";
 
-// US-0070: the DRAFT notice v3 (voice); its wording is for legal and HR review (spec section 6, overview C1) and A1b replaces it.
-describe("consent notice v3 (US-0070, draft)", () => {
+// Owner approved the wording 2026-11-08. The first line stays until the release gate (A2 closed, legal and HR sign-off), which removes it
+// and adds a SHA-256 pin; changing the notice after that needs v4, never an edit of v3.
+describe("consent notice v3 (US-0070, owner-approved wording; draft marker until the release gate)", () => {
   const n = loadConsentNotice(path.join(REPO_ROOT, "consent"), "v3");
 
   it("loads, within the notice length limit, and is marked as a draft not for use with participants", () => {

@@ -3,6 +3,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import { initialState, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import { applyConsoleEvent, viewFromReset, type ConsoleView } from "./console-view";
+import { pickVoice } from "./console-voice";
 import { MESSAGES } from "./messages";
 import { roleLabel } from "./names";
 import type { EventSourceLike, SessionDeps } from "./use-session";
@@ -16,7 +17,11 @@ import type { EventSourceLike, SessionDeps } from "./use-session";
 export const MAX_GAP_RESYNCS = 3;
 
 /** Mirrors FacilitatorRosterEntry in src/server/wire.ts (client modules import no server module). */
-export type FacilitatorRosterEntry = { roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
+export type FacilitatorRosterEntry = {
+  roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true;
+  /** US-0071: with voice on, the seat's voice state and whether it speaks now (picked by `entryOf` below: valid values only). */
+  voice?: "none" | "voice" | "text_only" | "off"; speaking?: true;
+};
 /** Mirrors ConsoleScene/ConsoleCharacter in src/server/facilitator-copies.ts. A character's facts carry only their number and whether they are released: never text. */
 export type ConsoleInject = { id: string; to: string[]; content: string; atMinute?: number };
 export type ConsoleScene = PlayerScene & { injects: ConsoleInject[] };
@@ -150,6 +155,11 @@ const toState = (d: unknown): SessionState | null => {
 
 const isEntry = (e: unknown): e is FacilitatorRosterEntry =>
   isObj(e) && typeof e.roleId === "string" && typeof e.joined === "boolean" && typeof e.consented === "boolean" && typeof e.connected === "boolean" && (e.name === undefined || typeof e.name === "string");
+/** One entry picked field by field (never spread): `ai` only as the literal true, `voice`/`speaking` only when valid (US-0071 Task 16). */
+const entryOf = (e: FacilitatorRosterEntry): FacilitatorRosterEntry => ({
+  roleId: e.roleId, ...(e.name !== undefined && { name: e.name }), joined: e.joined, consented: e.consented, connected: e.connected,
+  ...(e.ai === true && { ai: true as const }), ...pickVoice(e as unknown as Record<string, unknown>),
+});
 
 export const consoleStreamUrl = (sessionId: string) => `/api/v1/console/sessions/${encodeURIComponent(sessionId)}/stream`;
 
@@ -189,7 +199,7 @@ export function useConsoleStream(sessionId: string, deps: SessionDeps, o: { enab
       if (isObj(d) && Array.isArray(d.roles)) dispatch({ type: "characters", characters: d.roles.flatMap((c) => { const v = toCharacter(c); return v ? [v] : []; }) });
     });
     on("roster", (d) => {
-      if (isObj(d) && Array.isArray(d.entries) && d.entries.every(isEntry)) dispatch({ type: "roster", entries: d.entries.map(({ ai, ...rest }) => (ai === true ? { ...rest, ai } : rest)) });
+      if (isObj(d) && Array.isArray(d.entries) && d.entries.every(isEntry)) dispatch({ type: "roster", entries: d.entries.map(entryOf) });
     });
     // A server-sent `event: error` carries JSON; the browser's own connection error (also named "error") carries no data.
     on("error", (d) => { if (isObj(d)) dispatch({ type: "notice", text: MESSAGES.consoleServerError }); });

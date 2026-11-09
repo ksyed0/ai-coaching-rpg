@@ -60,8 +60,8 @@ describe("parseWorkerConfig (US-0070)", () => {
     expect(errorsOf(base({ STT_PROVIDER: "cloud" }))[0]).toContain("STT_PROVIDER");
   });
 
-  it("unknown SPEECH_INGEST is refused (A1a supports file only)", () => {
-    for (const bad of ["livekit", "mic", "FILE"]) expect(errorsOf(base({ SPEECH_INGEST: bad }))[0], bad).toContain("SPEECH_INGEST");
+  it("unknown SPEECH_INGEST is refused (file or livekit)", () => {
+    for (const bad of ["mic", "FILE", "LiveKit", "livekit "]) expect(errorsOf(base({ SPEECH_INGEST: bad }))[0], bad).toContain("SPEECH_INGEST");
     expect(parseWorkerConfig(base({ SPEECH_INGEST: "file" })).ok).toBe(true);
   });
 
@@ -118,6 +118,30 @@ describe("the fake speech-to-text script (offline demo and tests)", () => {
     await symlink(target, link);
     for (const f of [path.join(dir, "missing.json"), bad, big, link]) {
       expect(() => loadFakeScript(f), f).toThrow(FAKE_SCRIPT_REFUSED);
+    }
+  });
+});
+
+describe("parseWorkerConfig: LiveKit ingest and STT_MODEL (US-0071, A1b Task 7, R25)", () => {
+  it("SPEECH_INGEST=livekit needs no dir and keeps the roles", () => {
+    const r = parseWorkerConfig({ STT_URL: "http://127.0.0.1:9000", SPEECH_INGEST: "livekit", SPEECH_INGEST_ROLES: "tech_lead,pm" });
+    expect(r.ok && r.cfg.ingest).toEqual({ kind: "livekit", roles: ["tech_lead", "pm"] });
+    const bad = errorsOf({ STT_URL: "http://127.0.0.1:9000", SPEECH_INGEST: "livekit", SPEECH_INGEST_ROLES: "../x" });
+    expect(bad[0]).toContain("SPEECH_INGEST_ROLES");
+  });
+
+  it("STT_MODEL small.en and large-v3-turbo-q5_0 pass; unset or empty passes", () => {
+    for (const ok of ["small.en", "large-v3-turbo-q5_0", "base", "a".repeat(64)]) expect(parseWorkerConfig(base({ STT_MODEL: ok })).ok, ok).toBe(true);
+    expect(parseWorkerConfig(base({ STT_MODEL: "" })).ok).toBe(true);
+    expect(parseWorkerConfig(base()).ok).toBe(true);
+  });
+
+  it("STT_MODEL \"a b\", \"../m\", 65 characters, an empty part or a slash fail with an error naming the variable only", () => {
+    for (const bad of ["a b", "../m", "a".repeat(65), "small..en", ".en", "small.", "m/x", "m\u0000"]) {
+      const e = errorsOf(base({ STT_MODEL: bad }));
+      expect(e, JSON.stringify(bad)).toHaveLength(1);
+      expect(e[0]).toContain("STT_MODEL");
+      expect(e[0]).not.toContain(bad);
     }
   });
 });

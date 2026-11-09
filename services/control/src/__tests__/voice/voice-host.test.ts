@@ -1,8 +1,11 @@
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ControlToWorker } from "@acr/speech/protocol";
+import { ControlToWorkerSchema, type ControlToWorker } from "@acr/speech/protocol";
 import type { ControlConfig } from "../../config.js";
 import type { ParentMessage } from "../../protocol.js";
+import { createHash } from "node:crypto";
+import { parseParticipantIdentity, type RoomAdmin } from "@acr/adapters/livekit";
+import { VoiceTokenRefused, VoiceTokens } from "../../voice/tokens.js";
 import { VOICE_LINE_TIMEOUT_MS, VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
 import { AI_CONFIG } from "../fake-child.js";
 
@@ -27,9 +30,9 @@ type T = { fn: () => void; ms: number; cancelled: boolean };
 const ID = "a".repeat(32);
 const SEG = "0123456789abcdef";
 const TEXT = "We can ship in May, the secret plan";
-const holders = [{ roleId: "tech_lead", participantId: "p-secret-1", recording: true }];
-const seats = (o: { paused?: boolean; ended?: boolean; holders?: typeof holders } = {}) =>
-  ({ type: "voice_seats" as const, paused: o.paused ?? false, ended: o.ended ?? false, holders: o.holders ?? holders });
+const holders = [{ roleId: "tech_lead", participantId: "p-secret-1", recording: true, voiceChosen: true }];
+const seats = (o: { paused?: boolean; ended?: boolean; holders?: typeof holders; open?: string[] } = {}) =>
+  ({ type: "voice_seats" as const, paused: o.paused ?? false, ended: o.ended ?? false, holders: o.holders ?? holders, open: o.open ?? [] });
 
 let timers: T[], workers: FakeWorker[], toRuntime: { id: string; m: ParentMessage }[], logs: string[], turns: [string, boolean][], runtimeUp: boolean;
 const config = { graceMs: 700, logDir: "/data/child-logs" } as ControlConfig;
@@ -43,9 +46,26 @@ const make = () => new VoiceHost({
 const fire = (ms: number) => { for (const t of timers.filter((x) => x.ms === ms && !x.cancelled)) { t.cancelled = true; t.fn(); } };
 const ready = (w: FakeWorker, stt: "ok" | "unavailable" = "ok") => w.emit({ type: "worker_ready", stt });
 const line = (segmentId = SEG) => ({ type: "voice_line", segmentId, roleId: "tech_lead", participantId: "p-secret-1", text: TEXT, startMs: 10, endMs: 20 });
+/** What reached the runtime besides voice_availability (Task 9 sends it on every attach and change; its own tests are below). */
+const relayed = () => toRuntime.filter((x) => x.m.type !== "voice_availability");
 const live = (v: VoiceHost) => { v.attach(ID, { voice: true, roles: ["tech_lead", "pm"] }); const w = workers.at(-1)!; ready(w); return w; };
 
 beforeEach(() => { timers = []; workers = []; toRuntime = []; logs = []; turns = []; runtimeUp = true; });
+
+describe("VoiceHost and the US-0071 worker messages (A1b Task 2, characterisation; Task 5 for LiveKit)", () => {
+  it("without LiveKit, livekit_token_request is ignored, and a health result equal to the current one changes nothing; livekit_status is a fixed log line", () => {
+    const v = make();
+    const w = live(v);
+    const sentBefore = w.sent.length; const logsBefore = logs.length;
+    for (const m of [
+      { type: "livekit_token_request", roleId: "tech_lead" }, { type: "livekit_status", state: "connected" }, { type: "stt_health", ok: true },
+    ]) w.emit(m);
+    expect(w.sent.slice(sentBefore)).toEqual([]);
+    expect(relayed()).toEqual([]);
+    expect(logs.slice(logsBefore)).toEqual([`session ${ID} speech room connected`]);
+    expect(v.workerPid(ID)).toBe(4242);
+  });
+});
 
 describe("VoiceHost (US-0070): one speech worker per voice session", () => {
   it("no worker without ready.voice", () => {
@@ -83,7 +103,7 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     const v = make();
     const w = live(v);
     w.emit(line());
-    expect(toRuntime).toEqual([{ id: ID, m: { type: "voice_line", segmentId: SEG, roleId: "tech_lead", participantId: "p-secret-1", text: TEXT } }]);
+    expect(relayed()).toEqual([{ id: ID, m: { type: "voice_line", segmentId: SEG, roleId: "tech_lead", participantId: "p-secret-1", text: TEXT } }]);
     v.fromRuntime(ID, { type: "voice_line_ack", segmentId: SEG, seq: 42 });
     expect(w.sent).toEqual([{ type: "voice_line_result", segmentId: SEG, seq: 42 }]);
     expect(timers.filter((t) => t.ms === VOICE_LINE_TIMEOUT_MS && !t.cancelled)).toEqual([]);
@@ -126,25 +146,25 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     const w = live(v);
     w.emit({ type: "speech_activity", roleId: "tech_lead", active: true });
     w.emit({ type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 600 });
-    expect(toRuntime.map((x) => x.m)).toEqual([{ type: "speech_activity", roleId: "tech_lead", active: true }, { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 600 }]);
+    expect(relayed().map((x) => x.m)).toEqual([{ type: "speech_activity", roleId: "tech_lead", active: true }, { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 600 }]);
   });
 
   it("segment_failed stt_failed becomes the speaker's voice_notice and a facilitator alert; empty gives neither (owner decision 2026-11-08)", () => {
     const v = make();
     const w = live(v);
     w.emit({ type: "segment_failed", segmentId: SEG, roleId: "tech_lead", participantId: "p-secret-1", status: "stt_failed" });
-    expect(toRuntime.map((x) => x.m)).toEqual([
+    expect(relayed().map((x) => x.m)).toEqual([
       { type: "voice_notice", roleId: "tech_lead", participantId: "p-secret-1", code: "stt_failed" }, { type: "voice_alert", code: "stt_failed" },
     ]);
     w.emit({ type: "segment_failed", segmentId: SEG, roleId: "tech_lead", participantId: "p-secret-1", status: "empty" });
-    expect(toRuntime).toHaveLength(2);
+    expect(relayed()).toHaveLength(2);
   });
 
   it("worker_ready with stt unavailable alerts the facilitator", () => {
     const v = make();
     v.attach(ID, { voice: true, roles: ["tech_lead"] });
     ready(workers[0]!, "unavailable");
-    expect(toRuntime.map((x) => x.m)).toEqual([{ type: "voice_alert", code: "stt_unavailable" }]);
+    expect(relayed().map((x) => x.m)).toEqual([{ type: "voice_alert", code: "stt_unavailable" }]);
   });
 
   it("voice_turn reaches the bots; voice_choice is dropped in A1a", () => {
@@ -158,20 +178,19 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
     expect(turns).toEqual([[ID, true], [ID, false]]);
     expect(v.voiceTurnOpen("b".repeat(32))).toBe(false);
-    expect(toRuntime).toEqual([]);
+    expect(relayed()).toEqual([]);
   });
 
-  it("a worker exit while the session runs: one worker_down alert, pending lines forgotten, no restart", () => {
+  it("a worker exit while the session runs: one worker_restarting alert, pending lines forgotten, a restart scheduled (A1b Task 8)", () => {
     const v = make();
     const w = live(v);
     w.emit(line());
     w.exit(1);
-    expect(toRuntime.map((x) => x.m).filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_down" }]);
+    expect(toRuntime.map((x) => x.m).filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_restarting" }]);
     expect(timers.filter((t) => t.ms === VOICE_LINE_TIMEOUT_MS && !t.cancelled)).toEqual([]);
     expect(v.workerPid(ID)).toBeUndefined();
-    v.fromRuntime(ID, seats());
-    v.attach(ID, { voice: true, roles: ["tech_lead"] }); // even a later ready does not bring it back in A1a
-    expect(workers).toHaveLength(1);
+    expect(workers).toHaveLength(1); // the restart waits for its backoff (restart.test.ts)
+    expect(timers.filter((t) => t.ms === 500 && !t.cancelled)).toHaveLength(1);
     expect(logs).toContain(`session ${ID} speech worker stopped unexpectedly`);
   });
 
@@ -242,7 +261,7 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     const v = make();
     const w = live(v);
     for (const bad of [null, "x", { type: "voice_line" }, { ...line(), extra: 1 }, { ...line(), segmentId: "../x" }, { ...line(), roleId: "facilitator" }, { type: "worker_ready", stt: "maybe" }]) w.emit(bad);
-    expect(toRuntime).toEqual([]);
+    expect(relayed()).toEqual([]);
     expect(w.sent).toEqual([]);
   });
 
@@ -267,7 +286,7 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     });
     v.attach(ID, { voice: true, roles: [] });
     expect(logs).toEqual([`session ${ID} speech worker could not start (TypeError)`]);
-    expect(toRuntime.map((x) => x.m)).toEqual([{ type: "voice_alert", code: "worker_down" }]);
+    expect(toRuntime.map((x) => x.m).filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_restarting" }]);
   });
 
   it("shutdown disconnects every worker and force-kills one that stays", async () => {
@@ -280,5 +299,406 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     expect(w.forced).toBe(1);
     w.exit(0);
     expect(toRuntime.filter((x) => x.m.type === "voice_alert")).toEqual([]);
+  });
+});
+
+describe("VoiceHost and voice availability (US-0071, A1b Task 9)", () => {
+  const avail = () => toRuntime.map((x) => x.m).filter((m) => m.type === "voice_availability");
+  const alertCodes = () => toRuntime.map((x) => x.m).filter((m) => m.type === "voice_alert").map((m) => (m as { code: string }).code);
+  const A = (available: boolean, off = false) => ({ type: "voice_availability", available, off });
+
+  it("an attach tells the runtime at once (not available until the worker is ready), and worker_ready ok makes voice available", () => {
+    const v = make();
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    expect(avail()).toEqual([A(false)]);
+    ready(workers[0]!);
+    expect(avail()).toEqual([A(false), A(true)]);
+    expect(alertCodes()).toEqual([]);
+  });
+
+  it("stt_health false gives one stt_unavailable alert and voice_availability available false; a repeat changes nothing", () => {
+    const v = make();
+    const w = live(v);
+    w.emit({ type: "stt_health", ok: false });
+    w.emit({ type: "stt_health", ok: false });
+    expect(avail().at(-1)).toEqual(A(false));
+    expect(avail()).toHaveLength(3); // attach, ready, the change
+    expect(alertCodes()).toEqual(["stt_unavailable"]);
+  });
+
+  it("false, true gives stt_recovered and available true", () => {
+    const v = make();
+    const w = live(v);
+    w.emit({ type: "stt_health", ok: false });
+    w.emit({ type: "stt_health", ok: true });
+    expect(avail().slice(-2)).toEqual([A(false), A(true)]);
+    expect(alertCodes()).toEqual(["stt_unavailable", "stt_recovered"]);
+  });
+
+  it("worker_ready unavailable is unhealthy: one stt_unavailable alert, voice stays unavailable until a healthy result", () => {
+    const v = make();
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    ready(workers[0]!, "unavailable");
+    expect(avail()).toEqual([A(false)]);
+    expect(alertCodes()).toEqual(["stt_unavailable"]);
+    workers[0]!.emit({ type: "stt_health", ok: true });
+    expect(avail()).toEqual([A(false), A(true)]);
+    expect(alertCodes()).toEqual(["stt_unavailable", "stt_recovered"]);
+  });
+
+  it("a restarted worker whose warm-up succeeds makes voice available again (no stt_health needed)", () => {
+    const v = make();
+    const w = live(v);
+    w.emit({ type: "stt_health", ok: false });
+    w.exit(1);
+    const restart = timers.find((t) => t.ms === 500 && !t.cancelled)!;
+    restart.cancelled = true; restart.fn();
+    ready(workers[1]!, "ok");
+    expect(avail().at(-1)).toEqual(A(true));
+    expect(alertCodes()).toEqual(["stt_unavailable", "worker_restarting", "stt_recovered"]);
+  });
+
+  it("a worker exit sends available false; the next worker_ready ok sends true", () => {
+    const v = make();
+    const w = live(v);
+    w.exit(3);
+    expect(avail().at(-1)).toEqual(A(false));
+    const restart = timers.find((t) => t.ms === 500 && !t.cancelled)!;
+    restart.cancelled = true; restart.fn();
+    ready(workers[1]!);
+    expect(avail().slice(-2)).toEqual([A(false), A(true)]);
+  });
+
+  it("voice off sends off true, and every later runtime ready is told off true", () => {
+    const v = make();
+    live(v);
+    for (let i = 0; i < 6; i++) {
+      workers.at(-1)!.exit(1);
+      const restart = timers.find((t) => [500, 1000, 2000, 4000, 8000].includes(t.ms) && !t.cancelled);
+      if (restart) { restart.cancelled = true; restart.fn(); }
+    }
+    expect(avail().at(-1)).toEqual(A(false, true));
+    v.detach(ID);
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    expect(avail().at(-1)).toEqual(A(false, true));
+  });
+
+  it("every runtime ready receives the current voice_availability (unavailable, runtime restart, new ready: the new runtime is told)", () => {
+    const v = make();
+    const w = live(v);
+    w.emit({ type: "stt_health", ok: false });
+    const n = avail().length;
+    v.detach(ID);
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    expect(avail().slice(n)).toEqual([A(false)]);
+    w.emit({ type: "stt_health", ok: true });
+    v.detach(ID);
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    expect(avail().slice(-1)).toEqual([A(true)]); // available again: a restarted runtime is told so too (it starts with nothing known)
+  });
+
+  it("an availability change while the runtime is down is told at the next ready", () => {
+    const v = make();
+    const w = live(v);
+    v.detach(ID);
+    runtimeUp = false;
+    w.emit({ type: "stt_health", ok: false });
+    runtimeUp = true;
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    expect(avail().at(-1)).toEqual(A(false));
+  });
+
+  it("no availability is sent for a runtime without voice, or after the end", () => {
+    const v = make();
+    v.attach(ID, { roles: ["tech_lead"] });
+    expect(avail()).toEqual([]);
+    const ID2 = "b".repeat(32);
+    v.attach(ID2, { voice: true, roles: ["tech_lead"] });
+    const w = workers.at(-1)!;
+    ready(w);
+    const n = avail().length;
+    v.end(ID2);
+    w.emit({ type: "stt_health", ok: false });
+    expect(avail()).toHaveLength(n);
+  });
+
+  // R13 (A1a carry-over), decision: document, no fix. Both characterisation (expected PASS before any Task 9 code).
+  it("R13: a line sent between a runtime exit and the next ready is refused failed and gives no notice", () => {
+    const v = make();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    v.detach(ID);
+    const before = toRuntime.length;
+    w.emit(line());
+    expect(w.sent.at(-1)).toEqual({ type: "voice_line_result", segmentId: SEG, refused: "failed" });
+    w.emit({ type: "segment_failed", segmentId: SEG, roleId: "tech_lead", participantId: "p-secret-1", status: "stt_failed" });
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    expect(toRuntime.slice(before).map((x) => x.m).filter((m) => m.type === "voice_line" || m.type === "voice_notice")).toEqual([]);
+  });
+
+  it("R13: the runtime exit sends the worker an empty voice_state before any later line is relayed", () => {
+    const v = make();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    v.detach(ID);
+    const emptyAt = w.sent.findIndex((m) => m.type === "voice_state" && m.holders.length === 0);
+    expect(emptyAt).toBeGreaterThan(-1);
+    w.emit(line());
+    expect(w.sent.findIndex((m) => m.type === "voice_line_result")).toBeGreaterThan(emptyAt);
+    expect(toRuntime.filter((x) => x.m.type === "voice_line")).toEqual([]);
+  });
+
+  // The A1a refusal window after a runtime restart, pinned (decision: document, no fix): from the new runtime's first seats until its
+  // attach (the supervisor reads the player roles first) a line is refused `failed`. A new runtime always starts in the lobby (nothing
+  // records) or resumed PAUSED (the worker's gate stops every pipeline), so no line can be cut in that window.
+  it("the refusal window: a line between a new runtime's first seats and its attach is refused failed (pinned)", () => {
+    const v = make();
+    const w = live(v);
+    v.detach(ID);
+    v.fromRuntime(ID, seats({ paused: true }));
+    expect(w.sent.at(-1)).toEqual({ type: "voice_state", paused: true, ended: false, holders });
+    w.emit(line());
+    expect(w.sent.at(-1)).toEqual({ type: "voice_line_result", segmentId: SEG, refused: "failed" });
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    w.emit(line("fedcba9876543210"));
+    expect(toRuntime.filter((x) => x.m.type === "voice_line")).toHaveLength(1); // relayed once the runtime is attached
+  });
+});
+
+describe("VoiceHost and the global speech-to-text budget (US-0071, A1b Task 6)", () => {
+  const ID2 = "b".repeat(32);
+  const LEASE = 35_000; // STT_COLD_TIMEOUT_MS (default 30 s) + 5 s
+  const ask = (w: FakeWorker, slot: string) => w.emit({ type: "stt_slot_request", slot });
+  const grants = (w: FakeWorker) => w.sent.filter((m) => m.type === "stt_slot_grant");
+  const two = (v: VoiceHost) => {
+    const a = live(v);
+    v.attach(ID2, { voice: true, roles: ["tech_lead"] });
+    const b = workers.at(-1)!;
+    ready(b);
+    return { a, b };
+  };
+
+  it("with two voice sessions at most 2 transcriptions run at once across both", () => {
+    const v = make();
+    const { a, b } = two(v);
+    ask(a, "1111111111111111"); ask(a, "2222222222222222");
+    ask(b, "3333333333333333"); ask(b, "4444444444444444");
+    expect(grants(a)).toEqual([{ type: "stt_slot_grant", slot: "1111111111111111" }, { type: "stt_slot_grant", slot: "2222222222222222" }]);
+    expect(grants(b)).toEqual([]);
+    a.emit({ type: "stt_slot_release", slot: "1111111111111111" });
+    expect(grants(b)).toEqual([{ type: "stt_slot_grant", slot: "3333333333333333" }]);
+    for (const m of [...a.sent, ...b.sent]) expect(ControlToWorkerSchema.safeParse(m).success).toBe(true);
+  });
+
+  it("a worker exit releases its slots: the other session's waiter is granted at once", () => {
+    const v = make();
+    const { a, b } = two(v);
+    ask(a, "1111111111111111"); ask(a, "2222222222222222"); ask(b, "3333333333333333");
+    a.exit(1);
+    expect(grants(b)).toEqual([{ type: "stt_slot_grant", slot: "3333333333333333" }]);
+    expect(timers.filter((t) => t.ms === LEASE && !t.cancelled)).toHaveLength(1);
+  });
+
+  it("an expired lease kills that session's worker only (kill, then forceKill after graceMs), and grants the next waiter", () => {
+    const v = make();
+    const { a, b } = two(v);
+    ask(a, "1111111111111111"); ask(a, "2222222222222222"); ask(b, "3333333333333333");
+    const lease = timers.find((t) => t.ms === LEASE && !t.cancelled)!;
+    lease.cancelled = true; lease.fn();
+    expect(a.killed).toBe(1);
+    expect(b.killed).toBe(0);
+    expect(grants(b)).toEqual([{ type: "stt_slot_grant", slot: "3333333333333333" }]);
+    expect(logs).toContain(`session ${ID} speech slot lease expired (timeout)`);
+    fire(700);
+    expect(a.forced).toBe(1);
+    expect(b.forced).toBe(0);
+  });
+
+  it("a request from a worker that is no longer the session's is ignored", () => {
+    const v = make();
+    const a = live(v);
+    a.exit(1);
+    ask(a, "1111111111111111");
+    expect(grants(a)).toEqual([]);
+  });
+});
+
+describe("VoiceHost and LiveKit (US-0071, A1b Task 5)", () => {
+  const CFG = { apiKey: "APIkey", apiSecret: "s".repeat(40), host: new URL("http://127.0.0.1:7880"), workerUrl: "ws://127.0.0.1:7880" };
+  let n = 0;
+  const seeded = (n0: number) => { let i = n0; return (k: number) => { const b = Buffer.alloc(k); for (let o = 0; o < k; o += 32) createHash("sha256").update(String(i++)).digest().copy(b, o); return b; }; };
+  type Admin = RoomAdmin & { rooms: Map<string, Set<string>>; calls: string[] };
+  const fakeAdmin = (): Admin => {
+    const rooms = new Map<string, Set<string>>();
+    const calls: string[] = [];
+    return {
+      rooms, calls,
+      async removeParticipant(room, identity) { calls.push(`remove ${identity}`); rooms.get(room)?.delete(identity); },
+      async listParticipants(room) { calls.push("list"); return [...(rooms.get(room) ?? [])]; },
+      async deleteRoom(room) { calls.push("delete"); rooms.delete(room); },
+    };
+  };
+  const withLiveKit = (ingest: "file" | "livekit" = "livekit") => {
+    const admin = fakeAdmin();
+    const tokens = new VoiceTokens({
+      cfg: CFG, admin, random: seeded(1), log: (m) => logs.push(m),
+      setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+      mint: async () => ({ token: `jwt-p-${++n}`, expiresAt: 1 }), mintWorker: async () => ({ token: `jwt-w-${++n}`, expiresAt: 1 }),
+    });
+    const v = new VoiceHost({
+      spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", SPEECH_INGEST: ingest }, log: (m) => logs.push(m),
+      setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+      toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
+      tokens,
+    });
+    return { v, tokens, admin };
+  };
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+
+  it("livekit_token_request is answered with a fresh livekit_join for that role", async () => {
+    const { v, tokens } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    await settle();
+    const joins = w.sent.filter((m) => m.type === "livekit_join");
+    expect(joins).toEqual([
+      { type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: expect.stringMatching(/^jwt-w-/), room: tokens.roomOf(ID, "tech_lead") },
+      { type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: expect.stringMatching(/^jwt-w-/), room: tokens.roomOf(ID, "tech_lead") },
+    ]);
+    expect((joins[0] as { token: string }).token).not.toBe((joins[1] as { token: string }).token);
+  });
+
+  it("a token request for a seat that does not record is logged by name and answered livekit_join_refused (batch 3 review F1)", async () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats({ holders: [{ ...holders[0]!, recording: false }] }));
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    await settle();
+    expect(w.sent.filter((m) => m.type === "livekit_join")).toEqual([]);
+    expect(w.sent.filter((m) => m.type === "livekit_join_refused")).toEqual([{ type: "livekit_join_refused", roleId: "tech_lead" }]);
+    for (const m of w.sent) expect(ControlToWorkerSchema.safeParse(m).success).toBe(true);
+    expect(logs.at(-1)).toBe(`session ${ID} speech room token refused (VoiceTokenRefused)`);
+  });
+
+  it("a refused join for a worker that exited meanwhile is answered to nobody", async () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats({ paused: true }));
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    w.exit(1);
+    await settle();
+    expect(w.sent.filter((m) => m.type === "livekit_join_refused")).toEqual([]);
+  });
+
+  it("a join minted for a worker that exited meanwhile is not sent to its successor", async () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    w.exit(1);
+    await settle();
+    expect(w.sent.filter((m) => m.type === "livekit_join")).toEqual([]);
+  });
+
+  it("pushState carries generation only with SPEECH_INGEST=livekit", () => {
+    const lk = withLiveKit("livekit");
+    const w1 = live(lk.v);
+    lk.v.fromRuntime(ID, seats());
+    expect(w1.sent.at(-1)).toEqual({ type: "voice_state", paused: false, ended: false, holders: [{ ...holders[0]!, generation: lk.tokens.generation(ID, "tech_lead", "p-secret-1") }] });
+    const file = withLiveKit("file");
+    const ID2 = "b".repeat(32);
+    file.v.attach(ID2, { voice: true, roles: ["tech_lead"] });
+    const w2 = workers.at(-1)!;
+    ready(w2);
+    file.v.fromRuntime(ID2, seats());
+    expect(w2.sent.at(-1)).toEqual({ type: "voice_state", paused: false, ended: false, holders });
+    // Without LiveKit at all (control without keys) the file ingest gets no generation either.
+    const plain = make();
+    const ID3 = "c".repeat(32);
+    plain.attach(ID3, { voice: true, roles: ["tech_lead"] });
+    const w3 = workers.at(-1)!;
+    ready(w3);
+    plain.fromRuntime(ID3, seats());
+    expect(w3.sent.at(-1)).toEqual({ type: "voice_state", paused: false, ended: false, holders });
+  });
+
+  it("voiceToken issues for the holder who chose voice, waits for seats, and is voice_unavailable without LiveKit", async () => {
+    const { v } = withLiveKit();
+    live(v);
+    v.fromRuntime(ID, seats());
+    await expect(v.voiceToken(ID, "tech_lead", "p-secret-1")).resolves.toEqual({ token: expect.stringMatching(/^jwt-p-/), expiresAt: 1 });
+    await expect(make().voiceToken(ID, "tech_lead", "p-secret-1")).rejects.toEqual(new VoiceTokenRefused("voice_unavailable"));
+  });
+
+  it("a session without voice (no attach with voice) is voice_unavailable", async () => {
+    const { v } = withLiveKit();
+    v.attach(ID, { roles: ["tech_lead"] });
+    await expect(v.voiceToken(ID, "tech_lead", "p-secret-1")).rejects.toMatchObject({ code: "voice_unavailable" });
+  });
+
+  it("seats that arrived before the attach are given to the tokens at the attach", async () => {
+    const { v } = withLiveKit();
+    v.fromRuntime(ID, seats());
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    await expect(v.voiceToken(ID, "tech_lead", "p-secret-1")).resolves.toMatchObject({ expiresAt: 1 });
+  });
+
+  it("a new holder in voice_seats removes the old identity from the seat room; the end deletes the room", async () => {
+    const { v, tokens, admin } = withLiveKit();
+    live(v);
+    v.fromRuntime(ID, seats());
+    await v.voiceToken(ID, "tech_lead", "p-secret-1");
+    const room = tokens.roomOf(ID, "tech_lead");
+    const old = `tech_lead.g${tokens.generation(ID, "tech_lead", "p-secret-1")}`;
+    admin.rooms.set(room, new Set([old]));
+    v.fromRuntime(ID, seats({ holders: [{ ...holders[0]!, participantId: "p-secret-2" }] }));
+    await settle();
+    expect(admin.calls).toContain(`remove ${old}`);
+    expect(parseParticipantIdentity(old)?.roleId).toBe("tech_lead");
+    v.end(ID);
+    await settle();
+    expect(admin.calls.at(-1)).toBe("delete");
+  });
+
+  // Review finding (case 8): deleting the room kicks the worker out of it, so `ended` (the final flush) must reach the worker FIRST.
+  // The live check saw it arrive first every time, but that was a race between IPC and an HTTP call plus the server's kick.
+  it("end sends the worker its final ended state BEFORE any seat room is deleted (even when deleteRoom resolves at once)", async () => {
+    const { v, admin } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    await v.voiceToken(ID, "tech_lead", "p-secret-1"); // the seat room exists
+    const order: string[] = [];
+    const send = w.send.bind(w);
+    w.send = (m) => { if (m.type === "voice_state" && m.ended) order.push("ended to the worker"); return send(m); };
+    const del = admin.deleteRoom.bind(admin);
+    admin.deleteRoom = (room) => { order.push("deleteRoom"); return del(room); };
+    v.end(ID);
+    await settle();
+    expect(order).toEqual(["ended to the worker", "deleteRoom"]);
+  });
+
+  it("roleReissued sweeps the seat at once; a runtime exit forgets the seats (a token request then waits for the next ones)", async () => {
+    const { v, tokens, admin } = withLiveKit();
+    live(v);
+    v.fromRuntime(ID, seats());
+    await v.voiceToken(ID, "tech_lead", "p-secret-1");
+    const room = tokens.roomOf(ID, "tech_lead");
+    admin.rooms.set(room, new Set([`tech_lead.g${tokens.generation(ID, "tech_lead", "p-secret-1")}`]));
+    v.roleReissued(ID, "tech_lead");
+    await settle();
+    expect(admin.rooms.get(room)!.size).toBe(0);
+    v.detach(ID);
+    const p = v.voiceToken(ID, "tech_lead", "p-secret-1");
+    fire(1000);
+    await expect(p).rejects.toMatchObject({ code: "voice_refused" });
+  });
+
+  it("livekit_status is logged as a fixed sentence with no role, room or identity", () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    for (const state of ["connected", "failed", "disconnected"]) w.emit({ type: "livekit_status", state });
+    expect(logs.slice(-3)).toEqual([`session ${ID} speech room connected`, `session ${ID} speech room failed`, `session ${ID} speech room disconnected`]);
   });
 });

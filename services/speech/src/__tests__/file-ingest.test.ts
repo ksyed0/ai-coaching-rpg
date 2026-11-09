@@ -23,7 +23,7 @@ afterAll(async () => {
 const noPace = async () => {};
 const collect = async (ingest: FileIngest) => {
   const got: { roleId: string; frame: Int16Array }[] = [];
-  await ingest.start((roleId, frame) => { got.push({ roleId, frame }); });
+  await ingest.start((roleId, generation, frame) => { expect(generation).toBeUndefined(); got.push({ roleId, frame }); });
   return got;
 };
 

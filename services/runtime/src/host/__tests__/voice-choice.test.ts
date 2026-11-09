@@ -75,7 +75,8 @@ describe("opting in and out (US-0070)", () => {
     expect(h.host.voiceStateOf("tech_lead")).toBe("none");
     h.host.optInVoice("tech_lead", "p1", "v3");
     expect(h.host.voiceStateOf("tech_lead")).toBe("voice");
-    expect(h.host.voiceSeats()).toEqual({ paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: true }] });
+    // US-0071 (R8, K4): a seat that chose voice in the lobby does not record until the session has started.
+    expect(h.host.voiceSeats()).toEqual({ paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: false, voiceChosen: true }], open: ["account_manager", "delivery_lead"] });
     expect(h.disk.record).toEqual({ v: 1, sessionId: "local", logIdentity: h.seats.credentials.logIdentity, entries: { tech_lead: { participantId: "p1", choice: "voice", noticeVersion: "v3", at: 5_000 } } });
   });
 
@@ -205,7 +206,7 @@ describe("never inherited (US-0070, AC-0401)", () => {
     // The next participant claims the rebound consent; their voice state is their own (none), never the old holder's.
     h.host.join("tech_lead", "p-new");
     expect(h.host.voiceStateOf("tech_lead")).toBe("none");
-    expect(h.host.voiceSeats().holders.find((x) => x.roleId === "tech_lead")).toEqual({ roleId: "tech_lead", participantId: "p-new", recording: false });
+    expect(h.host.voiceSeats().holders.find((x) => x.roleId === "tech_lead")).toEqual({ roleId: "tech_lead", participantId: "p-new", recording: false, voiceChosen: false });
   });
 
   it("after a rebind (claimRebind) the new holder is text_only while the old entry stands", async () => {
@@ -278,7 +279,7 @@ describe("never inherited (US-0070, AC-0401)", () => {
     const h = makeHost({ voice: { enabled: false }, io: () => ({ read: () => { reads++; throw new Error("no"); }, write: () => { throw new Error("no"); }, remove: () => { throw new Error("no"); } }) });
     h.host.join("tech_lead", "p1");
     expect(reads).toBe(0);
-    expect(h.host.voiceSeats().holders).toEqual([{ roleId: "tech_lead", participantId: "p1", recording: false }]);
+    expect(h.host.voiceSeats().holders).toEqual([{ roleId: "tech_lead", participantId: "p1", recording: false, voiceChosen: false }]);
   });
 
   it("R14 seeding of consent never creates a voice entry", () => {
@@ -323,11 +324,13 @@ describe("voiceSeats and its notifications (US-0070)", () => {
     h.host.join("account_manager", "p2");
     expect(got).toHaveLength(0); // nothing synchronous
     await Promise.resolve();
-    expect(got).toEqual([{ paused: false, ended: false, holders: [{ roleId: "account_manager", participantId: "p2", recording: false }, { roleId: "tech_lead", participantId: "p1", recording: true }] }]);
+    // US-0071: not started yet, so nobody records (the voice choice is still kept).
+    expect(got).toEqual([{ paused: false, ended: false, holders: [{ roleId: "account_manager", participantId: "p2", recording: false, voiceChosen: false }, { roleId: "tech_lead", participantId: "p1", recording: false, voiceChosen: true }], open: ["delivery_lead"] }]);
     h.host.release("tech_lead", "p1");
     await Promise.resolve();
     expect(got).toHaveLength(2);
-    expect(got[1]!.holders).toEqual([{ roleId: "account_manager", participantId: "p2", recording: false }]);
+    expect(got[1]!.holders).toEqual([{ roleId: "account_manager", participantId: "p2", recording: false, voiceChosen: false }]);
+    expect(got[1]!.open).toEqual(["delivery_lead", "tech_lead"]); // a release (socket close) leaves the seat open
   });
 
   it("pause, resume and the end are notified, with paused and ended", async () => {
@@ -365,5 +368,120 @@ describe("voiceSeats and its notifications (US-0070)", () => {
     h.host.join("tech_lead", "p1");
     await Promise.resolve();
     expect(got).toEqual([]);
+  });
+});
+
+describe("recording needs the start (US-0071, R8, K4)", () => {
+  it("recording is false before the start even for a seat that chose voice", () => {
+    const h = makeHost();
+    for (const r of PLAYERS) { h.host.join(r, `p-${r}`); h.host.giveConsent(r, `p-${r}`, "v3"); }
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    expect(h.host.voiceStateOf("tech_lead")).toBe("voice");
+    expect(h.host.voiceSeats().holders.every((x) => !x.recording)).toBe(true);
+  });
+
+  it("and true after session.started", async () => {
+    const h = makeHost();
+    for (const r of PLAYERS) { h.host.join(r, `p-${r}`); h.host.giveConsent(r, `p-${r}`, "v3"); }
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    await h.host.start();
+    expect(h.host.voiceSeats().holders.find((x) => x.roleId === "tech_lead")!.recording).toBe(true);
+    expect(h.host.voiceSeats().holders.filter((x) => x.recording).map((x) => x.roleId)).toEqual(["tech_lead"]);
+  });
+
+  it("voice_seats is re-sent at the start with recording true", async () => {
+    const h = makeHost();
+    for (const r of PLAYERS) { h.host.join(r, `p-${r}`); h.host.giveConsent(r, `p-${r}`, "v3"); }
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    const got: ReturnType<SessionHost["voiceSeats"]>[] = [];
+    h.host.onVoiceSeatsChanged((s) => got.push(s));
+    await Promise.resolve();
+    expect(got.every((s) => s.holders.every((x) => !x.recording))).toBe(true);
+    await h.host.start();
+    await vi.waitFor(() => expect(got.at(-1)?.holders.find((x) => x.roleId === "tech_lead")?.recording).toBe(true));
+  });
+});
+
+describe("voiceChosen and open seats in voice_seats (US-0071, A1b Task 5, R7)", () => {
+  it("voiceChosen is true for a voice seat before the start while recording is false", () => {
+    const h = makeHost();
+    h.host.join("tech_lead", "p1");
+    h.host.giveConsent("tech_lead", "p1", "v3");
+    h.host.optInVoice("tech_lead", "p1", "v3");
+    h.host.join("delivery_lead", "p2");
+    expect(h.host.voiceSeats().holders).toEqual([
+      { roleId: "delivery_lead", participantId: "p2", recording: false, voiceChosen: false },
+      { roleId: "tech_lead", participantId: "p1", recording: false, voiceChosen: true },
+    ]);
+  });
+
+  it("voiceChosen stays true while muted, paused and unavailable (it is the choice alone)", async () => {
+    const h = makeHost();
+    await startAll(h);
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    h.host.muteVoice("tech_lead", "p-tech_lead", true);
+    h.host.voiceAvailability(false, false);
+    await h.host.command({ command: "pause" });
+    const tl = h.host.voiceSeats().holders.find((x) => x.roleId === "tech_lead")!;
+    expect(tl).toEqual({ roleId: "tech_lead", participantId: "p-tech_lead", recording: false, voiceChosen: true });
+  });
+
+  it("a never-held human seat and a seat released by a socket close are open", () => {
+    const h = makeHost();
+    expect(h.host.voiceSeats().open).toEqual(PLAYERS);
+    h.host.join("tech_lead", "p1");
+    expect(h.host.voiceSeats().open).toEqual(["account_manager", "delivery_lead"]);
+    h.host.release("tech_lead", "p1"); // what a socket close does
+    expect(h.host.voiceSeats().open).toEqual(PLAYERS);
+  });
+
+  it("an AI seat is never open", () => {
+    const h = makeHost({ aiRoles: ["delivery_lead"] });
+    expect(h.host.voiceSeats().open).toEqual(["account_manager", "tech_lead"]);
+  });
+
+  it("leave and withdraw_consent keep the role out of open", () => {
+    const h = makeHost();
+    h.host.join("tech_lead", "p1");
+    h.host.giveConsent("tech_lead", "p1", "v3");
+    h.host.leave("tech_lead", "p1");
+    h.host.join("delivery_lead", "p2");
+    h.host.giveConsent("delivery_lead", "p2", "v3");
+    h.host.withdrawConsent("delivery_lead", "p2");
+    expect(h.host.voiceSeats().open).toEqual(["account_manager"]);
+  });
+
+  it("a reissue keeps the role out of open", async () => {
+    const h = makeHost();
+    await startAll(h);
+    const issued = JoinCodes.issue(PLAYERS, BIND);
+    let current = issued.codes;
+    const deps: ReissueDeps = {
+      host: h.host, seats: h.seats, sessionId: "local",
+      server: { kickRole: (_s: string, r: string) => { h.host.release(r, "p-tech_lead"); } },
+      codes: () => current, setCodes: (c) => { current = c; }, writeCodes: () => {},
+    };
+    await reissueRole(deps, "tech_lead");
+    expect(h.host.voiceSeats().holders.map((x) => x.roleId)).toEqual(["account_manager", "delivery_lead"]);
+    expect(h.host.voiceSeats().open).toEqual([]);
+  });
+
+  it("a human seat filled by an AI is not open (the AI fill removes)", () => {
+    const h = makeHost();
+    h.host.join("tech_lead", "p1");
+    h.host.release("tech_lead", "p1");
+    h.seats.aiRoles!.replace(["tech_lead"], PLAYERS);
+    expect(h.host.voiceSeats().open).toEqual(["account_manager", "delivery_lead"]);
+  });
+
+  it("a new bind clears vacated: after the next holder leaves by a socket close the seat is open again", () => {
+    const h = makeHost();
+    h.host.join("tech_lead", "p1");
+    h.host.giveConsent("tech_lead", "p1", "v3");
+    h.host.leave("tech_lead", "p1");
+    expect(h.host.voiceSeats().open).not.toContain("tech_lead");
+    h.host.join("tech_lead", "p2");
+    h.host.release("tech_lead", "p2");
+    expect(h.host.voiceSeats().open).toContain("tech_lead");
   });
 });

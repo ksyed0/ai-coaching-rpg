@@ -55,3 +55,22 @@ describe("VoiceGate (US-0070, the worker's half of the privacy invariant)", () =
     expect(g.recordingFor("a")).toBeNull();
   });
 });
+
+describe("VoiceGate and seat generations (US-0071, A1b Task 7)", () => {
+  type H = { roleId: string; participantId: string; recording: boolean; generation?: string };
+  const st = (holders: H[], o: { paused?: boolean } = {}) => ({ type: "voice_state" as const, paused: o.paused ?? false, ended: false, holders });
+
+  it("recordingFor returns the generation from voice_state (and none for a file-ingest state)", () => {
+    const g = new VoiceGate();
+    g.update(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: "11111111" }, { roleId: "pm", participantId: "p2", recording: true }]));
+    expect(g.recordingFor("tech_lead")).toEqual({ participantId: "p1", generation: "11111111" });
+    expect(g.recordingFor("pm")).toEqual({ participantId: "p2" });
+  });
+
+  it("a new generation for the same participant stops the role (a control restart gave the seat a new identity)", () => {
+    const g = new VoiceGate();
+    g.update(st([{ roleId: "a", participantId: "p1", recording: true, generation: "11111111" }]));
+    expect(g.update(st([{ roleId: "a", participantId: "p1", recording: true, generation: "22222222" }]))).toEqual({ stopped: ["a"] });
+    expect(g.update(st([{ roleId: "a", participantId: "p1", recording: true, generation: "22222222" }]))).toEqual({ stopped: [] });
+  });
+});

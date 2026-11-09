@@ -95,6 +95,69 @@ describe("main and voice_line (US-0070)", () => {
   });
 });
 
+describe("main and the US-0071 parent messages (Task 2)", () => {
+  it("voice_availability is never answered and never reaches the reissue path (applied by the host from Task 3)", async () => {
+    const b = await boot();
+    const before = b.sent.length;
+    b.send({ type: "voice_availability", available: false, off: false });
+    b.send({ type: "voice_availability", available: true, off: true });
+    await b.host.idle();
+    expect(b.sent.slice(before).filter((m) => m.type === "reissue_failed" || m.type === "ai_roles_failed" || m.type.startsWith("voice_line"))).toEqual([]);
+  });
+
+  it("the new alert codes append their fixed facilitator sentences", async () => {
+    const b = await boot();
+    for (const code of ["worker_restarting", "voice_off", "stt_recovered"] as const) b.send({ type: "voice_alert", code });
+    await vi.waitFor(async () => {
+      const r = b.host.engine.eventsAfter(0);
+      const alerts = r.complete ? [...r.events].flatMap((e) => (e.type === "facilitator.alert" ? [e.message] : [])) : [];
+      expect(alerts).toEqual(expect.arrayContaining([
+        "Voice input is restarting after a fault.",
+        "Voice input is off for this session after repeated faults. Participants can continue by text.",
+        "Voice input is available again.",
+      ]));
+    });
+  });
+});
+
+describe("main and the voice worker and availability messages (US-0071, Task 3)", () => {
+  it("worker_down, worker_restarting and voice_off each call voiceWorkerDown", async () => {
+    const b = await boot();
+    const down = vi.spyOn(b.host, "voiceWorkerDown");
+    for (const code of ["worker_down", "stt_failed", "stt_unavailable", "stt_recovered", "worker_restarting", "voice_off"] as const) b.send({ type: "voice_alert", code });
+    expect(down).toHaveBeenCalledTimes(3);
+  });
+
+  it("two worker_restarting within 30 s give two voiceWorkerDown calls and one facilitator alert", async () => {
+    const b = await boot();
+    const down = vi.spyOn(b.host, "voiceWorkerDown");
+    b.send({ type: "voice_alert", code: "worker_restarting" });
+    b.send({ type: "voice_alert", code: "worker_restarting" });
+    expect(down).toHaveBeenCalledTimes(2);
+    await b.host.idle();
+    const sentence = "Voice input is restarting after a fault.";
+    await vi.waitFor(async () => {
+      const r = b.host.engine.eventsAfter(0);
+      expect(r.complete && [...r.events].some((e) => e.type === "facilitator.alert" && e.message === sentence)).toBe(true);
+    });
+    const r = b.host.engine.eventsAfter(0);
+    expect(r.complete ? [...r.events].filter((e) => e.type === "facilitator.alert" && e.message === sentence) : []).toHaveLength(1);
+  });
+
+  it("voice_availability is never answered and reaches host.voiceAvailability", async () => {
+    const b = await boot();
+    const avail = vi.spyOn(b.host, "voiceAvailability");
+    const before = b.sent.length;
+    b.send({ type: "voice_availability", available: false, off: false });
+    b.send({ type: "voice_availability", available: true, off: true });
+    expect(avail.mock.calls).toEqual([[false, false], [true, true]]);
+    await b.host.idle();
+    await Promise.resolve();
+    expect(b.sent.slice(before).filter((m) => m.type !== "voice_seats")).toEqual([]); // only the re-reported seats, never an answer
+    expect(b.host.voiceSeats().holders.some((x) => x.recording)).toBe(false);
+  });
+});
+
 describe("main routes voice_notice and voice_alert (US-0070, Task 10)", () => {
   it("a voice_notice reaches the host's notice listeners and a voice_alert appends the fixed facilitator alert", async () => {
     const b = await boot();

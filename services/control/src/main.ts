@@ -20,6 +20,10 @@ import { SessionList } from "./session-list.js";
 import { forkSpawn } from "./spawn.js";
 import { Supervisor, type SetTimer, type SpawnFn } from "./supervisor.js";
 import { speechSpawn } from "./voice/speech-spawn.js";
+import { randomBytes } from "node:crypto";
+import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
+import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
+import { VoiceTokens } from "./voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn } from "./voice/voice-host.js";
 
 /** The service listens on loopback only: the BFF is the single caller. */
@@ -56,6 +60,11 @@ export async function startControl(
   } = {},
 ): Promise<RunningControl> {
   const config = loadControlConfig(env);
+  // US-0071 (A1b Task 5): a bad LiveKit setting, or SPEECH_INGEST=livekit without LiveKit, stops the start (variables named, no value).
+  const lkProblems = liveKitStartProblems(env);
+  if (lkProblems.length > 0) throw new Error(`invalid control service settings: ${lkProblems.join("; ")}`);
+  const lk = parseLiveKitConfig(env);
+  const liveKit = lk.ok ? lk.cfg : null;
   const log = opts.log ?? (() => {});
   const longest = config.readyTimeoutMs + 2 * config.graceMs;
   if (longest > BFF_SAFE_OPERATION_MS)
@@ -76,7 +85,13 @@ export async function startControl(
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
     // US-0070: one speech worker per session whose runtime reports voice (VOICE_ENABLED=1 accepted at its bootstrap); none otherwise.
     voice: (deps) => {
-      const v = new VoiceHost({ spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps });
+      // US-0071: the seat rooms, generations and tokens exist only when control has LiveKit settings and the workers read LiveKit
+      // (batch 3 review F8: never with SPEECH_INGEST=file); the key and secret stay here.
+      const tokens = voiceTokensWanted(env, liveKit) ? new VoiceTokens({
+        cfg: liveKit, admin: createRoomAdmin({ host: liveKit.host, apiKey: liveKit.apiKey, apiSecret: liveKit.apiSecret }),
+        mint: mintParticipantToken, mintWorker: mintWorkerToken, random: randomBytes, setTimer: realSetTimer, log,
+      }) : undefined;
+      const v = new VoiceHost({ spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, ...(tokens ? { tokens } : {}) });
       opts.onVoiceHost?.(v);
       return v;
     },

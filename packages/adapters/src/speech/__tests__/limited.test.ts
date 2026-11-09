@@ -297,6 +297,22 @@ describe("LimitedSpeechToText (US-0070)", () => {
       expect(armedFor(r, "b").ms()).toBe(5000);
       await tick(); r.inner.calls[1]!.ok();
     });
+
+    // US-0071 (A1b Task 9): the worker polls health() every 5 s. A poll is not a call: it must neither warm a cold limiter (a model
+    // that has not loaded yet still gets the cold deadline) nor keep a warm one warm past STT_IDLE_COLD_MS (the model unloads anyway).
+    it("health polls never change the warm or cold state", async () => {
+      const r = rig();
+      r.inner.warm = new SpeechUnavailableError(); // the warm-up got no answer (activity, but cold)
+      await expect(r.lim.warmUp()).rejects.toBeInstanceOf(SpeechUnavailableError);
+      for (let i = 0; i < 3; i++) { expect(await r.lim.health()).toBe(true); r.advance(5000); }
+      const first = armedFor(r, "a");
+      expect(first.ms()).toBe(DEFAULT_STT_COLD_TIMEOUT_MS); // still cold: no answer yet, whatever health said
+      await tick(); r.inner.calls[0]!.ok(); await first.p;
+      for (let waited = 0; waited < DEFAULT_STT_IDLE_COLD_MS; waited += 5000) { await r.lim.health(); r.advance(5000); }
+      const idle = armedFor(r, "b");
+      expect(idle.ms()).toBe(DEFAULT_STT_COLD_TIMEOUT_MS); // idle for STT_IDLE_COLD_MS despite the polls: cold again
+      await tick(); r.inner.calls[1]!.ok(); await idle.p;
+    });
   });
 
   it("a deadline beyond the largest timer delay is clamped, never overflowing into an instant fire", async () => {

@@ -55,6 +55,28 @@ const get = (port: number, p: string, token: string | null = TOKEN): Promise<Res
   fetch(`http://127.0.0.1:${port}${p}`, { headers: token === null ? {} : { "x-service-token": token } });
 
 describe("startControl", () => {
+  it("US-0071: refuses to start with SPEECH_INGEST=livekit and no LiveKit key, and with a bad LiveKit setting (names only, no value)", async () => {
+    await expect(startControl({ ...env, SPEECH_INGEST: "livekit" }, { port: 0 })).rejects.toThrow(/SPEECH_INGEST=livekit needs LIVEKIT_API_KEY/);
+    const err = await startControl({ ...env, LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "short-secret-value" }, { port: 0 }).catch((e: Error) => e);
+    expect(String(err)).toContain("LIVEKIT_API_SECRET");
+    expect(String(err)).not.toContain("short-secret-value");
+  });
+
+  it("US-0071 (batch 3 review F8): LiveKit keys with a file-ingest worker give no tokens (voice_unavailable), only SPEECH_INGEST=livekit does", async () => {
+    const lk = { LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "s".repeat(40) };
+    const hosts: unknown[] = [];
+    running = await startControl({ ...env, ...lk, SPEECH_INGEST: "file" }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+    expect((hosts[0] as { o: { tokens?: unknown } }).o.tokens).toBeUndefined();
+    await running.close();
+    running = await startControl({ ...env, ...lk, SPEECH_INGEST: "livekit" }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+    expect((hosts[1] as { o: { tokens?: unknown } }).o.tokens).toBeDefined();
+  });
+
+  it("US-0071: starts with LiveKit configured and SPEECH_INGEST=livekit", async () => {
+    running = await startControl({ ...env, SPEECH_INGEST: "livekit", LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "s".repeat(40) }, { port: 0 });
+    expect(running.port).toBeGreaterThan(0);
+  });
+
   it("wires the report service: an exchange of an unknown token is the neutral 404, not the missing-route 404 of an unwired service", async () => {
     running = await startControl(env, { port: 0 });
     const exchange = (token: string) => fetch(`http://127.0.0.1:${running!.port}/report-access/exchange`, { method: "POST", headers: { "x-service-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ token }) });

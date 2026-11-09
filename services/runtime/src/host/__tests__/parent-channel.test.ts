@@ -201,7 +201,7 @@ describe("parent channel and voice (US-0070)", () => {
       { type: "ready", port: 4000, status: "new", modelLabel: "Mock", voice: true },
       { type: "voice_line_ack", segmentId: "abc", seq: 7 },
       { type: "voice_line_refused", segmentId: "abc", code: "not_holder" },
-      { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "cfo", participantId: "p", recording: true }] },
+      { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "cfo", participantId: "p", recording: true, voiceChosen: true }], open: [] },
       { type: "voice_turn", open: true },
       { type: "voice_choice", roleId: "cfo", participantId: "p", choice: "text_only", at: 5 },
     ];

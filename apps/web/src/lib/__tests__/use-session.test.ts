@@ -2,9 +2,9 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initPlayerView } from "@acr/events";
-import { AI_FILLED_MESSAGE } from "../../server/stream-hub";
-import { REMOVED_MESSAGE, SIGNED_OUT_MESSAGE } from "../../server/handlers";
-import { MESSAGES } from "../messages";
+import { AI_FILLED_MESSAGE, VOICE_NOTICE_CODES } from "../../server/stream-hub";
+import { REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, VOICE_ANSWERS } from "../../server/handlers";
+import { isVoiceNoticeCode, MESSAGES, VOICE_NOTICES } from "../messages";
 import { MAX_TRANSCRIPT_LINES, useSession, type SessionDeps } from "../use-session";
 import { FakeEventSource, ev, fakeFetch, joinedFrame, ok, refused, snapshot } from "./fakes";
 
@@ -238,6 +238,62 @@ describe("useSession: the stream", () => {
     expect(t.at(-1)!.text).toBe(`l${MAX_TRANSCRIPT_LINES + 5}`);
   });
 
+  it("US-0071: joined.voice \"voice\" is parsed with its mute; \"loud\" or a missing voice gives none", () => {
+    const { hook, es } = start();
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: false, extra: 1 } }));
+    expect(hook.result.current.state.voice).toEqual({ state: "voice", muted: false });
+    expect(hook.result.current.state.joined).not.toHaveProperty("voice.extra");
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: true } }));
+    expect(hook.result.current.state.voice).toEqual({ state: "voice", muted: true });
+    emit(es(), "joined", joinedFrame({ voice: { state: "text_only" } }));
+    expect(hook.result.current.state.voice).toEqual({ state: "text_only", muted: false });
+    emit(es(), "joined", joinedFrame({ voice: { state: "loud" } }));
+    expect(hook.result.current.state.voice).toBeNull();
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: "yes" } }));
+    expect(hook.result.current.state.voice).toEqual({ state: "voice", muted: false });
+    emit(es(), "joined", joinedFrame());
+    expect(hook.result.current.state.voice).toBeNull();
+  });
+
+  it("US-0071: a voice_notice event with a known code sets voiceNotice, a repeat counts up; an unknown code is ignored", () => {
+    const { hook, es } = start();
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: false } }));
+    expect(hook.result.current.state.voiceNotice).toBeNull();
+    emit(es(), "voice_notice", { code: "empty" });
+    const first = hook.result.current.state.voiceNotice!;
+    expect(first.code).toBe("empty");
+    emit(es(), "voice_notice", { code: "empty" });
+    expect(hook.result.current.state.voiceNotice!.code).toBe("empty");
+    expect(hook.result.current.state.voiceNotice!.n).toBeGreaterThan(first.n);
+    emit(es(), "voice_notice", { code: "nope" });
+    emit(es(), "voice_notice", { code: "__proto__" });
+    emit(es(), "voice_notice", "{not json");
+    emit(es(), "voice_notice", { code: 3 });
+    expect(hook.result.current.state.voiceNotice!.code).toBe("empty");
+  });
+
+  it("US-0071: voice_unavailable and voice_available are state, not toasts; a fresh joined starts from available", () => {
+    const { hook, es } = start();
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: false } }));
+    expect(hook.result.current.state.voiceUnavailable).toBe(false);
+    emit(es(), "voice_notice", { code: "voice_unavailable" });
+    expect(hook.result.current.state.voiceUnavailable).toBe(true);
+    emit(es(), "voice_notice", { code: "empty" });
+    expect(hook.result.current.state.voiceUnavailable).toBe(true); // another notice does not change it
+    emit(es(), "voice_notice", { code: "voice_available" });
+    expect(hook.result.current.state.voiceUnavailable).toBe(false);
+    emit(es(), "voice_notice", { code: "voice_unavailable" });
+    // The runtime tells a holder who binds while voice is unavailable again, right after joined: a new joined resets the flag.
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: false } }));
+    expect(hook.result.current.state.voiceUnavailable).toBe(false);
+  });
+
+  it("US-0071: the page's notice codes equal the BFF's VOICE_NOTICE_CODES, each with one fixed sentence", () => {
+    expect(Object.keys(VOICE_NOTICES).sort()).toEqual([...VOICE_NOTICE_CODES].sort());
+    for (const s of Object.values(VOICE_NOTICES)) expect(s).toMatch(/^[A-Z][^<>{}]*\.$/);
+    expect(isVoiceNoticeCode("toString")).toBe(false);
+  });
+
   it("closes the EventSource on unmount", () => {
     const { hook, es } = start();
     hook.unmount();
@@ -317,6 +373,57 @@ describe("useSession: actions", () => {
     let r: unknown;
     await act(async () => { r = await hook.result.current.say("hi"); });
     expect(r).toEqual({ ok: false, message: MESSAGES.reconnecting });
+  });
+
+  it("chooseVoice posts {choice, noticeVersion} and applies the answer; text_only posts {choice} alone", async () => {
+    const f = fakeFetch((url, body) => ({ status: 200, body: ok((body as { choice: string }).choice === "voice" ? { state: "voice", muted: false } : { state: "text_only", muted: false }) }));
+    const hook = renderHook(() => useSession("sess-1", { EventSource: FakeEventSource, fetch: f.fetch }));
+    emit(FakeEventSource.last(), "joined", joinedFrame({ consent: { noticeVersion: "v3", notice: "n", given: true }, voice: { state: "none", muted: false } }));
+    let r: unknown;
+    await act(async () => { r = await hook.result.current.chooseVoice("voice"); });
+    expect(r).toEqual({ ok: true });
+    expect(f.calls[0]!.url).toBe("/api/v1/voice");
+    expect(f.calls[0]!.body).toEqual({ choice: "voice", noticeVersion: "v3" });
+    expect(new Headers(f.calls[0]!.init.headers).get("X-Requested-With")).toBe("scenecoach");
+    expect(hook.result.current.state.voice).toEqual({ state: "voice", muted: false });
+    await act(async () => { await hook.result.current.chooseVoice("text_only"); });
+    expect(f.calls[1]!.body).toEqual({ choice: "text_only" });
+    expect(hook.result.current.state.voice).toEqual({ state: "text_only", muted: false });
+  });
+
+  it("a refused voice choice returns the BFF's sentence and keeps the state", async () => {
+    const f = fakeFetch(() => ({ status: 409, body: refused("voice_notice_required", MESSAGES.voiceNoticeRequired) }));
+    const hook = renderHook(() => useSession("sess-1", { EventSource: FakeEventSource, fetch: f.fetch }));
+    emit(FakeEventSource.last(), "joined", joinedFrame({ consent: { noticeVersion: "v2", notice: "n", given: true }, voice: { state: "text_only" } }));
+    let r: unknown;
+    await act(async () => { r = await hook.result.current.chooseVoice("voice"); });
+    expect(r).toEqual({ ok: false, message: MESSAGES.voiceNoticeRequired });
+    expect(hook.result.current.state.voice).toEqual({ state: "text_only", muted: false });
+    expect(VOICE_ANSWERS.voice_notice_required.message).toBe(MESSAGES.voiceNoticeRequired);
+  });
+
+  it("chooseVoice without a voice state or a notice sends nothing", async () => {
+    const f = fakeFetch();
+    const hook = renderHook(() => useSession("sess-1", { EventSource: FakeEventSource, fetch: f.fetch }));
+    emit(FakeEventSource.last(), "joined", joinedFrame());
+    let r: { ok: boolean } | undefined;
+    await act(async () => { r = await hook.result.current.chooseVoice("voice"); });
+    expect(r?.ok).toBe(false);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("setMuted posts {mute} and applies the answer; an answer without a known state changes nothing", async () => {
+    let answer: unknown = ok({ state: "voice", muted: true });
+    const f = fakeFetch(() => ({ status: 200, body: answer }));
+    const hook = renderHook(() => useSession("sess-1", { EventSource: FakeEventSource, fetch: f.fetch }));
+    emit(FakeEventSource.last(), "joined", joinedFrame({ consent: { noticeVersion: "v3", notice: "n", given: true }, voice: { state: "voice", muted: false } }));
+    await act(async () => { await hook.result.current.setMuted(true); });
+    expect(f.calls[0]!.url).toBe("/api/v1/voice");
+    expect(f.calls[0]!.body).toEqual({ mute: true });
+    expect(hook.result.current.state.voice).toEqual({ state: "voice", muted: true });
+    answer = ok({ state: "loud" });
+    await act(async () => { await hook.result.current.setMuted(false); });
+    expect(hook.result.current.state.voice).toEqual({ state: "voice", muted: true });
   });
 
   it("say sends the text and the current scene id", async () => {

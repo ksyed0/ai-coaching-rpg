@@ -8,6 +8,7 @@ import type { ControlConfig } from "../../config.js";
 import { ChildMessageSchema } from "../../protocol.js";
 import { SessionList } from "../../session-list.js";
 import { Supervisor, type SetTimer, type SpawnFn } from "../../supervisor.js";
+import { VoiceTokenRefused } from "../../voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
 import { AI_CONFIG, CODES, FakeChild, READY, flush } from "../fake-child.js";
 
@@ -32,7 +33,7 @@ let root: string, config: ControlConfig, list: SessionList, children: FakeChild[
 const setTimer: SetTimer = (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
 const settle = async (): Promise<void> => { for (let i = 0; i < 6; i++) await flush(); };
 const speechSpawn: SpeechSpawnFn = () => { const w = new FakeWorker(); workers.push(w); return w; };
-const SEATS = { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "cfo", participantId: "p1", recording: true }] } as const;
+const SEATS = { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "cfo", participantId: "p1", recording: true, voiceChosen: true }], open: [] } as const;
 const STATE = { type: "voice_state", paused: false, ended: false, holders: SEATS.holders };
 
 const make = (withVoice = true) => new Supervisor({
@@ -112,7 +113,8 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     const w = workers[0]!;
     w.emit({ type: "worker_ready", stt: "ok" });
     w.emit({ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello.", startMs: 1, endMs: 2 });
-    expect(c.voice).toEqual([{ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello." }]);
+    expect(c.voice.filter((m) => m.type !== "voice_availability")).toEqual([{ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello." }]);
+    expect(c.voice.filter((m) => m.type === "voice_availability")).toEqual([{ type: "voice_availability", available: false, off: false }, { type: "voice_availability", available: true, off: false }]);
     c.emit({ type: "voice_line_ack", segmentId: "0123456789abcdef", seq: 7 });
     expect(w.sent.at(-1)).toEqual({ type: "voice_line_result", segmentId: "0123456789abcdef", seq: 7 });
     c.emit({ type: "voice_turn", open: true });
@@ -121,17 +123,25 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     expect(w.sent.at(-1)).toEqual({ ...STATE, paused: true });
   });
 
-  it("worker exit leaves the session running: one worker_down alert, no respawn, typed lines unaffected", async () => {
+  it("a killed worker is restarted and voice lines flow again; the session keeps running throughout (US-0071, A1b Task 8)", async () => {
     const sup = make();
     const { id, c } = await boot(sup);
     workers[0]!.emit({ type: "worker_ready", stt: "ok" });
-    workers[0]!.exit(1);
+    workers[0]!.exit(null); // SIGKILL
     expect(sup.get(id)!.status).toBe("running");
-    expect(c.voice).toEqual([{ type: "voice_alert", code: "worker_down" }]);
+    expect(c.voice.filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "worker_restarting" }]);
     expect(c.killed).toBe(0);
-    c.emit(SEATS);
-    await settle();
-    expect(workers).toHaveLength(1);
+    const restart = timers.find((t) => t.ms === 500 && !t.cancelled)!;
+    restart.cancelled = true; restart.fn();
+    expect(workers).toHaveLength(2);
+    expect(sup.get(id)!.status).toBe("running");
+    const w2 = workers[1]!;
+    w2.emit({ type: "worker_ready", stt: "ok" });
+    expect(w2.sent.filter((m) => m.type === "voice_state")).toEqual([STATE]); // the seats it missed, without the runtime's help
+    w2.emit({ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello again.", startMs: 1, endMs: 2 });
+    expect(c.voice.filter((m) => m.type === "voice_line")).toEqual([{ type: "voice_line", segmentId: "0123456789abcdef", roleId: "cfo", participantId: "p1", text: "Hello again." }]);
+    c.emit({ type: "voice_line_ack", segmentId: "0123456789abcdef", seq: 8 });
+    expect(w2.sent.at(-1)).toEqual({ type: "voice_line_result", segmentId: "0123456789abcdef", seq: 8 });
   });
 
   it("the runtime's exit detaches (the worker stays, records nothing); a restart's ready re-attaches it and pushes the new seats", async () => {
@@ -152,6 +162,27 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     await settle();
     expect(workers).toHaveLength(1);
     expect(w.sent.at(-1)).toEqual({ ...STATE, paused: true });
+  });
+
+  it("a restarted runtime is told the current voice availability at its ready, before any voice line (US-0071, A1b Task 9)", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    const w = workers[0]!;
+    w.emit({ type: "worker_ready", stt: "ok" });
+    w.emit({ type: "stt_health", ok: false });
+    expect(c.voice.filter((m) => m.type === "voice_availability").at(-1)).toEqual({ type: "voice_availability", available: false, off: false });
+    c.exit(1);
+    const p = sup.restart(id);
+    await settle();
+    const c2 = children.at(-1)!;
+    c2.emit({ ...READY, voice: true });
+    c2.emit({ ...SEATS, paused: true });
+    await p;
+    await settle();
+    expect(c2.voice[0]).toEqual({ type: "voice_availability", available: false, off: false });
+    w.emit({ type: "stt_health", ok: true });
+    expect(c2.voice.filter((m) => m.type !== "voice_availability")).toEqual([{ type: "voice_alert", code: "stt_recovered" }]);
+    expect(c2.voice.filter((m) => m.type === "voice_availability").at(-1)).toEqual({ type: "voice_availability", available: true, off: false });
   });
 
   it("ended sends the worker an ended state and then stops it", async () => {
@@ -175,5 +206,72 @@ describe("Supervisor and the VoiceHost (US-0070)", () => {
     for (let i = 0; i < 20 && !finished; i++) { await settle(); for (const t of timers.filter((x) => !x.cancelled)) { t.cancelled = true; t.fn(); } }
     await done;
     expect(workers[0]!.disconnected).toBe(1);
+  });
+});
+
+describe("Supervisor and LiveKit tokens (US-0071, A1b Task 5)", () => {
+  type Link = ConstructorParameters<typeof Supervisor>[0]["voice"];
+  const fakeLink = () => {
+    const calls: string[] = [];
+    let answer: () => Promise<{ token: string; expiresAt: number }> = async () => ({ token: "jwt", expiresAt: 5 });
+    const link = {
+      attach: () => {}, fromRuntime: () => {}, detach: () => {}, end: () => {}, shutdown: async () => {},
+      voiceToken: (id: string, roleId: string, participantId: string) => { calls.push(`token ${id === "" ? "?" : "id"} ${roleId} ${participantId}`); return answer(); },
+      roleReissued: (_id: string, roleId: string) => { calls.push(`reissued ${roleId}`); },
+    };
+    return { link, calls, setAnswer: (f: typeof answer) => { answer = f; } };
+  };
+  const withLink = (l: ReturnType<typeof fakeLink>) => new Supervisor({
+    config, list, scenarios: async () => [{ id: "other", title: "Other" }], spawn, setTimer, now: () => 1234, log: (m) => logs.push(m),
+    voice: (() => l.link) as Link,
+  });
+  const errOf = async (p: Promise<unknown>) => { try { await p; return null; } catch (err) { return err as { code: string; message: string }; } };
+
+  it("a successful reissue tells the voice host the seat changed hands; a failed one does not", async () => {
+    const l = fakeLink();
+    const sup = withLink(l);
+    const { id, c } = await boot(sup);
+    const p = sup.reissue(id, "cfo");
+    await settle();
+    c.emit({ type: "reissued", requestId: c.sent.at(-1)!.requestId, code: "new-1" });
+    await expect(p).resolves.toBe("new-1");
+    expect(l.calls).toEqual(["reissued cfo"]);
+    const q = errOf(sup.reissue(id, "cto"));
+    await settle();
+    c.emit({ type: "reissue_failed", requestId: c.sent.at(-1)!.requestId, reason: "no" });
+    expect(await q).toMatchObject({ code: "conflict" });
+    expect(l.calls).toEqual(["reissued cfo"]);
+  });
+
+  it("a whole-session reissue tells the voice host for every role that got a new code", async () => {
+    const l = fakeLink();
+    const sup = withLink(l);
+    const { id, c } = await boot(sup);
+    c.onKill = () => setImmediate(() => c.exit(null));
+    const p = sup.reissueAll(id);
+    await settle();
+    const c2 = children.at(-1)!;
+    const fresh = [{ roleId: "cfo", code: "n-1" }, { roleId: "cto", code: "n-2" }];
+    c2.emit({ type: "codes", codes: fresh }); c2.emit({ ...READY, port: 7001 });
+    await expect(p).resolves.toEqual(fresh);
+    expect(l.calls).toEqual(["reissued cfo", "reissued cto"]);
+  });
+
+  it("voiceToken: unknown session not_found, no voice host voice_unavailable, refusals become their control errors", async () => {
+    const l = fakeLink();
+    const sup = withLink(l);
+    const { id } = await boot(sup);
+    expect(await errOf(sup.voiceToken("f".repeat(32), "cfo", "p1"))).toMatchObject({ code: "not_found" });
+    await expect(sup.voiceToken(id, "cfo", "p1")).resolves.toEqual({ token: "jwt", expiresAt: 5 });
+    for (const [code, message] of [
+      ["voice_refused", "Voice is not available for this seat."], ["voice_off", "Voice is off for this session."], ["voice_unavailable", "Voice is not available right now."],
+    ] as const) {
+      l.setAnswer(async () => { throw new VoiceTokenRefused(code); });
+      expect(await errOf(sup.voiceToken(id, "cfo", "p1"))).toMatchObject({ name: "ControlError", code, message });
+    }
+    l.setAnswer(async () => { throw new Error("tech_lead.g12345678 secret"); });
+    expect(await errOf(sup.voiceToken(id, "cfo", "p1"))).toMatchObject({ code: "voice_unavailable", message: "Voice is not available right now." });
+    const none = new Supervisor({ config, list, scenarios: async () => [], spawn, setTimer, now: () => 1, log: () => {} });
+    expect(await errOf(none.voiceToken(id, "cfo", "p1"))).toMatchObject({ code: "voice_unavailable" });
   });
 });

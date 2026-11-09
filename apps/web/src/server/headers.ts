@@ -1,4 +1,5 @@
 // Security headers for pages, built per request by src/proxy.ts (Next 16's name for middleware). Pure: no Next imports, so it is unit tested.
+import { liveKitOrigin } from "./config";
 
 /** Routes that are never indexed: they send X-Robots-Tag and robots.txt disallows them (web spec section 8). */
 export const PRIVATE_PREFIXES = ["/join", "/session", "/report", "/console", "/admin", "/api"] as const;
@@ -17,14 +18,14 @@ export function newNonce(): string {
  * 'unsafe-inline'. 'unsafe-eval' only in development (React's dev tooling). Next reads the nonce from the request's copy of this header
  * and puts it on its own scripts, so pages must render dynamically.
  */
-export function contentSecurityPolicy(nonce: string, o: { dev: boolean; https: boolean }): string {
+export function contentSecurityPolicy(nonce: string, o: { dev: boolean; https: boolean; /** US-0071: the validated LiveKit origin, session pages only. */ livekit?: string }): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${o.dev ? " 'unsafe-eval'" : ""}`,
     `style-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' blob: data:",
     "font-src 'self'",
-    "connect-src 'self'",
+    `connect-src 'self'${o.livekit === undefined ? "" : ` ${liveKitSources(o.livekit)}`}`,
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -33,14 +34,31 @@ export function contentSecurityPolicy(nonce: string, o: { dev: boolean; https: b
   ].join("; ");
 }
 
-/** The response headers for one page request (the CSP is passed in so the request and the response carry the same nonce). */
-export function pageHeaders(pathname: string, csp: string): [string, string][] {
+/**
+ * US-0071 (A1b Task 12): the LiveKit signalling origin and its HTTP twin on the same host and port (livekit-client may also make an HTTP
+ * request there: not verified, so both are allowed, on the session page only). Only an origin that liveKitOrigin itself returns is
+ * accepted, so nothing but scheme, host and port can ever reach the policy.
+ */
+function liveKitSources(origin: string): string {
+  if (liveKitOrigin(origin) !== origin) throw new RangeError("the LiveKit origin must be one liveKitOrigin validated");
+  const twin = origin.startsWith("wss:") ? `https:${origin.slice(4)}` : `http:${origin.slice(3)}`;
+  return `${origin} ${twin}`;
+}
+
+/** Whether a page is the participant's session page, the only one that may use the microphone and reach LiveKit (US-0071). */
+export const isSessionPage = (pathname: string): boolean => pathname.startsWith("/session/");
+
+/**
+ * The response headers for one page request (the CSP is passed in so the request and the response carry the same nonce). US-0071:
+ * `microphone` allows the microphone for this page's own origin; the proxy asks for it only on a session page with LiveKit configured.
+ */
+export function pageHeaders(pathname: string, csp: string, o: { microphone: boolean } = { microphone: false }): [string, string][] {
   const h: [string, string][] = [
     ["Content-Security-Policy", csp],
     ["X-Content-Type-Options", "nosniff"],
     ["Referrer-Policy", "no-referrer"],
     ["X-Frame-Options", "DENY"],
-    ["Permissions-Policy", "camera=(), microphone=(), geolocation=()"],
+    ["Permissions-Policy", `camera=(), microphone=${o.microphone ? "(self)" : "()"}, geolocation=()`],
     ["Cross-Origin-Opener-Policy", "same-origin"],
     ["Cross-Origin-Resource-Policy", "same-origin"],
   ];

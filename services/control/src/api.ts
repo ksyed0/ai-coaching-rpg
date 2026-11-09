@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { isFileSafeId, isSafeId, isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { z } from "zod";
-import { RoleIdSchema } from "./protocol.js";
+import { ParticipantIdSchema, RoleIdSchema } from "./protocol.js";
 import { BAD_REQUEST, fail, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse } from "./http-util.js";
 import type { ControlConfig } from "./config.js";
 import type { ParticipantWriteService, WriteOutcome } from "./participant-writes.js";
@@ -21,6 +21,7 @@ const STATUS: Record<ControlErrorCode, number> = {
   bad_request: 400, unknown_scenario: 400, not_found: 404, conflict: 409, capacity: 429, timeout: 504, start_failed: 502, unavailable: 503,
   ai_role: 409, ai_notice: 409, ai_started: 409, ai_no_human: 409, ai_too_many: 409, ai_invalid: 400,
   ai_busy: 409, ai_budget: 409, ai_absent: 409, ai_expired: 409,
+  voice_refused: 409, voice_off: 409, voice_unavailable: 503,
 };
 export { MAX_BODY_BYTES };
 const UNAUTHORIZED = "Unauthorized.";
@@ -51,6 +52,10 @@ const SelfRatingsBody = z.strictObject({
 });
 const ResponseBody = z.strictObject({ criterion: CriterionId.optional(), text: z.string().max(TEXT_UNITS), dispute: z.boolean().optional() });
 const REPORT_UNAVAILABLE = REPORT_SENTENCES.reportUnavailable;
+/** True when `v` has a C0 or C1 control character (checked character by character). */
+const hasControlChar = (v: string): boolean => { for (let i = 0; i < v.length; i++) { const c = v.charCodeAt(i); if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) return true; } return false; };
+/** US-0071 (A1b Task 5): the BFF names the cookie's own seat; the participant id follows the parent channel's rule. */
+const VoiceTokenBody = z.strictObject({ roleId: RoleIdSchema, participantId: ParticipantIdSchema.refine((v) => !hasControlChar(v), { message: "invalid participant id" }) });
 
 const digest = (s: string): Buffer => createHash("sha256").update(s).digest();
 
@@ -125,6 +130,12 @@ export function createApi(deps: {
       const f = supervisor.facilitator(id);
       if (!f) throw new HttpError(404, "not_found", "That session does not exist.");
       return ok(res, { port: f.port, token: f.token });
+    }
+    if (seg.length === 3 && seg[2] === "voice-token" && method === "POST") {
+      // US-0071 (A1b Task 5): the body is checked before anything is called; only the token and its expiry leave (never a room or an identity).
+      const body = parse(VoiceTokenBody, await jsonBody(req));
+      const t = await supervisor.voiceToken(id, body.roleId, body.participantId);
+      return ok(res, { token: t.token, expiresAt: t.expiresAt });
     }
     if (seg.length === 3 && seg[2] === "restart" && method === "POST") {
       parse(NoBody, (await jsonBody(req)) ?? {});

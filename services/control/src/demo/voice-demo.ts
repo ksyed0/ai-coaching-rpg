@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -27,7 +27,7 @@ export const VOICE_CHECKS = [
   { id: "V-04", title: "the seat that did not opt in was never sent to speech-to-text" },
   { id: "V-05", title: "the Game Master evaluated per voice turn, not per segment" },
   { id: "V-06", title: "no player frame carries a segment id or another seat's participant id" },
-  { id: "V-07", title: "killing the speech worker mid-speech leaves the session running: one worker_down alert, the voice turn closes, typed lines still recorded" },
+  { id: "V-07", title: "killing the speech worker mid-speech leaves the session running: one worker_restarting alert, the voice turn closes, a new worker starts, typed lines still recorded" },
   { id: "V-08", title: "the session log format is the one a session without voice gets (no format change)" },
 ] as const;
 
@@ -46,7 +46,8 @@ const SEGMENTS_PER_TURN = 3;
 const GM_EVERY_N = 3;
 const WATCHDOG_MS = 90_000;
 const STEP_MS = 60_000;
-const WORKER_DOWN = "Voice input stopped: the speech worker is not running. Participants can continue by text.";
+/** US-0071 (A1b Task 8): a killed worker is restarted (500 ms later), announced with this alert. */
+const WORKER_RESTARTING = "Voice input is restarting after a fault.";
 const RATE = 16_000;
 /** "Nothing more happens": the log unchanged across this many consecutive 250 ms observations (the ticker runs about once a second). */
 const QUIET_OBSERVATIONS = 12;
@@ -158,21 +159,31 @@ export async function runVoiceDemo(o: { root?: string; stdout: Out; stderr: Out;
       check("V-06", bad.length === 0, `${bad.length} player streams with a segment id or another seat's participant id`);
 
       // Mid-speech: the long last burst has opened a voice turn (the runtime said voice_turn open). A worker killed now sends no "speech
-      // stopped" edge; the worker_down alert must close the turn, or the Game Master and the AI players would stay held for the session.
+      // stopped" edge; the worker_restarting alert must close the turn, or the Game Master and the AI players would stay held for the
+      // session. US-0071 (A1b Task 8): control starts a new worker after its backoff. The ingest files are removed right after the kill
+      // (before the 500 ms backoff can end), so the new worker's file ingest has nothing to play back: a file is a stand-in for live
+      // audio, and live audio would not be heard twice.
       await waitUntil("the voice seat speaking again", () => voice?.voiceTurnOpen(id) === true, STEP_MS);
       const pid = voice?.workerPid(id);
       if (pid === undefined) throw new Error("the speech worker is not running");
       process.kill(pid, "SIGKILL");
-      await waitUntil("the worker_down alert", () => events().some((e) => e.type === "facilitator.alert" && e.message === WORKER_DOWN), STEP_MS);
+      // Review finding 1: a restarted FILE-ingest worker replays its files from the START (file ingest is a stand-in with no position),
+      // so without this unlink the new worker would re-send every earlier line. Removing the files hides that replay from V-07; it
+      // says nothing about a LiveKit worker, whose restart rejoins the room and hears only what is said from then on.
+      for (const r of [VOICE_ROLE, TEXT_ROLE]) unlinkSync(path.join(ingest, `${r}.wav`));
+      await waitUntil("the worker_restarting alert", () => events().some((e) => e.type === "facilitator.alert" && e.message === WORKER_RESTARTING), STEP_MS);
       await waitUntil("the voice turn to close", () => voice?.voiceTurnOpen(id) === false, STEP_MS);
+      await waitUntil("a new speech worker", () => { const p = voice?.workerPid(id); return p !== undefined && p !== pid; }, STEP_MS);
       const linesAfterKill = voiceLines().length;
       players[TEXT_ROLE]!.send({ type: "say", text: "[DL-TYPED] I will send Priya the summary." });
       await waitUntil("the typed line", () => events().some((e) => e.type === "utterance" && e.roleId === TEXT_ROLE && e.channel === "text"), STEP_MS);
       await waitQuiet("the session log", () => events().length, { stable: QUIET_OBSERVATIONS, maxSteps: QUIET_MAX_STEPS });
       const status = (unwrap(await api("GET", `/sessions/${id}`)) as { status: string }).status;
-      const downs = events().filter((e) => e.type === "facilitator.alert" && e.message === WORKER_DOWN).length;
-      check("V-07", status === "running" && downs === 1 && voice?.workerPid(id) === undefined && voice?.voiceTurnOpen(id) === false && linesAfterKill === AM_LINES.length,
-        `session ${status}, ${downs} worker_down alert(s), voice turn ${voice?.voiceTurnOpen(id) ? "open" : "closed"}, ${linesAfterKill} voice lines`);
+      const downs = events().filter((e) => e.type === "facilitator.alert" && e.message === WORKER_RESTARTING).length;
+      const next = voice?.workerPid(id);
+      const restarted = next !== undefined && next !== pid;
+      check("V-07", status === "running" && downs === 1 && restarted && voice?.voiceTurnOpen(id) === false && linesAfterKill === AM_LINES.length && voiceLines().length === AM_LINES.length,
+        `session ${status}, ${downs} worker_restarting alert(s), ${restarted ? "a new worker" : "no new worker"}, voice turn ${voice?.voiceTurnOpen(id) ? "open" : "closed"}, ${linesAfterKill} voice lines`);
       const started = events().find((e) => e.type === "session.started")!;
       const expected = logFormatFor(started.aiRoles ?? []);
       check("V-08", started.logFormat === expected, `format ${String(started.logFormat)}, a session without voice: ${expected}`);

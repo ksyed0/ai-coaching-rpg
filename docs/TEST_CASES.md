@@ -2638,3 +2638,264 @@ Actual Result: Steps 1 and 2 as expected, 2026-11-08 (macOS): 8 of 8 checks pass
 Status: [x] Pass
 Defect Raised: None
 Notes: Pass on 2026-11-08: the PR #130 Demo Run job was green (AC-0404 says "in CI"). The other demo counts are unchanged on this branch (29 for `--fast`, 42 for `--fast --security --resume`, 14 for `--showcase --fast`; run in Task 21). Review fix wave (2026-11-08, macOS): F7, the demo has no fixed sleep: "nothing more happens" is `waitQuiet` (the log unchanged across 12 consecutive 250 ms observations, at most 240), `voice-client.test.ts` (3 tests, injected step, no real time); V-04 now allows the extra (empty) calls of the long last burst, still none for the text-only seat. `pnpm demo --voice` 8 of 8; `voice-demo.test.ts` passed.
+
+## US-0071: LiveKit and the web consent flow (EPIC-0003 voice A1b)
+
+TC-0171: The LiveKit packages are allowed only in their own package
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0405
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From the repository root: `bash scripts/check-sdk-imports.test.sh` and `pnpm lint:sdk`; from `packages/adapters`: `pnpm exec vitest run src/__tests__/root-index-imports.test.ts`.
+Expected Result: Every fixture gives its expected exit code (a LiveKit package outside its allowed package fails with `LiveKit package used outside its allowed package`; the provider rule's fixtures are unchanged); `sdk-imports: ok`; importing `@acr/adapters` does not load `livekit-server-sdk`, importing `@acr/adapters/livekit` does.
+Actual Result: As expected: every fixture of `check-sdk-imports.test.sh` gave its expected exit code (the LiveKit rule, the third rule for `@acr/adapters/livekit` and the provider rule's unchanged fixtures) and `pnpm lint:sdk` printed `sdk-imports: ok`; `root-index-imports.test.ts` passed (the root index loads no `livekit-server-sdk`; the subpath does; a CommonJS `require` shows in the `require.cache` probe as its positive control).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): adapters 22 files, 361 passed (2 skipped). Batch 2 review F10 added the third rule (`@acr/adapters/livekit` only in `services/control` and the speech live checks; `@acr/adapters/livekit/identity` anywhere) and F11 the `require.cache` probe.
+
+TC-0172: A voice token is issued only to the current holder who chose voice, for the seat's own room
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0406
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `packages/adapters`: `pnpm exec vitest run src/livekit`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts src/__tests__/voice/token-route.test.ts`.
+Expected Result: The participant grant equals the plan's Global Constraints exactly (600 s, microphone only, no subscribe, no data, no metadata), the room is the seat's own `v` + 32 hex; another participant, a text-only seat, an AI seat, an unknown or ended session and voice off are refused with the fixed codes; the route answers only `token` and `expiresAt`.
+Actual Result: As expected: the participant grant is exactly 600 s, `roomJoin`, `canPublish`, `canPublishSources: ["microphone"]`, no subscribe, no data, no metadata; the room is the seat's own `v` + 32 hex; refusals as listed; the route answers only `token` and `expiresAt` (an answer with extra fields is cut down). Live (2026-11-09, LiveKit 1.13.11 in Docker): a participant token published a microphone, could subscribe to nothing (0 TrackSubscribed in 4 s with auto-subscribe on) and was refused a screen-share audio publish.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): adapters 361 passed, control 54 files 881 passed. Batch 3 review F4: a request for a seat the seats give to someone else is refused at once, at most 4 wait per seat; F8: tokens only with `SPEECH_INGEST=livekit` (`voiceTokensWanted`), otherwise `voice_unavailable`.
+
+TC-0173: Stale LiveKit identities are removed; a plain disconnect removes nothing
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0407
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-choice.test.ts`.
+Expected Result: A reissue, a rebind, a leave, a withdrawal, an AI fill, an opt-out, a removal, voice off and the session end remove the old identity from the seat's room (the worker identity never); a socket close puts the role in `open` and removes nothing.
+Actual Result: As expected in the unit tests (tokens.test.ts and voice-choice.test.ts, names in AC-0407). Live (2026-11-09): `removeParticipant` dropped a publisher holding a valid token with `PARTICIPANT_REMOVED`; it reconnected with the same token and the ingest never subscribed it (0 subscribe calls, 0 frames). Browser: after "Stop using voice" a stale page reconnected with the seat's last token and published; control's periodic sweep removed it about 11 s after it published (period 20 s) and the fake speech-to-text recorded no call for the seat.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): control 881 passed, runtime 248 files 4522 passed (1 skipped). Batch 3 review: F3 the periodic sweep every 20 s (`SWEEP_INTERVAL_MS`), F7 one delayed retry after a failed sweep (`SWEEP_RETRY_MS` 2 s), F9 a vacated seat stays none-expected across a runtime restart. A facilitator removal takes the reissue path (`forgetVoice`). Edge case: TC-0184.
+
+TC-0174: The worker subscribes only to recording holders and attributes each frame to its generation
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0408
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/livekit-ingest.test.ts src/__tests__/reframe.test.ts src/__tests__/voice-gate.test.ts src/__tests__/track-pipeline.test.ts`.
+  2. Opt-in, with a throwaway LiveKit server: `VOICE_LIVE=1 pnpm --filter @acr/speech exec vitest run src/__tests__/livekit.live.test.ts`.
+Expected Result: An unconsented, not started, paused, muted or unavailable seat's track is never subscribed; a second microphone track and a non-microphone track are not subscribed; frames are 320 samples of 16 kHz mono; a frame whose generation is not the gate's is dropped, including frames queued after an unsubscribe.
+Actual Result: As expected in the unit tests (names in AC-0408). Live (2026-11-09): nothing was read before `subscribe` (2 s window); then 50 of 50 chunks were 320 samples and passed the 16 kHz mono check; the worker subscribed only the allowed identity (not a stale generation, not another role); frames queued under the old generation were not delivered after `setAllowed` moved the seat; rapid mute/unmute and pause/resume (0 to 80 ms, and around 1 s) kept audio flowing with status `connected` only.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): speech 17 files 250 passed (the live file's 17 tests skipped by default). Deviations D1 to D12 (batch 3) and D59 (a subscription lost in a full reconnect is re-requested on Reconnected). Edge case: TC-0183.
+
+TC-0175: One leased speech-to-text budget is shared across sessions
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0409
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/stt-slots.test.ts src/__tests__/voice/voice-host.test.ts`; from `services/speech`: `pnpm exec vitest run src/__tests__/slot-stt.test.ts`.
+Expected Result: At most 2 transcriptions run at once across all sessions; a worker exit frees its slots; an expired lease is reclaimed, the next waiter granted and that session's worker killed.
+Actual Result: As expected: at most 2 transcriptions at once across sessions, FIFO across sessions, a worker exit frees its slots, an expired lease (`STT_COLD_TIMEOUT_MS` + 5 s) is reclaimed, the next waiter granted and only that session's worker killed; the forked worker with a stand-in Whisper server runs every inference request inside a granted slot.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): control 881, speech 250 passed. Not run against a real whisper-server: whether a healthy cold call stays inside the 35 s lease, and the cross-session contention of the room test (4 to 8 talkers), are unverified. Deviations D20 and D21.
+
+TC-0176: A worker that exits is restarted with bounded backoff, then voice is off
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0410
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/restart.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: Restarts follow 500, 1000, 2000, 4000, 8000 ms; after 5 consecutive failures voice is off for the session with one `voice_off` alert; the count resets after 60 s ready; typed lines keep working.
+Actual Result: As expected: restarts after 500, 1000, 2000, 4000, 8000 ms; the 6th exit in a row gives one `voice_off` alert, no further spawn and tokens refused `voice_off`; 60 s ready resets the count; exit code 3, 0 or a signal all count; a SIGKILLed real worker is replaced by a new process; demo check V-07 passed (8 of 8). Live (2026-11-09): with the LiveKit server stopped while the seat records, the forked worker sent `livekit_status disconnected` and exited 3; restarted while the seat did not record, it stayed quiet and rtc-node reconnected by itself.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): control 881 passed, `pnpm demo --voice` 8 of 8. Deviation D13: "5 consecutive failures" is five failed restarts in a row, so at most 6 spawns per streak; D18: control no longer sends `worker_down` (every unexpected exit is `worker_restarting`).
+
+TC-0177: Whisper health is polled and voice availability follows it
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0411
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/health.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/voice-host.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-availability.test.ts`.
+Expected Result: Health is polled every 5 s; unhealthy gives one `stt_unavailable` alert and `voice_unavailable` notices to voice holders, healthy again one `stt_recovered` info alert; `voice_availability` is re-sent on every runtime `ready`.
+Actual Result: As expected with a stand-in health answer: polls every 5000 ms; a change is sent only after two agreeing polls (true, true, false, false, true, true sends false then true); `stt_unavailable` once and `voice_availability` false, `stt_recovered` and true again; every runtime `ready` is told the current availability; voice holders get `voice_unavailable` and `voice_available` once per transition. The e2e voice-lobby spec showed "Voice is available again, you can speak." to the voice holder after a killed worker was restarted.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): speech 250, control 881, runtime 4522 passed. Deviation D15 (hysteresis in the worker, not in control) and D16 (the runtime's `voiceUnavailable` starts false; control speaks at every ready). Not verified: a real whisper-server's `/health` while a model loads (if it answers non-200 then, voice reads as unavailable for about 10 s).
+
+TC-0178: The participant page offers voice only with LiveKit, and the console shows each seat's voice state
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0412
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/voice-handlers.test.ts src/components/__tests__`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-roster.test.ts`.
+Expected Result: The voice choice appears after consent to a notice that names voice and only when the web server has LiveKit; the facilitator roster and readiness carry each seat's voice state; no peers frame carries voice or speaking.
+Actual Result: As expected (names in AC-0412). The e2e voice-lobby spec (6 passed, Chromium headless shell 1223): the voice choice after consent, the console's voice column, a peer's roster without voice keys, and on a stack whose web server has no `LIVEKIT_URL` the voice option disabled with its reason and no microphone exception in any header.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 101 files 1612 passed; Playwright `voice-lobby` 6 passed. Deviations D48, D49 (console parsers pick `voice` and `speaking` field by field; the Readiness "Voice" column after "Consented").
+
+TC-0179: Microphone check, join with voice, mute and teardown
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0413
+Type: Accessibility
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/lib/__tests__ src/components/__tests__`; then `pnpm exec next build --webpack` and `pnpm exec playwright test voice-lobby axe --trace off`.
+  2. Opt-in, with a throwaway LiveKit server (docs/memory/demo-and-testing.md, "Voice live checks"): `VOICE_LIVE=1 pnpm exec playwright test voice-live --trace off`.
+Expected Result: No microphone is opened on page load; permission is asked only after the opt-in and a click; the mic check shows a level; mute stops publishing; the state is in words and an icon; every final stream event leaves the room; keyboard operable; Axe reports no violation.
+Actual Result: As expected in the unit tests and the e2e voice-lobby spec (no `getUserMedia` on load, Tab and the arrow keys on the radios, the failed join to a closed port with the focus kept on "Join with voice", the mic check's tracks stopped when the seat is superseded or removed, the stream-drop teardown and the fresh token on resume (F10), Axe clean on the lobby and scene states in both colour schemes). Live browser checks (2026-11-09, `voice-live.spec.ts`, 6 of 6, run twice): "Join with voice" published one microphone track into the seat's own room and moved the focus to "Mute microphone" (`aria-pressed="false"`); Mute gave `aria-pressed="true"`, "Microphone muted", no microphone track for the seat on the server and no transcription; unmute published again; "Stop using voice" moved the focus to "Take part by text only" and left the room; the final `ended` stopped every microphone track and the seat room was deleted; Axe clean on the connected, recording and muted states.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 1612 passed, Playwright `voice-lobby` 6 passed; the live browser checks were run by the implementer with `VOICE_LIVE=1`. In CI and the default runs, "mute stops publishing" is proven only against the fake `BrowserRoom` (`MicButton.test.tsx`); the real unpublish is proven only by the opt-in `VOICE_LIVE=1` run. Deviation D40: `setMicrophoneEnabled(false)` only mutes in livekit-client 2.23.0, so mute unpublishes (`unpublishTrack(track, true)`); confirmed live. Browser matrix: Chromium only; Safari, Firefox and mobile browsers not run (TC-0188). Edge case: TC-0185.
+
+TC-0180: A voice notice reaches only that player's page
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0414
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/stream-hub.test.ts src/components/__tests__`.
+Expected Result: `voice_notice` is forwarded as a named event to that player's stream only, announced in the polite status region; an unknown code is dropped.
+Actual Result: As expected: an unknown code, a non-string code and an inherited name are dropped; the BFF's allowlist is exactly the eight codes; the notice region is one polite `role=status` node; through the real runtime `voice_availability` false reaches only the voice holder's stream as the named event `voice_notice`. In the e2e voice-lobby spec the other player's stream carried no `voice_notice` while the voice holder saw "Voice is available again, you can speak.".
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 1612 passed, Playwright `voice-lobby` 6 passed. The notice was produced by SIGKILLing the session's speech worker (D57), the only notice reachable without audio.
+
+TC-0181: The console shows who speaks and the fixed voice alert sentences
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0415
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__ src/components/__tests__`.
+Expected Result: The console's speaking indicator follows the facilitator roster; the voice alerts pass through in their fixed words (an allowlist pinned against the runtime's `VOICE_ALERT_SENTENCES`); neither reaches a player frame.
+Actual Result: As expected: the voice alert sentences pass through exactly at their level, anything else gets the fixed line per level; a speaking edge sends a roster to the facilitator socket only; a facilitator roster never reaches a player's stream; the panel's "Speaking" is not in a live region. Live browser check (2026-11-09): the console's voice panel showed "Speaking" from a real `speech_activity`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 1612 and runtime 4522 passed. Deviation D33: the copy list holds all six runtime sentences, `worker_down`'s included.
+
+TC-0182: Notice v3 carries the owner-approved wording and keeps its draft marker
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0416
+Type: Regression
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/engine/__tests__/consent-notice-v3.test.ts`.
+Expected Result: The notice's first line is still the draft marker and its phrase checks pass; the owner approval of 2026-11-08 and the release-gate items (remove the marker, add a SHA-256 pin, legal and HR sign-off) are recorded in docs/memory/backlog-and-decisions.md.
+Actual Result: As expected: the first line is still "Draft for legal and HR review; not for use with participants until signed off." and the phrase checks pass; `consent/notice-v3.md` is unchanged on the branch; the owner approval and the release-gate items are recorded in docs/memory/backlog-and-decisions.md.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): runtime 4522 passed. This case passes for what A1b must hold (the marker kept); AC-0416 itself stays open until the release gate. The marker removal, the SHA-256 pin and the legal and HR sign-off are release-gate items, deferred with the other compliance work while in pre-production (owner decision 2026-11-08).
+
+TC-0183: A track that must not be heard is never subscribed, and no frame of an old generation reaches the new holder
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0406, AC-0408
+Type: Edge Case
+Preconditions: A checkout with dependencies installed; no model key, no speech server. Step 2 needs a throwaway LiveKit server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/livekit-ingest.test.ts src/__tests__/track-pipeline.test.ts src/__tests__/voice-gate.test.ts src/__tests__/livekit-room.test.ts`.
+  2. `VOICE_LIVE=1 pnpm --filter @acr/speech exec vitest run src/__tests__/livekit.live.test.ts` (cases 1, 2, 4 and 6).
+Expected Result: An identity that does not parse (`SPEECH.deadbeef`, `Tech.g12345678`, `a.b`, `alice`), another role's identity in a seat room, a stale generation, a second microphone track, a non-microphone track, a seat before the start, paused, muted or with voice unavailable: never subscribed, no frame, no speech-to-text call. Frames queued after an unsubscribe are never delivered; a stream that ends while allowed is re-subscribed (bounded: 5 restarts without a frame, then `failed`); a subscription that is never answered ends after 10 s (`SUBSCRIBE_WAIT_MS`); after a full reconnect the wanted subscriptions are requested again.
+Actual Result: Step 1 as expected in the gate runs of 2026-11-09 (speech 250 passed). Step 2, 2026-11-09 against `livekit/livekit-server` 1.13.11 in Docker (macOS arm64, media over TCP): first run failed cases 2 and 6 (D60: a refused subscription was never answered and the read waited for ever; D59: after `SIMULATE_NODE_FAILURE` the re-subscribe sent while reconnecting was never answered, 4 frames in 60 s); after the fixes 7d018ed and 2b02bf5 the speech file passed 16 of 16, twice, with the blip, stop and restart commands, plus the long case (686 s, both 600 s tokens expired, audio kept flowing). A second connection with the same identity displaced the first (`DUPLICATE_IDENTITY`) and frames of the same generation continued.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 1 and 2 of the A1b plan. The two live failures were fixed test-first on the branch (unit tests "Reconnected re-requests every subscription that has no track yet" and "a read waiting for a subscription that is never answered ends after SUBSCRIBE_WAIT_MS", each failed before its fix and each fix mutation-checked); they are recorded as plan deviations D59 and D60, not as BUGs, because they were found and fixed before any merge. rtc-node's publisher never receives `LocalTrackSubscribed` for a hidden subscriber (D61), so "never subscribed" is proven by the ingest's own subscribe calls and the fake speech-to-text's call record. Live checks were run by the implementer.
+
+TC-0184: A removed browser that reconnects with its still-valid token is swept again and never heard
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0407
+Type: Negative
+Preconditions: As TC-0183.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts` (the periodic sweep and its retry).
+  2. `VOICE_LIVE=1 pnpm --filter @acr/web exec playwright test voice-live --trace off` (the stale-browser case) and the speech live case 3.
+Expected Result: The sweep runs every 20 s while the session has seat rooms (one timer per session, coalesced per room, one retry 2 s after a failed sweep), keeps only the current holder and the worker's `SPEECH.` identity, and stops at the end and when the runtime exits; a reconnecting removed browser is removed again within one period and never subscribed.
+Actual Result: Step 1 as expected (control 881 passed, 2026-11-09). Step 2, 2026-11-09: the stale page published and was removed about 11 s later; no speech-to-text call and no line for the seat; speech case 3 passed (0 subscribe calls, 0 frames for the removed publisher).
+Status: [x] Pass
+Defect Raised: None
+Notes: A JWT cannot be revoked, so removal plus the sweep is the control: up to 20 s the removed browser can sit in its own seat room again, publishing to nobody (the worker never subscribes a stale generation). Batch 3 review F3 and F7. Live checks were run by the implementer.
+
+TC-0185: Without a secure page, a microphone permission or LiveKit in the web server, the page says why and keeps the text box
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0412, AC-0413
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/VoiceChoice.test.tsx src/components/__tests__/MicCheck.test.tsx src/components/__tests__/MicButton.test.tsx src/components/__tests__/SessionScreenVoice.test.tsx src/server/__tests__/voice-handlers.test.ts`.
+  2. `pnpm exec playwright test voice-lobby --trace off` (the stack without `LIVEKIT_URL`, and the failed join to a closed port).
+Expected Result: An insecure page disables the voice option with the secure-connection sentence; a denied permission shows the denied sentence and opens nothing; another failure shows the could-not-open sentence; no `LIVEKIT_URL` disables the voice option with the not-available sentence and the token route answers 503 `voice_unavailable`; a failed join ends in "Voice could not connect. Use the text box." with the focus on "Join with voice"; nothing retries in a loop; typed lines still work; once voice is off for the session Join is not offered again.
+Actual Result: As expected in the gate runs of 2026-11-09 (web 1612 passed; Playwright `voice-lobby` 6 passed, re-run by the controller).
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 5 of the A1b plan. `isSecureContext` is injected in the unit tests; the e2e stack serves `http://127.0.0.1`, a secure context, so a real LAN `http://` page and a real permission prompt's `NotAllowedError` were not exercised in a browser (Chromium's fake-UI flag grants the permission).
+
+TC-0186: The microphone and the LiveKit origin are allowed on the session page only
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0413
+Type: Negative
+Preconditions: A checkout with dependencies installed and a production build (`pnpm --filter @acr/web exec next build --webpack`).
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/__tests__/proxy.test.ts src/server/__tests__/headers.test.ts src/server/__tests__/config.test.ts`.
+  2. `pnpm exec playwright test voice-lobby --trace off` ("the real response headers ...", read with node's `http.get` raw headers).
+Expected Result: With a valid `LIVEKIT_URL`, `/session/<id>` gets exactly one `Permissions-Policy: camera=(), microphone=(self), geolocation=()` and `connect-src 'self' <wss origin> <https twin>` (for local development `ws://127.0.0.1:<port>` and `http://127.0.0.1:<port>`), built from the validated origin, never the raw variable; `/session` itself, `/console`, `/join`, the API routes and every other path keep one `microphone=()` and `connect-src 'self'`; an invalid `LIVEKIT_URL` adds nothing to a page and stops the API routes' config; `ws:` is accepted only to `127.0.0.1` or `[::1]` with an explicit port.
+Actual Result: As expected in the gate runs of 2026-11-09 (web 1612 passed; Playwright `voice-lobby` 6 passed). A `next start` with `LIVEKIT_URL=wss://pilot.example:7443` answered as expected under curl in batch 5.
+Status: [x] Pass
+Defect Raised: None
+Notes: Deviations D26, D31, D32, D58. Whether livekit-client needs the `https:` twin was not observed (allowed on `/session/*` only).
+
+TC-0187: The ten live-only LiveKit cases against a real server
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0406, AC-0407, AC-0408, AC-0410, AC-0413
+Type: Functional
+Preconditions: A throwaway local LiveKit server with random keys (never `--dev`) and the variables of docs/memory/demo-and-testing.md, "Voice live checks"; Chromium headless shell 1223; no whisper-server (the fake speech-to-text turns real segments into lines).
+Steps:
+  1. `VOICE_LIVE=1 pnpm --filter @acr/speech exec vitest run src/__tests__/livekit.live.test.ts` with `LIVEKIT_LIVE_BLIP`, `LIVEKIT_LIVE_STOP`, `LIVEKIT_LIVE_START`, `LIVEKIT_LIVE_RESTART`; once more with `VOICE_LIVE_LONG=1`.
+  2. `pnpm --filter @acr/web exec next build --webpack`, then `VOICE_LIVE=1 pnpm --filter @acr/web exec playwright test voice-live --trace off`.
+Expected Result: The ten cases of the A1b plan (Task 18 and "Batch 6c live findings") pass: subscribe with auto-subscribe off and the real frame format; rapid toggles and a surfaced subscription failure; removal and the sweep; a duplicate identity; hidden workers listed and a dead worker lingering until the server timeout; more than 10 minutes, token expiry and reconnects; a LiveKit restart (exit 3 while recording, quiet while not); `deleteRoom` versus the final flush; nothing identifying in the speech log or output, including at connect failures; a join to a dead URL failing in bounded time. Browser: 6 of 6.
+Actual Result: 2026-11-09, `livekit/livekit-server` 1.13.11 in Docker on macOS arm64 (ports on 127.0.0.1 only, media over TCP 7881): speech 16 of 16, twice (after D59 and D60 were fixed), and the long case 1 of 1 (686 s); browser 6 of 6, twice. Case 8: the ended state reached the worker before the room disconnect in 2 of 2 runs, the open segment was flushed, exit 0. Case 10: a closed port was refused in about 10 ms, a socket that never answers after about 16 s (rtc-node's own timeout). Case 9: no key, secret, URL, host, room, token, identity, participant id or `lk-rtc` in the worker's stdout and stderr, the page console, the services' output or any `*.speech.log`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Run by the implementer with the owner's go-ahead; not in CI (skipped without `VOICE_LIVE=1`). Not proven: UDP media, a real LAN, a pilot `wss://` server with TLS, a real whisper-server. Case 8 is a race in principle (IPC versus an HTTP call plus the server's kick); sending `ended` before `deleteRoom` is proposed as a hardening (docs/memory/backlog-and-decisions.md).
+
+TC-0188: Browser matrix for the voice page
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0413
+Type: Functional
+Preconditions: The A1b stack with a LiveKit server reachable over `wss://` with a trusted certificate (a pilot-like setup), a real microphone.
+Steps:
+  1. In Safari (macOS and iOS), Firefox and a mobile Chromium browser: consent to notice v3, choose voice, check the microphone, Join with voice, Mute and unmute, Stop using voice, end the session.
+Expected Result: As TC-0179 in each browser: the permission is asked only after the click, the level meter moves, Mute stops the browser's recording indicator, the words and focus follow the state, the room is left on every final event.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Only Chromium (headless shell 1223 with a fake microphone) was tested in A1b. Needs a human, real hardware and a pilot `wss://` server; part of the room test before any pilot (go-live checklist).

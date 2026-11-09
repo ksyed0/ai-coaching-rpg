@@ -73,15 +73,15 @@ describe("voice on the player socket (US-0070)", () => {
     const pat = await player(e, "account_manager", "pat");
     const sam = await player(e, "tech_lead", "sam");
     pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
-    expect(await pat.next((m) => m.type === "voice" || m.type === "error")).toEqual({ type: "voice", state: "voice" });
+    expect(await pat.next((m) => m.type === "voice" || m.type === "error")).toEqual({ type: "voice", state: "voice", muted: false });
     expect(e.host.voiceStateOf("account_manager")).toBe("voice");
     pat.send({ type: "voice_opt_out" });
     await vi.waitFor(() => expect(pat.inbox.filter((m) => m.type === "voice")).toHaveLength(2));
-    expect(pat.inbox.filter((m) => m.type === "voice").at(-1)).toEqual({ type: "voice", state: "text_only" });
+    expect(pat.inbox.filter((m) => m.type === "voice").at(-1)).toEqual({ type: "voice", state: "text_only", muted: false });
     // sam sends a message of his own and gets its answer, so every frame for him up to now has arrived.
     sam.send({ type: "voice_opt_out" });
     await sam.next((m) => m.type === "voice");
-    expect(sam.inbox.filter((m) => m.type === "voice")).toEqual([{ type: "voice", state: "text_only" }]);
+    expect(sam.inbox.filter((m) => m.type === "voice")).toEqual([{ type: "voice", state: "text_only", muted: false }]);
     for (const m of sam.inbox) expect(JSON.stringify(m)).not.toContain("pat");
   });
 
@@ -107,14 +107,37 @@ describe("voice on the player socket (US-0070)", () => {
     pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
     await pat.next((m) => m.type === "voice");
     const sam = await player(e, "tech_lead", "sam");
-    expect(sam.joined.voice).toEqual({ state: "none" });
+    expect(sam.joined.voice).toEqual({ state: "none", muted: false });
     expect(JSON.stringify(sam.joined)).not.toContain("\"voice\":{\"state\":\"voice\"}");
     // pat rejoins with another socket: his own state.
     const again = await open(e.port);
     again.send({ type: "join", sessionId: "local", roleId: "account_manager", participantId: "pat", reconnectToken: pat.joined.reconnectToken });
     const j = await again.next((m) => m.type === "joined" || m.type === "error");
     expect(j.type).toBe("joined");
-    expect(j.voice).toEqual({ state: "voice" });
+    expect(j.voice).toEqual({ state: "voice", muted: false });
+  });
+
+  it("every voice answer and joined.voice carry the seat's real mute state (F5)", async () => {
+    const e = await setup();
+    const pat = await player(e, "account_manager", "pat");
+    const voices = () => pat.inbox.filter((m) => m.type === "voice");
+    pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
+    pat.send({ type: "voice_mute", muted: true });
+    pat.send({ type: "voice_opt_out" });
+    pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
+    await vi.waitFor(() => expect(voices()).toHaveLength(4));
+    expect(voices()).toEqual([
+      { type: "voice", state: "voice", muted: false },
+      { type: "voice", state: "voice", muted: true },
+      { type: "voice", state: "text_only", muted: true }, // the mute outlives an opt-out ...
+      { type: "voice", state: "voice", muted: true }, // ... and is still in force after opting in again
+    ]);
+    expect(e.host.voiceSeats().holders.find((x) => x.roleId === "account_manager")?.recording).toBe(false);
+    // A rejoin on a new socket by the same holder (the old one is superseded, the seat never released) is told it is muted.
+    const again = await open(e.port);
+    again.send({ type: "join", sessionId: "local", roleId: "account_manager", participantId: "pat", reconnectToken: pat.joined.reconnectToken });
+    const j = await again.next((m) => m.type === "joined" || m.type === "error");
+    expect(j.voice).toEqual({ state: "voice", muted: true });
   });
 
   it("joined has no voice key when voice is disabled, and opt-in is refused voice_off", async () => {
@@ -160,4 +183,44 @@ describe("voice on the player socket (US-0070)", () => {
     c.send({ type: "voice_opt_in", noticeVersion: "v3" });
     expect(await c.next((m) => m.type === "error")).toMatchObject({ code: "not_joined" });
   });
+
+  it("voice_mute answers {type: voice, state, muted} to that socket only and changes recording (US-0071)", async () => {
+    const e = await setup();
+    const pat = await player(e, "account_manager", "pat");
+    pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
+    await pat.next((m) => m.type === "voice");
+    pat.send({ type: "voice_mute", muted: true });
+    await vi.waitFor(() => expect(pat.inbox.filter((m) => m.type === "voice")).toHaveLength(2));
+    expect(pat.inbox.filter((m) => m.type === "voice").at(-1)).toEqual({ type: "voice", state: "voice", muted: true });
+    expect((e.host as unknown as { voiceMuted: Set<string> }).voiceMuted.has("account_manager")).toBe(true);
+    pat.send({ type: "voice_mute", muted: false });
+    await vi.waitFor(() => expect(pat.inbox.filter((m) => m.type === "voice")).toHaveLength(3));
+    expect(pat.inbox.filter((m) => m.type === "voice").at(-1)).toEqual({ type: "voice", state: "voice", muted: false });
+  });
+
+  it("voice_mute with an extra key or a non-boolean is bad_message; the facilitator's is forbidden (US-0071)", async () => {
+    const e = await setup();
+    const pat = await player(e, "account_manager", "pat");
+    const bad = [{ type: "voice_mute", muted: true, roleId: "tech_lead" }, { type: "voice_mute" }, { type: "voice_mute", muted: "yes" }];
+    for (const m of bad) pat.send(m);
+    await vi.waitFor(() => expect(pat.inbox.filter((m) => m.type === "error")).toHaveLength(bad.length));
+    for (const m of pat.inbox.filter((x) => x.type === "error")) expect(m.code).toBe("bad_message");
+    expect((e.host as unknown as { voiceMuted: Set<string> }).voiceMuted.size).toBe(0);
+    const f = await open(e.port);
+    f.send({ type: "join_facilitator", sessionId: "local" });
+    await f.next((m) => m.type === "joined");
+    f.send({ type: "voice_mute", muted: true });
+    expect(await f.next((m) => m.type === "error")).toMatchObject({ code: "forbidden" });
+  });
+
+  it("a socket close releases the seat and its mute (US-0071)", async () => {
+    const e = await setup();
+    const pat = await player(e, "account_manager", "pat");
+    pat.send({ type: "voice_mute", muted: true });
+    await pat.next((m) => m.type === "voice");
+    sockets.at(-1)!.terminate();
+    await vi.waitFor(() => expect(e.host.assignments.account_manager).toBeUndefined());
+    expect((e.host as unknown as { voiceMuted: Set<string> }).voiceMuted.size).toBe(0);
+  });
 });
+

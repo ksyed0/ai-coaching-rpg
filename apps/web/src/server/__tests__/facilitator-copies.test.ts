@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { SessionEvent, SessionState } from "@acr/events";
-import { consoleCharacters, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState } from "../facilitator-copies";
+import { entryOf } from "../console-roster";
+import { consoleCharacters, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState, VOICE_ALERT_SENTENCES_COPY } from "../facilitator-copies";
+
+// US-0071 (A1b Task 13): the runtime's fixed voice alert sentences, read from host/voice.ts (no host dependencies; never session-host.ts).
+// Loaded by a computed path so tsc does not type-check the runtime's sources under this app's settings.
+const RUNTIME_VOICE = fileURLToPath(new URL("../../../../../services/runtime/src/host/voice.ts", import.meta.url));
+if (!existsSync(RUNTIME_VOICE)) throw new Error(`facilitator-copies.test.ts needs the runtime's host/voice.ts at ${RUNTIME_VOICE}; it moved: update the path`);
 
 const state = (): SessionState => ({
   status: "running", lastSeq: 9, scenarioId: "sc", version: "1",
@@ -124,5 +132,53 @@ describe("console copies", () => {
       { roleId: "empty", facts: [] },
     ]);
     expect(consoleFactTexts(undefined)).toEqual([]);
+  });
+});
+
+describe("console copies: voice (US-0071)", () => {
+  const alert = (message: string, level: "info" | "warning" = "warning") => ({ type: "facilitator.alert", seq: 6, ts: 6, sessionId: "s", level, message }) as SessionEvent;
+  const GENERIC = { info: "The runtime posted a notice. Details are in the facilitator log.", warning: "The runtime raised an alert. Details are in the facilitator log." };
+
+  it("the copy list equals the runtime's VOICE_ALERT_SENTENCES values", async () => {
+    const { VOICE_ALERT_SENTENCES } = (await import(RUNTIME_VOICE)) as { VOICE_ALERT_SENTENCES: Record<string, string> };
+    expect([...VOICE_ALERT_SENTENCES_COPY].sort()).toEqual(Object.values(VOICE_ALERT_SENTENCES).sort());
+    expect(VOICE_ALERT_SENTENCES_COPY).toHaveLength(6);
+  });
+
+  it("each voice alert sentence passes through exactly, at its level", () => {
+    for (const m of VOICE_ALERT_SENTENCES_COPY) {
+      expect(consoleEvent(alert(m))).toEqual({ type: "facilitator.alert", seq: 6, ts: 6, sessionId: "s", level: "warning", message: m });
+      expect(consoleEvent(alert(m, "info"))).toMatchObject({ level: "info", message: m });
+    }
+  });
+
+  it("a sentence with one extra character, a changed case or a prefix is replaced by the fixed line", () => {
+    for (const m of VOICE_ALERT_SENTENCES_COPY) {
+      for (const bad of [`${m} `, ` ${m}`, `${m}x`, m.toUpperCase(), m.slice(0, -1), `${m} key=sk-SECRET`, `SECRET ${m}`]) {
+        expect(consoleEvent(alert(bad)), bad).toMatchObject({ message: GENERIC.warning });
+        expect(consoleEvent(alert(bad, "info")), bad).toMatchObject({ message: GENERIC.info });
+      }
+    }
+  });
+
+  it("every other alert keeps the generic line per level, a non-string message included", () => {
+    for (const m of ["Bearer SECRET", "The model provider failed: 401 sk-abc", "", "toString", "__proto__", "constructor"]) {
+      expect(consoleEvent(alert(m))).toMatchObject({ message: GENERIC.warning });
+    }
+    expect(consoleEvent({ type: "facilitator.alert", seq: 6, ts: 6, sessionId: "s", level: "warning", message: ["Voice input is available again."] } as unknown as SessionEvent)).toMatchObject({ message: GENERIC.warning });
+    expect(consoleEvent({ type: "facilitator.alert", seq: 6, ts: 6, sessionId: "s", level: "warning", message: 7 } as unknown as SessionEvent)).toMatchObject({ message: GENERIC.warning });
+  });
+
+  it("entryOf keeps voice and speaking and drops voice: \"loud\" and speaking: 1", () => {
+    const e = { roleId: "a", joined: true, consented: true, connected: true };
+    for (const voice of ["none", "voice", "text_only", "off"] as const) expect(entryOf({ ...e, voice } as never)).toEqual({ ...e, voice });
+    expect(entryOf({ ...e, voice: "voice", speaking: true } as never)).toEqual({ ...e, voice: "voice", speaking: true });
+    for (const bad of ["loud", "VOICE", 1, true, {}, null, "__proto__"]) expect(Object.hasOwn(entryOf({ ...e, voice: bad } as never), "voice"), String(bad)).toBe(false);
+    for (const bad of [1, "true", false, {}, null]) expect(Object.hasOwn(entryOf({ ...e, voice: "voice", speaking: bad } as never), "speaking"), String(bad)).toBe(false);
+  });
+
+  it("a text-only entry (no voice fields) is unchanged: same keys as before", () => {
+    const e = { roleId: "a", name: "Ann", joined: true, consented: false, connected: true };
+    expect(Object.keys(consoleRoster([e as never])[0]!)).toEqual(["roleId", "name", "joined", "consented", "connected"]);
   });
 });

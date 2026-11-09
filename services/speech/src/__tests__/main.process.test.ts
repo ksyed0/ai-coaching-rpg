@@ -1,5 +1,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,5 +87,54 @@ describe("the forked speech worker (US-0070)", () => {
     expect(await w.exited).toBe(2);
     expect(w.stderr()).toContain("STT_FAKE_SCRIPT");
     expect(w.stderr()).not.toContain(dir);
+  });
+});
+
+describe("the forked speech worker and the global speech-to-text slots (US-0071, A1b Task 6)", () => {
+  it("with Whisper every inference request runs inside a slot control granted, and each slot is given back", async () => {
+    const inference: number[] = []; // the number of grants sent when each request reached the server
+    let grantsSent = 0;
+    const server = http.createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        if (req.url === "/health") { res.writeHead(200).end("{}"); return; }
+        inference.push(grantsSent);
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ text: "We can ship in May.", segments: [{ no_speech_prob: 0.01, avg_logprob: -0.1, start: 0, end: 1 }] }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const w = start({ STT_PROVIDER: "whisper", STT_URL: `http://127.0.0.1:${port}`, SPEECH_INGEST: "file", SPEECH_INGEST_DIR: dir, SPEECH_INGEST_ROLES: "tech_lead" });
+    const requested: string[] = [];
+    const released: string[] = [];
+    w.child.on("message", (m: { type?: string; slot?: string }) => {
+      if (m.type === "stt_slot_request" && m.slot) requested.push(m.slot);
+      if (m.type === "stt_slot_release" && m.slot) released.push(m.slot);
+    });
+    try {
+      // The warm-up asks for a slot and does not reach the server before the grant.
+      await vi.waitFor(() => expect(requested).toHaveLength(1), { timeout: 60_000 });
+      expect(inference).toEqual([]);
+      expect(w.messages.some((m) => (m as { type: string }).type === "worker_ready")).toBe(false);
+      grantsSent++;
+      w.child.send({ type: "stt_slot_grant", slot: requested[0] });
+      await vi.waitFor(() => expect(w.messages).toContainEqual({ type: "worker_ready", stt: "ok" }), { timeout: 60_000 });
+      await vi.waitFor(() => expect(released).toEqual([requested[0]]), { timeout: 60_000 });
+      // A segment of the fixture: its transcription waits for its own slot too.
+      w.child.send({ type: "voice_state", paused: false, ended: false, holders });
+      await vi.waitFor(() => expect(requested).toHaveLength(2), { timeout: 60_000 });
+      expect(inference).toEqual([1]);
+      grantsSent++;
+      w.child.send({ type: "stt_slot_grant", slot: requested[1] });
+      await vi.waitFor(() => expect(w.messages).toContainEqual(expect.objectContaining({ type: "voice_line", roleId: "tech_lead", text: "We can ship in May." })), { timeout: 60_000 });
+      await vi.waitFor(() => expect(released).toEqual(requested), { timeout: 60_000 });
+      expect(inference).toEqual([1, 2]); // every request came after its grant
+      w.child.disconnect();
+      expect(await w.exited).toBe(0);
+      expect(w.stderr()).not.toContain(String(port));
+    } finally {
+      w.child.kill("SIGKILL");
+      await new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); });
+    }
   });
 });
