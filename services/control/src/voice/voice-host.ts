@@ -35,6 +35,7 @@ export type VoiceFromRuntime = Extract<ChildMessage, { type: "voice_seats" | "vo
 type Seats = Extract<ChildMessage, { type: "voice_seats" }>;
 
 /** `stable` cancels the RESTART_STABLE_MS timer armed at `worker_ready` (it resets the session's failure count). */
+type Pending = { cancel: () => void; startMs: number; endMs: number };
 type Worker = { handle: WorkerHandle; ready: boolean; exited: boolean; stopping: boolean; stable?: () => void };
 type Session = {
   worker?: Worker;
@@ -57,7 +58,8 @@ type Session = {
   ended: boolean;
   /** The latest seats the runtime reported (cleared when that runtime exits). */
   seats?: Seats;
-  pending: Map<string, () => void>;
+  /** Lines waiting for the runtime's answer: the timeout's cancel, and (US-0072, Task 12) the segment's wall-clock start and end. */
+  pending: Map<string, Pending>;
   /** The last `voice_turn` the runtime reported (for the demo's V-07 and tests). */
   turnOpen?: boolean;
   /** US-0072 (A1c Task 11): LiveKit does not answer control's probe: no worker runs, nothing is spawned until a probe answers. */
@@ -114,6 +116,14 @@ export class VoiceHost {
      * worker exit EXIT_LIVEKIT_LOST of a LiveKit ingest, and again on the outage schedule. Absent: every exit counts, as in A1b.
      */
     livekitReachable?: () => Promise<boolean>;
+    /** US-0072 (A1c Task 12): control's clock for the timing record (default Date.now). */
+    now?: () => number;
+    /**
+     * US-0072 (A1c Task 12, VOICE_TIMING_LOG=1): where one timing line per acknowledged voice line goes (timing-log.ts: a private,
+     * bounded file); absent, nothing is recorded. The line is `session <id> voice line timing end_to_append_ms=<n>
+     * start_to_append_ms=<m>`: no role, segment, participant or text.
+     */
+    timingLog?: (line: string) => void;
   }) {
     // A generation reaches the worker only for a LiveKit ingest: a file-ingest worker would drop every frame (none of its frames has one).
     this.livekitIngest = o.tokens !== undefined && o.parentEnv.SPEECH_INGEST === "livekit";
@@ -340,7 +350,8 @@ export class VoiceHost {
       const answer = s.pending.get(m.segmentId);
       if (!answer) return; // timed out already, or never asked
       s.pending.delete(m.segmentId);
-      answer();
+      answer.cancel();
+      if (m.type === "voice_line_ack") this.timing(sessionId, answer);
       if (m.type === "voice_line_ack") this.toWorker(s, { type: "voice_line_result", segmentId: m.segmentId, seq: m.seq });
       else this.toWorker(s, { type: "voice_line_result", segmentId: m.segmentId, refused: m.code });
     } catch (err) { this.failed(sessionId, err); }
@@ -450,8 +461,9 @@ export class VoiceHost {
         if (s.ended || !s.runtimeUp || s.pending.has(m.segmentId) || s.pending.size >= MAX_PENDING_LINES) { refuse(); return; }
         const sent = this.o.toRuntime(sessionId, { type: "voice_line", segmentId: m.segmentId, roleId: m.roleId, participantId: m.participantId, text: m.text });
         if (!sent) { refuse(); return; }
-        const cancel = this.o.setTimer(() => { if (s.pending.get(m.segmentId) === cancel) { s.pending.delete(m.segmentId); refuse(); } }, VOICE_LINE_TIMEOUT_MS);
-        s.pending.set(m.segmentId, cancel);
+        const entry: Pending = { cancel: () => {}, startMs: m.startMs, endMs: m.endMs };
+        entry.cancel = this.o.setTimer(() => { if (s.pending.get(m.segmentId) === entry) { s.pending.delete(m.segmentId); refuse(); } }, VOICE_LINE_TIMEOUT_MS);
+        s.pending.set(m.segmentId, entry);
         return;
       }
       case "speech_activity":
@@ -510,7 +522,7 @@ export class VoiceHost {
     if (!s || s.worker !== w) return;
     delete s.worker;
     this.slots.releaseAll(sessionId); // US-0071 (Task 6): a dead worker's slots go back at once, its waiters are dropped
-    for (const cancel of s.pending.values()) cancel(); // the worker is gone: nobody to answer
+    for (const p of s.pending.values()) p.cancel(); // the worker is gone: nobody to answer
     s.pending.clear();
     if (s.ended) { this.drop(sessionId, s); return; } // F9b: the session is over and its worker has stopped
     if (w.stopping || this.closed) return; // a clean stop (the end, control's shutdown) is not a failure
@@ -524,7 +536,7 @@ export class VoiceHost {
 
   /** F9b: forgets an ended session whose worker has stopped (or that never had one). */
   private drop(sessionId: string, s: Session): void {
-    for (const cancel of s.pending.values()) cancel();
+    for (const p of s.pending.values()) p.cancel();
     this.slots.releaseAll(sessionId);
     if (this.sessions.get(sessionId) === s) this.sessions.delete(sessionId);
   }
@@ -550,11 +562,26 @@ export class VoiceHost {
   }
 
   private failPending(s: Session): void {
-    for (const [segmentId, cancel] of [...s.pending]) {
-      cancel();
+    for (const [segmentId, p] of [...s.pending]) {
+      p.cancel();
       s.pending.delete(segmentId);
       this.toWorker(s, { type: "voice_line_result", segmentId, refused: "failed" });
     }
+  }
+
+  /**
+   * US-0072 (A1c Task 12): the room test's measurement points (plan R17): control's clock at the runtime's ack minus the segment's last
+   * speech frame (`end_to_append_ms`, "end of speech to line") and minus its first (`start_to_append_ms`, approximating "first word to
+   * line"). Integers clamped at 0 (the worker's wall clock may run ahead). Never throws: a broken sink must not break the ack.
+   */
+  private timing(sessionId: string, p: Pending): void {
+    const sink = this.o.timingLog;
+    if (!sink) return;
+    try {
+      const now = (this.o.now ?? Date.now)();
+      const ms = (from: number): number => Math.max(0, Math.round(now - from));
+      sink(`session ${sessionId} voice line timing end_to_append_ms=${ms(p.endMs)} start_to_append_ms=${ms(p.startMs)}`);
+    } catch (err) { this.failed(sessionId, err); }
   }
 
   private toWorker(s: Session, m: ControlToWorker): void {

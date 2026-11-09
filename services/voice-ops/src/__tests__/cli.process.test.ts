@@ -107,9 +107,9 @@ function setup(stub: Record<string, unknown> = {}): Setup {
 }
 
 type Result = { code: number | null; signal: NodeJS.Signals | null; out: string };
-function runRoot(s: Setup, script: string, o: { detached?: boolean; onSpawn?: (pid: number) => void } = {}): Promise<Result> {
+function runRoot(s: Setup, script: string, o: { detached?: boolean; onSpawn?: (pid: number) => void; args?: string[] } = {}): Promise<Result> {
   return new Promise((resolve) => {
-    const child = spawn(PNPM!, ["-s", script], { cwd: s.root, env: s.env, detached: o.detached ?? false, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(PNPM!, ["-s", script, ...(o.args ?? [])], { cwd: s.root, env: s.env, detached: o.detached ?? false, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     child.stdout.on("data", (c: Buffer) => { out += c.toString(); });
     child.stderr.on("data", (c: Buffer) => { out += c.toString(); });
@@ -201,5 +201,21 @@ describe("the root voice scripts as real processes (US-0072, A1c Tasks 7 and 9)"
     for (const v of [...Object.values(marker), marker.path.slice(1), PLACEHOLDER_TOKEN]) expect(r.out).not.toContain(v);
     expect(readFileSync(envFile).equals(before)).toBe(true);
     expect(existsSync(s.stateDir)).toBe(false);
+  });
+
+  it("US-0072 (Task 12): pnpm -s voice:timings <relative file> from the repository root reads that file and prints the summaries", async (ctx) => {
+    if (skip) { ctx.skip(); return; }
+    const s = setup();
+    mkdirSync(path.join(s.root, "logs"));
+    const id = "f".repeat(32);
+    writeFileSync(path.join(s.root, "logs", "voice-timing.log"), [300, 500, 900].map((d) => `session ${id} voice line timing end_to_append_ms=${d} start_to_append_ms=${d + 2000}`).join("\n") + "\n");
+    const r = await runRoot(s, "voice:timings", { args: ["logs/voice-timing.log"] });
+    expect(r.out).toContain("voice:timings: end of speech to line (end_to_append_ms): count 3, p50 500 ms, p95 900 ms, max 900 ms (target p95 at most 1000 ms: met)");
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain(id);
+    expect(r.out).not.toContain(s.root);
+    const none = await runRoot(s, "voice:timings");
+    expect(none.code).toBe(2);
+    expect(none.out).toContain("usage: pnpm voice:timings <timing file>");
   });
 });

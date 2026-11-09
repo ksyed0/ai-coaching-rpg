@@ -91,6 +91,22 @@ describe("startControl", () => {
     } finally { stand.closeAllConnections(); await new Promise<void>((r) => stand.close(() => r())); }
   });
 
+  it("US-0072 (A1c Task 12): VOICE_TIMING_LOG is exactly 0 or 1 (default 0); VOICE_TIMING_LOG=yes stops the start naming the variable only", async () => {
+    for (const bad of ["yes", "true", "2", " 1", "1 "]) {
+      const err = await startControl({ ...env, VOICE_TIMING_LOG: bad }, { port: 0 }).catch((e: Error) => e);
+      expect(String(err), bad).toContain("VOICE_TIMING_LOG must be 0 or 1");
+      expect(String(err)).not.toContain(`"${bad}"`);
+    }
+    const hosts: unknown[] = [];
+    const sinkOf = (i: number) => (hosts[i] as { o: { timingLog?: unknown } }).o.timingLog;
+    for (const [value, on] of [[undefined, false], ["", false], ["0", false], ["1", true]] as const) {
+      running = await startControl({ ...env, ...(value === undefined ? {} : { VOICE_TIMING_LOG: value }) }, { port: 0, onVoiceHost: (v) => hosts.push(v) });
+      expect(sinkOf(hosts.length - 1) !== undefined, String(value)).toBe(on);
+      await running.close();
+      running = undefined;
+    }
+  });
+
   it("US-0071: starts with LiveKit configured and SPEECH_INGEST=livekit", async () => {
     running = await startControl({ ...env, SPEECH_INGEST: "livekit", LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "s".repeat(40) }, { port: 0 });
     expect(running.port).toBeGreaterThan(0);

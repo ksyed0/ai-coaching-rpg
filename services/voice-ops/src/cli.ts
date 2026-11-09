@@ -16,6 +16,7 @@ import { makeResolver } from "./checks/dns.js";
 import { trustStore } from "./trust.js";
 import { portFree } from "./port-probe.js";
 import { exitCodeOf, installSignals, lastLine, type RollbackOutcome } from "./signals.js";
+import { voiceTimings } from "./timings.js";
 import { voiceUpOutcome } from "./up.js";
 import { whisperHealth, whisperWarm } from "./whisper.js";
 
@@ -140,8 +141,9 @@ async function main(): Promise<number> {
     case "up": { const r = await voiceUpOutcome(deps(root)); rollback = r.rollback; return r.code; }
     case "down": return voiceDown(deps(root));
     case "check": return voiceCheck(checkDeps(root));
-    case "timings": say("voice:timings: not available yet (the room-test timing record comes with a later task)"); return 2;
-    default: say("usage: voice-ops up | down | check | timings"); return 2;
+    // Task 12: a relative file is read from where the operator typed the command (pnpm sets INIT_CWD; the script runs in the package).
+    case "timings": return voiceTimings({ args: process.argv.slice(3), out: say, cwd: process.cwd(), ...(process.env.INIT_CWD ? { initCwd: process.env.INIT_CWD } : {}) });
+    default: say("usage: voice-ops up | down | check | timings <file>"); return 2;
   }
 }
 

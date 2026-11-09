@@ -24,6 +24,7 @@ import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
 import { livekitProbe } from "./voice/livekit-probe.js";
+import { timingLogSink } from "./voice/timing-log.js";
 import { VoiceTokens } from "./voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn } from "./voice/voice-host.js";
 
@@ -65,6 +66,9 @@ export async function startControl(
   // US-0071 (A1b Task 5): a bad LiveKit setting, or SPEECH_INGEST=livekit without LiveKit, stops the start (variables named, no value).
   const lkProblems = liveKitStartProblems(env);
   if (lkProblems.length > 0) throw new Error(`invalid control service settings: ${lkProblems.join("; ")}`);
+  // US-0072 (A1c Task 12): the room test's timing record, off by default; anything but 0 or 1 stops the start (the variable named only).
+  const timingRaw = env.VOICE_TIMING_LOG ?? "";
+  if (timingRaw !== "" && timingRaw !== "0" && timingRaw !== "1") throw new Error("invalid control service settings: VOICE_TIMING_LOG must be 0 or 1");
   const lk = parseLiveKitConfig(env);
   const liveKit = lk.ok ? lk.cfg : null;
   const log = opts.log ?? (() => {});
@@ -96,7 +100,8 @@ export async function startControl(
       }) : undefined;
       // US-0072 (A1c Task 11): the LiveKit probe goes with the tokens (same condition), so an outage is told from a fault.
       const v = new VoiceHost({
-        spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps,
+        spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, now: Date.now,
+        ...(timingRaw === "1" ? { timingLog: timingLogSink(config.logDir, { log }) } : {}),
         ...(tokens && lkWanted ? { tokens, livekitReachable: opts.livekitReachable ?? livekitProbe(lkWanted.host) } : {}),
       });
       opts.onVoiceHost?.(v);
