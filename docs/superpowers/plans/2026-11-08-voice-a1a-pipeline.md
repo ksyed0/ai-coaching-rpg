@@ -455,6 +455,12 @@ Each line names the task whose tests pin it.
 
 ---
 
+## Deviations and review fixes (recorded 2026-11-08, after the build)
+
+- **STT in-flight cap per worker, not global:** one `LimitedSpeechToText` (`maxInFlight` 2) per session's worker; the owner agreed to one global cap. Moving it to control is an A1b task (overview, "Deviations recorded during A1a").
+- **`STT_MODEL`** is allowlisted but not read in A1a; the **`voice_unavailable`** notice code is unused; **`closedTurnEnds`** is unbounded for the session (noted, not capped).
+- **Review fix wave (F1 to F10), each test-first:** F1 no round for a turn with no new line (`lastAnsweredVoiceSeq`); F2 `SessionHost.voiceWorkerDown()` on `voice_alert worker_down`, a `VOICE_ACTIVITY_STALE_MS` (12 s) backstop per speaking role, file ingest flushes at the end of a file, V-07 kills the worker mid-speech; F3 `BotHost.detach` releases the voice hold; F4 a split's rest keeps its short speech; F5 one `AbortController` per pipeline, renewed by every `stop()`; F6 `TURN_END_MS` read only with `VOICE_ENABLED=1`; F7 the demo waits for a quiet log (`waitQuiet`); F8 a failed voice-file write answers `failed`, name-only log; F9 cleaner idempotent across the cut, ended sessions forgotten by the VoiceHost, the early ready listener stops after the hand-over, `:80` pinned; F10 pre-start alerts kept (one per code, at most 8) and logged at the start.
+
 ## Self-review notes (for the executor)
 
 - Spec coverage: every A1a item of spec §12 maps to a task (skeleton 1; IPC and parent-channel with drift tests 1, 2; segmenter 14; noise gate 15; STT adapter, contract and Whisper client 11 to 13; normaliser 16; host method 6; per-track FIFO 17; `speech_activity` and the timer 7; GM and bot cadence 8, 9; refusals and failures 6, 10, 17, 19; demo 20); plus C1's voice choice (3 to 5).

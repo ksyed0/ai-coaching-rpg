@@ -24,6 +24,10 @@ All pinned to exact versions. Release dates are the publish date of the pinned v
 | @axe-core/playwright | 4.13.0 | Accessibility checks in the e2e tests | MPL-2.0 | 2026-08-11 | 2026-10-27 |
 | tsx | 4.23.15 | Runs `src/demo/web-demo.ts` and the e2e runtime child (`pnpm demo --web`, US-0065); the version the workspace lockfile already resolves, so no new package | MIT | 2026-09-20 | 2026-09-20 |
 
+## Voice slice A1a (`services/speech`, `packages/adapters/src/speech`, US-0070): no new dependency
+
+No new package (AGENTS.md section 19). WAV encoding and parsing are written by hand (16-bit PCM), the Whisper client uses Node 22's global `fetch`, `FormData` and `Blob`, the speech worker is a `fork()` child over Node's IPC channel, and the tests' HTTP server is `node:http`. The new `@acr/speech` workspace package depends only on workspace packages (`@acr/adapters`, `@acr/events`) and the versions of `zod`, `vitest` and `typescript` the workspace already pins.
+
 ## Exceptions to the two-week rule
 
 - next 16.4.1 was released 13 days before the pick. Every earlier 16.x (up to 16.4.0) and every 15.x is flagged by the npm advisory database (GHSA-673q-mjm6-r5xr and GHSA-2464-fhr4-w9xw, critical remote code execution; GHSA-p3m5-59mp-jv5r, denial of service), and `next build` refuses to run on them. 16.4.1 is the oldest release without an advisory.

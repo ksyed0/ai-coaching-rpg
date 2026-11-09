@@ -286,6 +286,16 @@ Constants (not settings; changed only by code review): `VAD_FRAME_MS` 20, `VAD_T
 
 ---
 
+## Deviations recorded during A1a (US-0070 review fix wave, 2026-11-08)
+
+- **GPU cap scope (Open Question 9):** the owner chose ONE cap across all sessions; A1a ships it **per worker**: one `LimitedSpeechToText` (`maxInFlight` 2) inside each session's speech worker, so N voice sessions can have 2N calls in flight on one GPU. Moving the cap into control (one shared budget the workers ask for) is an **A1b task**.
+- **`STT_MODEL` (Open Question 6):** allowlisted for the worker but not read in A1a (the label and model file arrive with `voice:up`, A1c).
+- **`voice_unavailable` notice code:** defined in `VOICE_NOTICE_CODES` but nothing sends it in A1a (A1b's Whisper health polling should).
+- **`closedTurnEnds`:** the runtime keeps the last seq of every closed voice turn for the whole session (a few bytes per turn, unbounded); not capped because the Game Master's count needs every boundary of the current scene.
+- **Fixed in the review wave (no longer deviations):** a turn that recorded no line runs no NPC round; a worker that dies mid-speech closes the turn (`voice_alert worker_down`, plus a 12 s no-news backstop); alerts raised before the start reach the facilitator at the start; control forgets an ended voice session.
+
+---
+
 ## Not verified by this plan
 
 - whisper-server's actual JSON layout, its CORS answer and its `/health` body (no server was started, by instruction).
