@@ -14,7 +14,8 @@ import type { RoomConn, RoomPort, RoomTrack } from "./room-port.js";
  *  - nothing of a participant is read but its identity (set by the server from the token); never a name, metadata or attributes.
  *  - rtc-node's logger is set to silent first (R26, see `silenceRtcLogger`).
  *  - every room-event listener is guarded: a throw becomes a lost room (onDisconnected, once), never an uncaught exception (F5).
- *  - on Reconnected every subscription still wanted and not delivered is requested again (Task 18 live finding D59).
+ *  - on Reconnected every subscription still wanted and not delivered is requested again (Task 18 live finding D59); a read whose
+ *    subscription is not answered within SUBSCRIBE_WAIT_MS ends (D60), so the ingest's bounded re-subscribe takes over.
  */
 
 /** rtc-node 1.2.1's logger: `dist/log.cjs` exports `log`, a pino logger named "lk-rtc" at level debug unless NODE_ENV=production. */
@@ -38,6 +39,17 @@ export function silenceRtcLogger(): void {
 const kindOf = (k: TrackKind | undefined): RoomTrack["kind"] => (k === TrackKind.KIND_AUDIO ? "audio" : k === TrackKind.KIND_VIDEO ? "video" : "unknown");
 const sourceOf = (s: TrackSource | undefined): RoomTrack["source"] => (s === TrackSource.SOURCE_MICROPHONE ? "microphone" : "other");
 
+/**
+ * A1b Task 18 live finding D60: how long a read waits for its track after a subscribe. A subscription the server refuses is never
+ * answered (LiveKit 1.13.11 sends neither TrackSubscribed nor TrackSubscriptionFailed); the read then ends, and the ingest subscribes
+ * again, at most MAX_TRACK_RESTARTS times in a row, then reports `failed` (the worker exits for a restart with fresh tokens). Live, a
+ * subscription came within about a second.
+ */
+export const SUBSCRIBE_WAIT_MS = 10_000;
+/** Returns a cancel function (the Supervisor's shape). */
+export type SetTimer = (fn: () => void, ms: number) => () => void;
+const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return () => clearTimeout(t); };
+
 /** Exported for its tests only (a stand-in Room); the worker gets it through `createRtcRoomPort`. */
 export class RtcConn implements RoomConn {
   private readonly pubs = new Map<string, RemoteTrackPublication>();
@@ -52,7 +64,10 @@ export class RtcConn implements RoomConn {
   private closing = false;
   private faulted = false;
 
-  constructor(private readonly room: Room) {
+  private readonly setTimer: SetTimer;
+
+  constructor(private readonly room: Room, o: { setTimer?: SetTimer } = {}) {
+    this.setTimer = o.setTimer ?? realSetTimer;
     // Batch 3 review F5: every listener body runs guarded. rtc-node dispatches most of these events outside any try (its FFI event
     // handler), so a throw would escape as an uncaught exception and kill the worker; a fault is routed to onDisconnected instead.
     room.on(RoomEvent.TrackPublished, (pub, p) => this.guard(() => { if (p) this.published(pub, p); }));
@@ -104,7 +119,7 @@ export class RtcConn implements RoomConn {
   frames(trackSid: string, sampleRate: 16000, channels: 1): AsyncIterable<Int16Array> {
     const self = this;
     return (async function* () {
-      const track = self.tracks.get(trackSid) ?? await new Promise<RemoteTrack | null>((r) => { const l = self.waiting.get(trackSid) ?? []; l.push(r); self.waiting.set(trackSid, l); });
+      const track = self.tracks.get(trackSid) ?? await self.waitFor(trackSid);
       if (track === null) return;
       const stream = new AudioStream(track, { sampleRate, numChannels: channels, frameSizeMs: 20 });
       for await (const f of stream) {
@@ -112,6 +127,26 @@ export class RtcConn implements RoomConn {
         yield f.data;
       }
     })();
+  }
+
+  /** Waits for the subscribed track; null when it will not come (unsubscribed, gone, disconnected, or not within SUBSCRIBE_WAIT_MS). */
+  private waitFor(trackSid: string): Promise<RemoteTrack | null> {
+    return new Promise<RemoteTrack | null>((resolve) => {
+      let cancel = (): void => {};
+      const r = (t: RemoteTrack | null): void => { cancel(); resolve(t); };
+      const l = this.waiting.get(trackSid) ?? [];
+      l.push(r);
+      this.waiting.set(trackSid, l);
+      // D60: only THIS waiter is ended by its own timer, never a later read of the same track.
+      cancel = this.setTimer(() => {
+        const list = this.waiting.get(trackSid);
+        const i = list?.indexOf(r) ?? -1;
+        if (!list || i < 0) return;
+        list.splice(i, 1);
+        if (list.length === 0) this.waiting.delete(trackSid);
+        resolve(null);
+      }, SUBSCRIBE_WAIT_MS);
+    });
   }
 
   async disconnect(): Promise<void> {
@@ -176,7 +211,7 @@ export function createRtcRoomPort(): RoomPort {
         await room.disconnect().catch(() => undefined);
         throw new Error("the LiveKit room could not be joined");
       }
-      return new RtcConn(room);
+      return new RtcConn(room, { setTimer: realSetTimer });
     },
   };
 }

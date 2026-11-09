@@ -28,7 +28,11 @@ describe("RtcConn subscriptions (US-0071, A1b batch 3 review F2)", () => {
     const rtc = await import("@livekit/rtc-node");
     const { RtcConn } = await import("../ingest/livekit-room.js");
     const room = Object.assign(new EventEmitter(), { remoteParticipants: new Map(), disconnect: async () => undefined });
-    const conn = new RtcConn(room as never);
+    /** Manual timers (A1b Task 18 D60): `fire()` runs every armed and not cancelled one. */
+    const timers: { fn: () => void; ms: number; live: boolean }[] = [];
+    const setTimer = (fn: () => void, ms: number) => { const t = { fn, ms, live: true }; timers.push(t); return () => { t.live = false; }; };
+    const fire = () => { for (const t of timers.splice(0)) if (t.live) t.fn(); };
+    const conn = new RtcConn(room as never, { setTimer });
     const subscribed: boolean[] = [];
     const pub = { sid: "TR_1", kind: rtc.TrackKind.KIND_AUDIO, source: rtc.TrackSource.SOURCE_MICROPHONE, setSubscribed: (b: boolean) => { subscribed.push(b); } };
     const participant = { identity: "alice.g11111111", trackPublications: new Map([["TR_1", pub]]) };
@@ -39,7 +43,7 @@ describe("RtcConn subscriptions (US-0071, A1b batch 3 review F2)", () => {
       void conn.frames("TR_1", 16000, 1)[Symbol.asyncIterator]().next().then((x) => { r.state = x.done ? "done" : "value"; }, () => { r.state = "threw"; });
       return r;
     };
-    return { rtc, room, conn, pub, participant, subscribed, read };
+    return { rtc, room, conn, pub, participant, subscribed, read, timers, fire };
   }
 
   it("after an unsubscribe, a new read waits for a fresh TrackSubscribed (never a stream on the old cached track)", async () => {
@@ -81,6 +85,41 @@ describe("RtcConn subscriptions (US-0071, A1b batch 3 review F2)", () => {
     await settle();
     // The read took the delivered track (a stand-in object, which the real AudioStream refuses: "threw"); "done" would mean no track.
     expect(r.state).toBe("threw");
+  });
+
+  // A1b Task 18 live finding D60: a subscription the server refuses is never answered (LiveKit 1.13.11 sends neither TrackSubscribed
+  // nor TrackSubscriptionFailed), so the read waited for ever and the seat stayed deaf with no failure surfaced.
+  it("a read waiting for a subscription that is never answered ends after SUBSCRIBE_WAIT_MS (the ingest re-subscribes, bounded)", async () => {
+    const t = await setup();
+    const { SUBSCRIBE_WAIT_MS } = await import("../ingest/livekit-room.js");
+    t.conn.subscribe("TR_1");
+    const r = t.read();
+    await settle();
+    expect(r.state).toBe("pending");
+    expect(t.timers.filter((x) => x.live).map((x) => x.ms)).toEqual([SUBSCRIBE_WAIT_MS]);
+    t.fire();
+    await settle();
+    expect(r.state).toBe("done");
+  });
+
+  it("a stale subscribe timer never ends a later read, and a delivered track cancels its timer", async () => {
+    const t = await setup();
+    t.conn.subscribe("TR_1");
+    const first = t.read();
+    await settle();
+    const stale = t.timers.splice(0); // keep the first read's timer for later
+    t.conn.unsubscribe("TR_1"); // ends the first read
+    t.conn.subscribe("TR_1");
+    const second = t.read();
+    await settle();
+    expect(first.state).toBe("done");
+    for (const x of stale) x.fn(); // the first read's timer (cancelled): even run late, it must not touch the second read
+    await settle();
+    expect(second.state).toBe("pending");
+    t.room.emit(t.rtc.RoomEvent.TrackSubscribed, { fresh: true }, t.pub, t.participant);
+    await settle();
+    expect(second.state).toBe("threw"); // took the (stand-in) track
+    expect(t.timers.filter((x) => x.live)).toEqual([]); // its own timer was cancelled by the delivery
   });
 
   it("Reconnected re-requests nothing already delivered, unsubscribed or gone", async () => {
