@@ -160,4 +160,44 @@ describe("voice on the player socket (US-0070)", () => {
     c.send({ type: "voice_opt_in", noticeVersion: "v3" });
     expect(await c.next((m) => m.type === "error")).toMatchObject({ code: "not_joined" });
   });
+
+  it("voice_mute answers {type: voice, state, muted} to that socket only and changes recording (US-0071)", async () => {
+    const e = await setup();
+    const pat = await player(e, "account_manager", "pat");
+    pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
+    await pat.next((m) => m.type === "voice");
+    pat.send({ type: "voice_mute", muted: true });
+    await vi.waitFor(() => expect(pat.inbox.filter((m) => m.type === "voice")).toHaveLength(2));
+    expect(pat.inbox.filter((m) => m.type === "voice").at(-1)).toEqual({ type: "voice", state: "voice", muted: true });
+    expect((e.host as unknown as { voiceMuted: Set<string> }).voiceMuted.has("account_manager")).toBe(true);
+    pat.send({ type: "voice_mute", muted: false });
+    await vi.waitFor(() => expect(pat.inbox.filter((m) => m.type === "voice")).toHaveLength(3));
+    expect(pat.inbox.filter((m) => m.type === "voice").at(-1)).toEqual({ type: "voice", state: "voice", muted: false });
+  });
+
+  it("voice_mute with an extra key or a non-boolean is bad_message; the facilitator's is forbidden (US-0071)", async () => {
+    const e = await setup();
+    const pat = await player(e, "account_manager", "pat");
+    const bad = [{ type: "voice_mute", muted: true, roleId: "tech_lead" }, { type: "voice_mute" }, { type: "voice_mute", muted: "yes" }];
+    for (const m of bad) pat.send(m);
+    await vi.waitFor(() => expect(pat.inbox.filter((m) => m.type === "error")).toHaveLength(bad.length));
+    for (const m of pat.inbox.filter((x) => x.type === "error")) expect(m.code).toBe("bad_message");
+    expect((e.host as unknown as { voiceMuted: Set<string> }).voiceMuted.size).toBe(0);
+    const f = await open(e.port);
+    f.send({ type: "join_facilitator", sessionId: "local" });
+    await f.next((m) => m.type === "joined");
+    f.send({ type: "voice_mute", muted: true });
+    expect(await f.next((m) => m.type === "error")).toMatchObject({ code: "forbidden" });
+  });
+
+  it("a socket close releases the seat and its mute (US-0071)", async () => {
+    const e = await setup();
+    const pat = await player(e, "account_manager", "pat");
+    pat.send({ type: "voice_mute", muted: true });
+    await pat.next((m) => m.type === "voice");
+    sockets.at(-1)!.terminate();
+    await vi.waitFor(() => expect(e.host.assignments.account_manager).toBeUndefined());
+    expect((e.host as unknown as { voiceMuted: Set<string> }).voiceMuted.size).toBe(0);
+  });
 });
+

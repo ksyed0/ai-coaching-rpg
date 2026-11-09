@@ -88,7 +88,8 @@ describe("bootstrap and VOICE_ENABLED (US-0070)", () => {
     await Promise.resolve();
     const seats = sent.filter((m) => m.type === "voice_seats");
     expect(seats).toHaveLength(2);
-    expect(seats[1]).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: true }] });
+    // US-0071 (R8): an opt-in in the lobby is reported, but nothing records before the start.
+    expect(seats[1]).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: false }] });
     expect(sent.filter((m) => m.type === "voice_choice")).toEqual([{ type: "voice_choice", roleId: "tech_lead", participantId: "p1", choice: "voice", at: expect.any(Number) }]);
   });
 

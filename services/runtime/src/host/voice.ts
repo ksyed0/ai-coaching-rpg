@@ -3,7 +3,9 @@
  * the control service as `voice_seats` (overview section 2), and control forwards it to the speech worker as `voice_state`: the worker
  * segments and transcribes ONLY a track whose holder has `recording: true` (the privacy invariant; the host checks again on every line).
  */
-export type VoiceHolder = { roleId: string; participantId: string; recording: boolean };
+import type { VoiceAlertCode } from "./parent-channel.js";
+
+export type VoiceHolder ={ roleId: string; participantId: string; recording: boolean };
 export type VoiceSeats = { paused: boolean; ended: boolean; holders: VoiceHolder[] };
 export type VoiceState = "none" | "voice" | "text_only" | "off";
 /**
@@ -14,19 +16,38 @@ export const VOICE_NOTICE_CODES = ["stt_failed", "empty", "paused", "not_in_scen
 export type VoiceNoticeCode = (typeof VOICE_NOTICE_CODES)[number];
 
 /**
+ * US-0070: the facilitator's voice alerts, fixed sentences (never a value, a path or a transcript). US-0071 (R14) moved the table here,
+ * a module with no host dependencies, so the web console can pin its allowlist against it without importing the session host.
+ */
+export const VOICE_ALERT_SENTENCES: Readonly<Record<VoiceAlertCode, string>> = {
+  worker_down: "Voice input stopped: the speech worker is not running. Participants can continue by text.",
+  stt_unavailable: "Voice input is unavailable: the speech-to-text server does not answer.",
+  stt_failed: "A spoken line could not be transcribed; the speaker was told.",
+  worker_restarting: "Voice input is restarting after a fault.",
+  voice_off: "Voice input is off for this session after repeated faults. Participants can continue by text.",
+  stt_recovered: "Voice input is available again.",
+};
+/** US-0071 (K8): the level each voice alert is raised at; only the recovery is good news. */
+export const VOICE_ALERT_LEVELS: Readonly<Record<VoiceAlertCode, "info" | "warning">> = {
+  worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info",
+};
+
+/**
  * Every HUMAN player role that has a holder, in the scenario's player order (never an AI seat, never an AI character), with `recording`
- * true only when the seat's voice state is `voice`. Pure over what the host passes in.
+ * true only when the session has started, voice is available (US-0071, K4: no worker or speech-to-text fault, not switched off), the
+ * seat's voice state is `voice` and its holder has not muted. Pure over what the host passes in.
  */
 export function buildVoiceSeats(o: {
   playerRoles: readonly string[]; holderOf: (roleId: string) => string | undefined; isAi: (roleId: string) => boolean;
   stateOf: (roleId: string) => VoiceState; paused: boolean; ended: boolean;
+  started: boolean; isMuted: (roleId: string) => boolean; unavailable: boolean;
 }): VoiceSeats {
   const holders: VoiceHolder[] = [];
   for (const roleId of o.playerRoles) {
     if (o.isAi(roleId)) continue;
     const participantId = o.holderOf(roleId);
     if (participantId === undefined) continue;
-    holders.push({ roleId, participantId, recording: o.stateOf(roleId) === "voice" });
+    holders.push({ roleId, participantId, recording: o.started && !o.unavailable && o.stateOf(roleId) === "voice" && !o.isMuted(roleId) });
   }
   return { paused: o.paused, ended: o.ended, holders };
 }
@@ -62,8 +83,11 @@ export class VoiceTurnTracker {
   private readonly ends: number[] = [];
   private epochN = 0;
 
-  /** `staleMs` (F2): forget a speaking role after this long with no news from it (see VOICE_ACTIVITY_STALE_MS); absent, never. */
-  constructor(private readonly o: { turnEndMs: number; setTimer: SetTimer; onTurnEnd: () => void; onOpenChange: (open: boolean) => void; staleMs?: number }) {}
+  /**
+   * `staleMs` (F2): forget a speaking role after this long with no news from it (see VOICE_ACTIVITY_STALE_MS); absent, never.
+   * `onActiveChange` (US-0071): called after any call that may have changed who is speaking (the caller compares; it may be a no-op).
+   */
+  constructor(private readonly o: { turnEndMs: number; setTimer: SetTimer; onTurnEnd: () => void; onOpenChange: (open: boolean) => void; staleMs?: number; onActiveChange?: () => void }) {}
 
   get open(): boolean { return this.active.size > 0 || this.timer !== null; }
 
@@ -82,6 +106,7 @@ export class VoiceTurnTracker {
       if (this.active.size === 0) this.arm(Math.max(0, this.o.turnEndMs - (silentMs ?? 0)));
     }
     this.notify();
+    this.o.onActiveChange?.();
   }
 
   /** A track that may no longer record (opt-out, a lost seat): it stops holding the turn open; the last one arms the timer from now. */
@@ -90,6 +115,7 @@ export class VoiceTurnTracker {
     if (!this.active.delete(roleId)) return;
     if (this.active.size === 0) this.arm(this.o.turnEndMs);
     this.notify();
+    this.o.onActiveChange?.();
   }
 
   /** News from a speaking track (a line arrived): its backstop starts again. Nothing for a role that is not speaking. */
@@ -105,6 +131,7 @@ export class VoiceTurnTracker {
     this.active.clear();
     this.cancel();
     this.notify();
+    this.o.onActiveChange?.();
     this.o.onTurnEnd();
   }
 
@@ -129,6 +156,7 @@ export class VoiceTurnTracker {
     this.active.clear();
     this.epochN++;
     this.notify();
+    this.o.onActiveChange?.();
   }
 
   /** Records the last seq of a closed turn; only a rising boundary is kept. */

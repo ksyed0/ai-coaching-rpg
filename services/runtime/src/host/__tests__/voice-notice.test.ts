@@ -13,10 +13,12 @@ import { PlayerCredentials } from "../../engine/credentials.js";
 import { ConsentStore } from "../../engine/consent.js";
 import { AiRoleSet } from "../../engine/ai-roles.js";
 import type { Seats } from "../../engine/seats.js";
-import { ALERT_MIN_INTERVAL_MS, MAX_PENDING_VOICE_ALERTS, NOTICE_MIN_INTERVAL_MS, SessionHost, VOICE_ALERT_SENTENCES } from "../session-host.js";
+import { ALERT_MIN_INTERVAL_MS, MAX_PENDING_VOICE_ALERTS, NOTICE_MIN_INTERVAL_MS, SessionHost } from "../session-host.js";
+import * as hostModule from "../session-host.js";
+import * as voiceModule from "../voice.js";
 import { startServer, type ServerHandle } from "../ws-server.js";
 import type { VoiceConfig } from "../voice-config.js";
-import type { VoiceNoticeCode } from "../voice.js";
+import { VOICE_ALERT_LEVELS, VOICE_ALERT_SENTENCES, type VoiceNoticeCode } from "../voice.js";
 
 // US-0070 (Task 10, AC-0399): a failed, empty or refused segment reaches the SPEAKER alone as a private, ephemeral voice_notice (never
 // logged, never to anyone else), rate-limited per role and code; the facilitator gets a fixed-sentence voice alert, rate-limited per code.
@@ -174,6 +176,38 @@ describe("voiceAlert (US-0070, AC-0399)", () => {
     const alert = (await alerts(h)).find((a) => a.message === VOICE_ALERT_SENTENCES.stt_unavailable)!;
     for (const r of PLAYERS) expect(h.host.viewFor(r, alert)).toBeNull();
     expect(h.host.viewFor("facilitator", alert)).toEqual(alert);
+  });
+});
+
+describe("the US-0071 alert codes (Task 3, K8)", () => {
+  it("stt_recovered appends one info alert", async () => {
+    const h = makeHost();
+    await startAll(h);
+    await h.host.voiceAlert("stt_recovered");
+    await h.host.voiceAlert("stt_recovered"); // rate limited like the others
+    const got = (await alerts(h)).filter((a) => a.message === VOICE_ALERT_SENTENCES.stt_recovered);
+    expect(got.map((a) => a.level)).toEqual(["info"]);
+    await h.host.voiceAlert("worker_restarting");
+    await h.host.voiceAlert("voice_off");
+    const levels = Object.fromEntries((await alerts(h)).map((a) => [a.message, a.level]));
+    expect(levels[VOICE_ALERT_SENTENCES.worker_restarting]).toBe("warning");
+    expect(levels[VOICE_ALERT_SENTENCES.voice_off]).toBe("warning");
+  });
+
+  it("the new alert sentences are fixed and contain no code or id", () => {
+    expect(VOICE_ALERT_SENTENCES.worker_restarting).toBe("Voice input is restarting after a fault.");
+    expect(VOICE_ALERT_SENTENCES.voice_off).toBe("Voice input is off for this session after repeated faults. Participants can continue by text.");
+    expect(VOICE_ALERT_SENTENCES.stt_recovered).toBe("Voice input is available again.");
+    for (const [code, sentence] of Object.entries(VOICE_ALERT_SENTENCES)) {
+      expect(sentence).not.toContain(code);
+      expect(sentence).not.toMatch(/[_0-9]/);
+    }
+    expect(VOICE_ALERT_LEVELS).toEqual({ worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info" });
+  });
+
+  it("VOICE_ALERT_SENTENCES is exported from host/voice.ts", () => {
+    expect(Object.keys(voiceModule.VOICE_ALERT_SENTENCES).sort()).toEqual(["stt_failed", "stt_recovered", "stt_unavailable", "voice_off", "worker_down", "worker_restarting"]);
+    expect("VOICE_ALERT_SENTENCES" in hostModule).toBe(false); // one source: a web test may import voice.ts, never session-host.ts
   });
 });
 

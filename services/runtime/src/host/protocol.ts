@@ -61,6 +61,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   // consent_version, voice_notice_required).
   z.strictObject({ type: z.literal("voice_opt_in"), noticeVersion: z.string().min(1).max(32) }),
   z.strictObject({ type: z.literal("voice_opt_out") }),
+  // US-0071 (K5): the holder mutes or unmutes; in memory only (never written, never audited). Strict. Refusals: voice_off, forbidden, not_joined.
+  z.strictObject({ type: z.literal("voice_mute"), muted: z.boolean() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -87,8 +89,9 @@ export type ServerMessage =
       /** US-0070: players only, when voice is enabled and the server keeps seats, for a human seat: this seat's own voice state. Never another role's. */
       voice?: { state: VoiceState } }
   | { type: "event"; event: SessionEvent }
-  // US-0070: answers an accepted voice_opt_in ("voice") or voice_opt_out ("text_only"), to the sender only.
-  | { type: "voice"; state: "voice" | "text_only" }
+  // US-0070: answers an accepted voice_opt_in ("voice") or voice_opt_out ("text_only"), to the sender only. US-0071: an accepted
+  // voice_mute answers the seat's current state and `muted` (only on that answer).
+  | { type: "voice"; state: VoiceState; muted?: boolean }
   // US-0070: why the speaker's last segment did not become a line; to that role's live socket only, never logged, never to anyone else.
   | { type: "voice_notice"; code: VoiceNoticeCode }
   // US-0055: who sits where. Each audience gets only its own frame: the facilitator's shows consent and connection, a player's only who is ready.

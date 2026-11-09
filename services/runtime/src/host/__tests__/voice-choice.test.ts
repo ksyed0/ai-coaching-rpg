@@ -75,7 +75,8 @@ describe("opting in and out (US-0070)", () => {
     expect(h.host.voiceStateOf("tech_lead")).toBe("none");
     h.host.optInVoice("tech_lead", "p1", "v3");
     expect(h.host.voiceStateOf("tech_lead")).toBe("voice");
-    expect(h.host.voiceSeats()).toEqual({ paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: true }] });
+    // US-0071 (R8, K4): a seat that chose voice in the lobby does not record until the session has started.
+    expect(h.host.voiceSeats()).toEqual({ paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: false }] });
     expect(h.disk.record).toEqual({ v: 1, sessionId: "local", logIdentity: h.seats.credentials.logIdentity, entries: { tech_lead: { participantId: "p1", choice: "voice", noticeVersion: "v3", at: 5_000 } } });
   });
 
@@ -323,7 +324,8 @@ describe("voiceSeats and its notifications (US-0070)", () => {
     h.host.join("account_manager", "p2");
     expect(got).toHaveLength(0); // nothing synchronous
     await Promise.resolve();
-    expect(got).toEqual([{ paused: false, ended: false, holders: [{ roleId: "account_manager", participantId: "p2", recording: false }, { roleId: "tech_lead", participantId: "p1", recording: true }] }]);
+    // US-0071: not started yet, so nobody records (the voice choice is still kept).
+    expect(got).toEqual([{ paused: false, ended: false, holders: [{ roleId: "account_manager", participantId: "p2", recording: false }, { roleId: "tech_lead", participantId: "p1", recording: false }] }]);
     h.host.release("tech_lead", "p1");
     await Promise.resolve();
     expect(got).toHaveLength(2);
@@ -365,5 +367,36 @@ describe("voiceSeats and its notifications (US-0070)", () => {
     h.host.join("tech_lead", "p1");
     await Promise.resolve();
     expect(got).toEqual([]);
+  });
+});
+
+describe("recording needs the start (US-0071, R8, K4)", () => {
+  it("recording is false before the start even for a seat that chose voice", () => {
+    const h = makeHost();
+    for (const r of PLAYERS) { h.host.join(r, `p-${r}`); h.host.giveConsent(r, `p-${r}`, "v3"); }
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    expect(h.host.voiceStateOf("tech_lead")).toBe("voice");
+    expect(h.host.voiceSeats().holders.every((x) => !x.recording)).toBe(true);
+  });
+
+  it("and true after session.started", async () => {
+    const h = makeHost();
+    for (const r of PLAYERS) { h.host.join(r, `p-${r}`); h.host.giveConsent(r, `p-${r}`, "v3"); }
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    await h.host.start();
+    expect(h.host.voiceSeats().holders.find((x) => x.roleId === "tech_lead")!.recording).toBe(true);
+    expect(h.host.voiceSeats().holders.filter((x) => x.recording).map((x) => x.roleId)).toEqual(["tech_lead"]);
+  });
+
+  it("voice_seats is re-sent at the start with recording true", async () => {
+    const h = makeHost();
+    for (const r of PLAYERS) { h.host.join(r, `p-${r}`); h.host.giveConsent(r, `p-${r}`, "v3"); }
+    h.host.optInVoice("tech_lead", "p-tech_lead", "v3");
+    const got: ReturnType<SessionHost["voiceSeats"]>[] = [];
+    h.host.onVoiceSeatsChanged((s) => got.push(s));
+    await Promise.resolve();
+    expect(got.every((s) => s.holders.every((x) => !x.recording))).toBe(true);
+    await h.host.start();
+    await vi.waitFor(() => expect(got.at(-1)?.holders.find((x) => x.roleId === "tech_lead")?.recording).toBe(true));
   });
 });

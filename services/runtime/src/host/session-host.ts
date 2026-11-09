@@ -14,7 +14,7 @@ import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitator
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers, noticeNamesVoice } from "./limits.js";
 import { VoiceChoices, type VoiceFileIO } from "../engine/voice-file.js";
-import { buildVoiceSeats, gmUnits, realSetTimer, VOICE_ACTIVITY_STALE_MS, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
+import { buildVoiceSeats, gmUnits, realSetTimer, VOICE_ACTIVITY_STALE_MS, VOICE_ALERT_LEVELS, VOICE_ALERT_SENTENCES, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
 import type { VoiceConfig } from "./voice-config.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -43,16 +43,6 @@ export const NOTICE_MIN_INTERVAL_MS = 10_000;
 export const ALERT_MIN_INTERVAL_MS = 30_000;
 /** US-0070 (F10): at most this many voice alerts wait for the start (one per code, so in practice at most the three codes). */
 export const MAX_PENDING_VOICE_ALERTS = 8;
-/** US-0070: the facilitator's voice alerts, fixed sentences (never a value, a path or a transcript). */
-export const VOICE_ALERT_SENTENCES: Readonly<Record<VoiceAlertCode, string>> = {
-  worker_down: "Voice input stopped: the speech worker is not running. Participants can continue by text.",
-  stt_unavailable: "Voice input is unavailable: the speech-to-text server does not answer.",
-  stt_failed: "A spoken line could not be transcribed; the speaker was told.",
-  // US-0071 (Task 2). Task 3 moves this table to host/voice.ts and raises stt_recovered at the info level.
-  worker_restarting: "Voice input is restarting after a fault.",
-  voice_off: "Voice input is off for this session after repeated faults. Participants can continue by text.",
-  stt_recovered: "Voice input is available again.",
-};
 /** The refusals of a voice line its speaker hears about (the others have no such speaker listening: not the holder, no such seat, voice off). */
 const SPEAKER_NOTICES: ReadonlySet<VoiceRefusal> = new Set<VoiceRefusal>(["paused", "not_in_scene", "ended", "not_recording"]);
 
@@ -117,6 +107,13 @@ export class SessionHost {
   private readonly pendingAlerts = new Set<VoiceAlertCode>();
   /** US-0070 (C7): the last seq before this process knew voice-turn boundaries (a restart): lines up to it count by runs (gmUnits). */
   private voiceKnownFrom = 0;
+  /** US-0071 (K5): the seats whose holder muted, in memory only (never written, never audited); cleared when the holder is released. */
+  private readonly voiceMuted = new Set<string>();
+  /** US-0071 (K7): control's last `voice_availability` said voice cannot work (worker or speech-to-text down, or off): nobody records. */
+  private voiceUnavailable = false;
+  /** US-0071 (K6): the speaking roles last told to the listeners, so a listener hears only a real change. */
+  private lastSpeaking: string[] = [];
+  private readonly speakingListeners = new Set<() => void>();
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats; /** US-0070: voice input (VOICE_ENABLED); default off. */ voice?: VoiceConfig; /** US-0070: the voice-turn timer (default a real, unref'd setTimeout). */ setTimer?: SetTimer }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -138,6 +135,7 @@ export class SessionHost {
         turnEndMs: this.voice.turnEndMs, setTimer: opts.setTimer ?? realSetTimer, staleMs: VOICE_ACTIVITY_STALE_MS,
         onTurnEnd: () => this.endVoiceTurn(),
         onOpenChange: (open) => { for (const fn of this.voiceTurnListeners) { try { fn(open); } catch (err) { this.safeLog(`voice turn listener: ${errorName(err)}`); } } },
+        onActiveChange: () => this.noteSpeaking(),
       });
       // Pause, resume, a restart and the end change what may be recorded: the seats are reported again (coalesced; never throws).
       // Pause, a restart (it comes back paused) and the end also clear the voice turn: no round runs for it (AC-0400).
@@ -294,7 +292,8 @@ export class SessionHost {
 
   /** Frees a role, but only for the participant who holds it. */
   release(roleId: string, participantId: string): void {
-    if (this.assignments[roleId] === participantId) { delete this.assignments[roleId]; this.noteVoiceSeats(); }
+    // US-0071: a mute belongs to the holder's connection: the next holder (or the same one back) starts unmuted.
+    if (this.assignments[roleId] === participantId) { delete this.assignments[roleId]; this.voiceMuted.delete(roleId); this.noteVoiceSeats(); }
   }
 
   /**
@@ -455,6 +454,7 @@ export class SessionHost {
 
   /** US-0070: a reissue gives the seat to someone new: the role's voice entry is deleted (a failed write is reported by name only). Never throws. */
   forgetVoice(roleId: string): void {
+    this.voiceMuted.delete(roleId);
     const choices = this.voiceChoices;
     if (!this.voice.enabled || !choices) return;
     if (choices.remove(roleId)) {
@@ -463,11 +463,79 @@ export class SessionHost {
     this.noteVoiceSeats();
   }
 
+  /**
+   * US-0071 (K5): the holder mutes or unmutes. In memory only: never written, never audited, cleared when the holder is released.
+   * Muted, the seat does not record (`recording` false at once) and the runtime refuses its lines. Refusals, in order: voice_off
+   * (disabled), forbidden (an AI seat), not_joined (not the holder of a human player role).
+   */
+  muteVoice(roleId: string, participantId: string, muted: boolean): void {
+    if (!this.voice.enabled) throw new HostError("voice_off");
+    if (this.isAiRole(roleId)) throw new HostError("forbidden");
+    if (!this.holds(roleId, participantId) || !this.hasPlayerRole(roleId)) throw new HostError("not_joined");
+    if (muted) this.voiceMuted.add(roleId); else this.voiceMuted.delete(roleId);
+    this.noteVoiceSeats();
+  }
+
+  /** US-0071: whether the seat's holder has muted. */
+  voiceMutedOf(roleId: string): boolean { return this.voiceMuted.has(roleId); }
+
+  /**
+   * US-0071 (K7): control's view of whether voice can work for this session. Applied FIRST, with no rate limit and also before the
+   * start: unavailable (`!available || off`) makes every seat's `recording` false. On the change to unavailable every holder whose
+   * state is `voice` gets one `voice_unavailable` notice (not held back by the per-role notice limit); on any change the seats are
+   * reported again. Never throws.
+   */
+  voiceAvailability(available: boolean, off: boolean): void {
+    const next = !available || off;
+    const was = this.voiceUnavailable;
+    this.voiceUnavailable = next;
+    if (!this.voice.enabled || next === was) return;
+    try {
+      this.noteVoiceSeats();
+      if (next) for (const roleId of this.playerRoleIds()) { const p = this.holderOf(roleId); if (p !== undefined) this.noteVoiceUnavailable(roleId, p); }
+    } catch (err) { this.safeLog(`voice availability: ${errorName(err)}`); }
+  }
+
+  /**
+   * US-0071 (K7): a holder bound the seat (a join or a reconnect, called by the server after `joined`): while voice is unavailable, a
+   * holder whose state is `voice` is told once. Never throws.
+   */
+  noteVoiceBound(roleId: string, participantId: string): void {
+    if (!this.voiceUnavailable) return;
+    try { this.noteVoiceUnavailable(roleId, participantId); } catch (err) { this.safeLog(`voice availability: ${errorName(err)}`); }
+  }
+
+  /** The `voice_unavailable` notice to the holder of a voice seat, past the per-role limit (it is sent only on a change or a bind). */
+  private noteVoiceUnavailable(roleId: string, participantId: string): void {
+    if (!this.voice.enabled || !this.hasPlayerRole(roleId) || this.isAiRole(roleId) || !this.holds(roleId, participantId) || this.voiceStateOf(roleId) !== "voice") return;
+    this.emitVoiceNotice(roleId, "voice_unavailable");
+  }
+
+  /**
+   * US-0071 (K6): the roles speaking now (their last edge was active) that are recording holders. Empty after a pause, the end, a
+   * release, a mute, unavailability or the stale backstop.
+   */
+  speakingRoles(): ReadonlySet<string> {
+    return new Set((this.turns?.activeRoles() ?? []).filter((r) => this.isRecordingHolder(r)));
+  }
+
+  /** US-0071 (K6): `fn` is called whenever the set of speaking roles changes (for the facilitator's roster only). */
+  onSpeakingChanged(fn: () => void): () => void { this.speakingListeners.add(fn); return () => { this.speakingListeners.delete(fn); }; }
+
+  private noteSpeaking(): void {
+    let now: string[];
+    try { now = [...this.speakingRoles()].sort(); } catch (err) { this.safeLog(`speaking: ${errorName(err)}`); return; }
+    if (now.length === this.lastSpeaking.length && now.every((r, i) => r === this.lastSpeaking[i])) return;
+    this.lastSpeaking = now;
+    for (const fn of this.speakingListeners) { try { fn(); } catch (err) { this.safeLog(`speaking listener: ${errorName(err)}`); } }
+  }
+
   /** US-0070: what the speech worker may record (see buildVoiceSeats): every human holder, in player order, with `recording`. */
   voiceSeats(): VoiceSeats {
     return buildVoiceSeats({
       playerRoles: this.playerRoleIds(), holderOf: (r) => this.holderOf(r), isAi: (r) => this.isAiRole(r), stateOf: (r) => this.voiceStateOf(r),
       paused: this.engine.state.paused, ended: this.engine.state.status === "ended",
+      started: this.started, isMuted: (r) => this.voiceMuted.has(r), unavailable: this.voiceUnavailable,
     });
   }
 
@@ -574,7 +642,8 @@ export class SessionHost {
       const extra = this.engine.startIncomplete ? undefined : this.startGate();
       // A copy: the gate checked these seats, so a release while the engine waits for its mutex must not change what is recorded.
       this.starting = this.engine.start({ ...this.assignments }, extra)
-        .then(() => { this.started = true; this.flushPendingAlerts(); })
+        // US-0071 (R8): recording needs the start, which counts only from here: the seats are reported again.
+        .then(() => { this.started = true; this.noteVoiceSeats(); this.flushPendingAlerts(); })
         .finally(() => { this.starting = null; });
     }
     await this.starting;
@@ -657,7 +726,8 @@ export class SessionHost {
     if (!this.hasPlayerRole(roleId)) throw new VoiceRefusedError("unknown_role");
     if (this.isAiRole(roleId)) throw new VoiceRefusedError("ai_role");
     if (!this.holds(roleId, participantId)) throw new VoiceRefusedError("not_holder");
-    if (this.voiceStateOf(roleId) !== "voice") throw new VoiceRefusedError("not_recording");
+    // US-0071 (K4): muted or voice unavailable is not recording either; a line still in flight when the mute came is refused.
+    if (!this.isRecordingHolder(roleId)) throw new VoiceRefusedError("not_recording");
     let event: SessionEvent;
     const said = this.engine.say(roleId, text, "voice");
     this.voiceChain = this.voiceChain.then((prev) => said.then((e) => Math.max(prev, e.seq), () => prev));
@@ -714,6 +784,10 @@ export class SessionHost {
     const last = this.noticeSentAt.get(key);
     if (last !== undefined && now - last < NOTICE_MIN_INTERVAL_MS) return;
     this.noticeSentAt.set(key, now);
+    this.emitVoiceNotice(roleId, code);
+  }
+
+  private emitVoiceNotice(roleId: string, code: VoiceNoticeCode): void {
     for (const fn of this.voiceNoticeListeners) { try { fn(roleId, code); } catch (err) { this.safeLog(`voice notice listener: ${errorName(err)}`); } }
   }
 
@@ -733,7 +807,7 @@ export class SessionHost {
       const last = this.alertSentAt.get(code);
       if (last !== undefined && now - last < ALERT_MIN_INTERVAL_MS) return;
       this.alertSentAt.set(code, now);
-      await this.engine.alert(VOICE_ALERT_SENTENCES[code], "warning");
+      await this.engine.alert(VOICE_ALERT_SENTENCES[code], VOICE_ALERT_LEVELS[code]);
     } catch (err) { this.safeLog(`voice alert: ${errorName(err)}`); }
   }
 
@@ -754,9 +828,9 @@ export class SessionHost {
   /** US-0070: `fn` gets every open and close of a voice turn (for the control service's AI players, `voice_turn`). */
   onVoiceTurn(fn: (open: boolean) => void): () => void { this.voiceTurnListeners.add(fn); return () => { this.voiceTurnListeners.delete(fn); }; }
 
-  /** A human seat whose current holder chose voice (and is not pinned off). */
+  /** A human seat whose current holder chose voice (and is not pinned off), has not muted, while voice is available (US-0071, K4). */
   private isRecordingHolder(roleId: string): boolean {
-    return this.holderOf(roleId) !== undefined && this.voiceStateOf(roleId) === "voice";
+    return this.holderOf(roleId) !== undefined && this.voiceStateOf(roleId) === "voice" && !this.voiceMuted.has(roleId) && !this.voiceUnavailable;
   }
 
   /**

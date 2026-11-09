@@ -288,13 +288,14 @@ export async function bootstrap(opts: {
       // The speaker's private notice of a failed or empty segment, and the facilitator's alert (both rate-limited by the host; never answered).
       if (m.type === "voice_notice") { host.voiceNotice(m.roleId, m.participantId, m.code); return; }
       if (m.type === "voice_alert") {
-        // F2: a worker that died mid-speech will send no "speech stopped" edge: the open voice turn closes now.
-        if (m.code === "worker_down") host.voiceWorkerDown();
+        // F2: a worker that died mid-speech will send no "speech stopped" edge: the open voice turn closes now. US-0071: on every way a
+        // worker goes (down, restarting, off), before and independent of the alert, which stays rate limited.
+        if (m.code === "worker_down" || m.code === "worker_restarting" || m.code === "voice_off") host.voiceWorkerDown();
         void host.voiceAlert(m.code);
         return;
       }
-      // US-0071: fire-and-forget, never answered. The host applies it from Task 3 of the A1b plan; until then it is ignored.
-      if (m.type === "voice_availability") return;
+      // US-0071 (K7): fire-and-forget, never answered. Applied at once, with no rate limit (the alerts are separate and rate limited).
+      if (m.type === "voice_availability") { host.voiceAvailability(m.available, m.off); return; }
       if (m.type === "voice_line") {
         // US-0070: exactly one answer per line: the seq, the host's refusal code, or "failed" for anything else (never a message or a path).
         host.onVoiceUtterance(m.roleId, m.participantId, m.text).then(
