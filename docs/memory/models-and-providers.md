@@ -36,13 +36,27 @@ Speech-to-text sits behind `SpeechToText` (`packages/adapters/src/speech`: `tran
 | `STT_URL` (worker) | none (required for `whisper`) | `http://127.0.0.1:<port>[/<path>]` or `http://[::1]:<port>[/<path>]` only |
 | `STT_COLD_TIMEOUT_MS` (worker) | 30000 | 1000 to 300000 |
 | `STT_IDLE_COLD_MS` (worker) | 600000 | 1000 to 86400000 |
-| `STT_MODEL` (worker) | unset | allowlisted but NOT read in A1a (planned label plus model file, A1c) |
+| `STT_MODEL` (worker) | unset | since A1b validated at the worker's start (1 to 64 characters, every `.`-separated part a safe id, e.g. `small.en`, `large-v3-turbo-q5_0`) but otherwise unread; what it selects is A1c (`pnpm voice:up`) |
 | `STT_FAKE_SCRIPT` (worker) | none (required for `fake`) | absolute path of `{"<roleId>": ["line", ...]}`; calls logged to `<file>.calls.jsonl` (role and number only) |
-| `SPEECH_INGEST` (worker) | `file` | `file` only in A1a |
-| `SPEECH_INGEST_DIR` (worker) | none (required) | absolute directory of `<roleId>.wav` (16 kHz mono 16-bit, at most 100 MiB) |
+| `SPEECH_INGEST` (worker and control) | `file` | `file` or `livekit` (A1b); control refuses to start with `livekit` and no LiveKit keys, and issues voice tokens only with `livekit` |
+| `SPEECH_INGEST_DIR` (worker) | none (required for `file` only) | absolute directory of `<roleId>.wav` (16 kHz mono 16-bit, at most 100 MiB) |
 | `SPEECH_INGEST_ROLES` (worker) | set by control | the session's player roles; never copied from the parent environment |
 
 The worker's environment is exactly `SPEECH_ENV_ALLOWLIST` (`services/control/src/voice/speech-env.ts`): `PATH`, `VOICE_HANGOVER_MS`, `VOICE_MAX_SEGMENT_MS`, `STT_URL`, `STT_MODEL`, `STT_PROVIDER`, `STT_FAKE_SCRIPT`, `STT_COLD_TIMEOUT_MS`, `STT_IDLE_COLD_MS`, `SPEECH_INGEST`, `SPEECH_INGEST_DIR`, the `NODE_` prefix, plus `SPEECH_INGEST_ROLES`; never `HOME`, `LAUNCHER_TOKEN`, `FACILITATOR_SECRET`, a provider key or `LIVEKIT_*`. `CHILD_ENV_ALLOWLIST` (runtime) gained only `VOICE_ENABLED` and `TURN_END_MS`; the worker settings never reach a runtime. Fixed in code, not settings: the segmenter's -45 dBFS threshold, 20 ms frames, 200 ms lead-in, 300 ms minimum speech; the noise gate's -50 dBFS, no-speech 0.6, log-probability -1.0, short segment 400 ms; control's 10 s line timeout (`VOICE_LINE_TIMEOUT_MS`) and 256 pending lines (`MAX_PENDING_LINES`); the runtime's 10 s per role and code between speaker notices and 30 s per code between alerts, at most 8 alerts kept before the start (one per code), and the 12 s no-news backstop of a speaking track (`VOICE_ACTIVITY_STALE_MS`).
+
+## Voice in the browser and LiveKit, slice A1b (EPIC-0003, US-0071; off by default)
+Who reads what (verified against `apps/web/src/server/config.ts` `liveKitOrigin`, `services/control/src/voice/livekit-config.ts` `parseLiveKitConfig`, `services/speech/src/config.ts`):
+
+| Variable | Read by | Default | Range and notes |
+| --- | --- | --- | --- |
+| `LIVEKIT_URL` | web app only | unset | `wss://<host>[:port]` (any host), or `ws://127.0.0.1:<port>` / `ws://[::1]:<port>` with an explicit port; no path, query, fragment or credentials (`localhost` refused). Checked even with `VOICE_ENABLED=0`: an invalid value fails the config load of every API route. Unset: no voice transport (token route 503, voice option disabled). A valid value opens `microphone=(self)` and the LiveKit `connect-src` on `/session/<id>` whatever `VOICE_ENABLED` says |
+| `LIVEKIT_API_KEY` | control only | unset | 1 to 256 printable characters, no space; both key and secret or neither; never `--dev` keys |
+| `LIVEKIT_API_SECRET` | control only | unset | 32 to 512 printable characters, no space; a secret |
+| `LIVEKIT_HOST` | control only | `http://127.0.0.1:7880` | `http://127.0.0.1:<port>` or `http://[::1]:<port>`, no path, user, query or fragment; set without the keys is an error. The worker's signalling URL `ws://<host>:<port>` is derived from it and sent over IPC |
+
+The LiveKit settings are checked whenever they are set, even with `VOICE_ENABLED=0` (a bad one stops control's start, naming variables only). Tokens are issued only with the keys AND `SPEECH_INGEST=livekit` (`voiceTokensWanted`). The keys never reach a runtime (`CHILD_ENV_ALLOWLIST`), a speech worker (`SPEECH_ENV_ALLOWLIST`, which also keeps `RUST_LOG` and `LIVEKIT_DEBUG_LOG_ROOM_EVENTS` out) or the web app; the worker gets a fresh 600 s token per seat room over IPC. A LiveKit worker needs a glibc host (rtc-node's native binding has no musl build).
+
+Constants (code only, not settings): `VOICE_TOKEN_TTL_S` 600 (adapters `livekit/token.ts`); `MAX_IDENTITY_CHARS` 128; `SEATS_WAIT_MS` 1000, `MAX_WAITERS_PER_ROLE` 4, `SWEEP_INTERVAL_MS` 20 000, `SWEEP_RETRY_MS` 2000 (control `voice/tokens.ts`); `RESTART_TRIES` 5, `RESTART_BASE_MS` 500 (500, 1000, 2000, 4000, 8000), `RESTART_STABLE_MS` 60 000 (`voice/restart.ts`); `STT_GLOBAL_IN_FLIGHT` 2 across all sessions, lease `STT_COLD_TIMEOUT_MS` + `STT_LEASE_MARGIN_MS` 5000 (`voice/stt-slots.ts`); `STT_HEALTH_POLL_MS` 5000, `STT_HEALTH_CONFIRM` 2 (speech `health.ts`); `LIVEKIT_JOIN_WAIT_MS` 10 000 (speech `worker.ts`), `JOIN_RETRY_MS` 1000, `JOIN_ATTEMPTS` 3, `MAX_TRACK_RESTARTS` 5 (`ingest/livekit-ingest.ts`), `SUBSCRIBE_WAIT_MS` 10 000 (`ingest/livekit-room.ts`); BFF `VOICE_SEND_WAIT_MS` 2000 (`stream-hub.ts`) and `VOICE_TOKEN_THROTTLE` 20 per 60 s, 60 s block (`handlers.ts`). Cold-start contention: with the global budget of 2, one session's cold call (up to `STT_COLD_TIMEOUT_MS`) holds a slot that other sessions wait for. Known consequence of the budget: a LiveKit outage of about 16 s (five restarts of a worker that exits 3, then the sixth exit) turns voice off for the rest of the session (A1c follow-up proposed).
 
 ## The local endpoint (owner's Mac: Apple M5 Pro, 64 GB)
 Osaurus at `http://127.0.0.1:1337/v1`. Models served on 2026-10-06: `foundation`, `gemma-4-31b-it-qat-mxfp4`, `nemotron-3-nano-omni-30b-a3b-jangtq4`, `qwen3.8-27b-mxfp8`, `raptor-v0.5-8b-a1b-jang_6m`.
