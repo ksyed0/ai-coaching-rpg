@@ -46,6 +46,11 @@ function checkHost(host: URL): void {
 
 export function createRoomAdmin(o: { host: URL; apiKey: string; apiSecret: string; client?: RoomServiceClientLike }): RoomAdmin {
   checkHost(o.host);
+  // Checked here: the SDK's ServiceBase.authHeader builds an AccessToken, which falls back to LIVEKIT_API_KEY / LIVEKIT_API_SECRET from
+  // the environment for an empty argument.
+  if (typeof o.apiKey !== "string" || o.apiKey.length === 0 || typeof o.apiSecret !== "string" || o.apiSecret.length === 0) {
+    throw new RangeError("createRoomAdmin: the LiveKit API key and secret must both be set");
+  }
   const client: RoomServiceClientLike = o.client ?? new RoomServiceClient(o.host.origin, o.apiKey, o.apiSecret);
   return {
     async removeParticipant(room, identity) {

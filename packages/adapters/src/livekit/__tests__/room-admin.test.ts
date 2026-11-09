@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createRoomAdmin, LiveKitAdminError, type RoomServiceClientLike } from "../index.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 4): the room admin behind a port. A fake client stands in for the server; "not found" is success.
@@ -73,6 +73,31 @@ describe("createRoomAdmin (US-0071)", () => {
       expect((err as Error).message).not.toContain(IDENTITY);
       expect((err as Error).message).not.toContain("ECONNREFUSED");
       expect((err as Error & { cause?: unknown }).cause).toBe(boom); // kept for the caller, out of the message
+    }
+  });
+
+  it("an empty key or secret never falls back to LIVEKIT_API_KEY / LIVEKIT_API_SECRET from the environment", async () => {
+    // The SDK's ServiceBase.authHeader builds an AccessToken, which reads these variables for an empty argument.
+    const saved = { k: process.env.LIVEKIT_API_KEY, s: process.env.LIVEKIT_API_SECRET };
+    process.env.LIVEKIT_API_KEY = "ENVKEY"; process.env.LIVEKIT_API_SECRET = "e".repeat(40);
+    const fetched: unknown[] = [];
+    vi.stubGlobal("fetch", async (...args: unknown[]) => { fetched.push(args); throw new Error("no network in this test"); });
+    try {
+      for (const [apiKey, apiSecret] of [["", "s".repeat(32)], ["k", ""], ["", ""], [undefined, "s".repeat(32)]] as const) {
+        let err: unknown = null;
+        try {
+          const admin = createRoomAdmin({ host: HOST, apiKey: apiKey as string, apiSecret });
+          await admin.listParticipants(ROOM).catch(() => {}); // only reached if the guard is missing
+        } catch (e) { err = e; }
+        expect(err).toBeInstanceOf(RangeError);
+        expect((err as Error).message).not.toContain("ENVKEY");
+        expect((err as Error).message).not.toContain("e".repeat(40));
+      }
+      expect(fetched).toEqual([]); // no call was made, so none authenticated with the environment's key
+    } finally {
+      vi.unstubAllGlobals();
+      if (saved.k === undefined) delete process.env.LIVEKIT_API_KEY; else process.env.LIVEKIT_API_KEY = saved.k;
+      if (saved.s === undefined) delete process.env.LIVEKIT_API_SECRET; else process.env.LIVEKIT_API_SECRET = saved.s;
     }
   });
 
