@@ -93,6 +93,11 @@ describe("Segmenter (US-0070, spec 7.1)", () => {
     expect(segs.reduce((n, s) => n + s.speechMs, 0)).toBe(2540);
   });
 
+  it("a split's rest with no speech at all (the tone ends exactly at the split) is still dropped", () => {
+    const { segs } = run(concat(tone(2500, LOUD), silence(1000)), {}, { flush: true });
+    expect(segs.map((s) => [s.reason, s.speechMs])).toEqual([["split", 2500]]);
+  });
+
   it("a split's short rest is kept by flush too", () => {
     const { segs } = run(tone(2540, LOUD), {}, { flush: true });
     expect(segs.map((s) => [s.reason, s.speechMs])).toEqual([["split", 2500], ["flush", 40]]);
