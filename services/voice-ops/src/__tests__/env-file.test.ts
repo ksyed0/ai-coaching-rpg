@@ -385,8 +385,8 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       const r = readPrivateEnv(file);
       // Through one descriptor (PR #135, js/file-system-race): fchmod until the ctime has moved, read back with fstat.
       const fd = openSync(file, "r");
-      try { for (let i = 0; i < 1_000_000 && fstatSync(fd).ctimeMs === r.id.ctimeMs; i++) fchmodSync(fd, 0o600); } finally { closeSync(fd); }
-      const now = lstatSync(file);
+      let now;
+      try { for (let i = 0; i < 1_000_000 && fstatSync(fd).ctimeMs === r.id.ctimeMs; i++) fchmodSync(fd, 0o600); now = fstatSync(fd); } finally { closeSync(fd); }
       expect([now.ctimeMs !== r.id.ctimeMs, now.mtimeMs, now.size, now.ino]).toEqual([true, r.id.mtimeMs, r.id.size, r.id.ino]);
       expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
       expect(readFileSync(file, "utf8")).toBe("A=1\n");
