@@ -6,9 +6,10 @@ import type { ControlToWorker } from "@acr/speech/protocol";
 import type { BotHost } from "../../bots/bot-host.js";
 import type { ControlConfig } from "../../config.js";
 import { ChildMessageSchema } from "../../protocol.js";
+import type { RoomAdmin } from "@acr/adapters/livekit";
 import { SessionList } from "../../session-list.js";
 import { Supervisor, type SetTimer, type SpawnFn } from "../../supervisor.js";
-import { VoiceTokenRefused } from "../../voice/tokens.js";
+import { VoiceTokenRefused, VoiceTokens } from "../../voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
 import { AI_CONFIG, CODES, FakeChild, READY, flush } from "../fake-child.js";
 
@@ -273,5 +274,41 @@ describe("Supervisor and LiveKit tokens (US-0071, A1b Task 5)", () => {
     expect(await errOf(sup.voiceToken(id, "cfo", "p1"))).toMatchObject({ code: "voice_unavailable", message: "Voice is not available right now." });
     const none = new Supervisor({ config, list, scenarios: async () => [], spawn, setTimer, now: () => 1, log: () => {} });
     expect(await errOf(none.voiceToken(id, "cfo", "p1"))).toMatchObject({ code: "voice_unavailable" });
+  });
+});
+
+describe("Supervisor and a LiveKit outage (US-0072, A1c Task 11)", () => {
+  it("a worker that exits 3 while LiveKit is down is restarted when LiveKit answers", async () => {
+    const answers: ((ok: boolean) => void)[] = [];
+    const admin: RoomAdmin = { removeParticipant: async () => {}, listParticipants: async () => [], deleteRoom: async () => {} };
+    let i = 0;
+    const tokens = new VoiceTokens({
+      cfg: { apiKey: "APIkey", apiSecret: "s".repeat(40), host: new URL("http://127.0.0.1:7880"), workerUrl: "ws://127.0.0.1:7880" }, admin,
+      random: (k) => Buffer.alloc(k, i++), setTimer: () => () => {}, log: () => {},
+      mint: async () => ({ token: "jwt-p", expiresAt: 1 }), mintWorker: async () => ({ token: "jwt-w", expiresAt: 1 }),
+    });
+    const sup = new Supervisor({
+      config, list, scenarios: async () => [{ id: "other", title: "Other" }], spawn, setTimer, now: () => 1234, log: (m) => logs.push(m),
+      voice: (deps) => new VoiceHost({
+        spawn: speechSpawn, config, parentEnv: { SPEECH_INGEST: "livekit" }, log: (m) => logs.push(m), setTimer, ...deps, tokens,
+        livekitReachable: () => new Promise<boolean>((resolve) => { answers.push(resolve); }),
+      }),
+    });
+    const { c } = await boot(sup);
+    workers[0]!.emit({ type: "worker_ready", stt: "ok" });
+    workers[0]!.exit(3);
+    answers.shift()!(false);
+    await settle();
+    expect(c.voice.filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "livekit_lost" }]);
+    const retry = timers.filter((t) => !t.cancelled && t.ms === 2000);
+    expect(retry).toHaveLength(1);
+    retry[0]!.cancelled = true; retry[0]!.fn();
+    answers.shift()!(true);
+    await settle();
+    expect(workers).toHaveLength(2);
+    expect(c.voice.filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "livekit_lost" }, { type: "voice_alert", code: "livekit_recovered" }]);
+    workers[1]!.emit({ type: "worker_ready", stt: "ok" });
+    expect(c.voice.filter((m) => m.type === "voice_availability").at(-1)).toEqual({ type: "voice_availability", available: true, off: false });
+    expect(workers[1]!.sent.at(-1)).toMatchObject({ type: "voice_state", holders: [{ roleId: "cfo", participantId: "p1" }] });
   });
 });

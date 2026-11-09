@@ -4,7 +4,7 @@ import type { ControlToWorker } from "@acr/speech/protocol";
 import type { RoomAdmin } from "@acr/adapters/livekit";
 import type { ControlConfig } from "../../config.js";
 import type { ParentMessage } from "../../protocol.js";
-import { RESTART_BASE_MS, RESTART_STABLE_MS, RESTART_TRIES, restartDelay } from "../../voice/restart.js";
+import { LIVEKIT_RETRY_BASE_MS, LIVEKIT_RETRY_MAX_MS, RESTART_BASE_MS, RESTART_STABLE_MS, RESTART_TRIES, livekitRetryDelay, restartDelay } from "../../voice/restart.js";
 import { VoiceTokens } from "../../voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
 import { AI_CONFIG } from "../fake-child.js";
@@ -72,6 +72,15 @@ describe("restartDelay and the restart constants (US-0071, A1b Task 8)", () => {
     expect(RESTART_BASE_MS).toBe(500);
     expect(RESTART_STABLE_MS).toBe(60_000);
     for (const bad of [0, 6, 1.5, -1]) expect(() => restartDelay(bad)).toThrow(RangeError);
+  });
+
+  it("US-0072 (A1c Task 11): the LiveKit outage probe waits 2, 4, 8, 16 s, then 30 s each time, with no cap on the tries", () => {
+    expect(LIVEKIT_RETRY_BASE_MS).toBe(2000);
+    expect(LIVEKIT_RETRY_MAX_MS).toBe(30_000);
+    expect([1, 2, 3, 4, 5, 6, 7].map(livekitRetryDelay)).toEqual([2000, 4000, 8000, 16_000, 30_000, 30_000, 30_000]);
+    expect(livekitRetryDelay(1000)).toBe(30_000); // 2 ** 999 is not finite: still the cap
+    expect(livekitRetryDelay(Number.MAX_SAFE_INTEGER)).toBe(30_000);
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) expect(() => livekitRetryDelay(bad)).toThrow(RangeError);
   });
 });
 
