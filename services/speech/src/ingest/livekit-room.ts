@@ -13,6 +13,7 @@ import type { RoomConn, RoomPort, RoomTrack } from "./room-port.js";
  *  - audio is read with `AudioStream(track, { sampleRate: 16000, numChannels: 1, frameSizeMs: 20 })` (the ingest re-frames anyway).
  *  - nothing of a participant is read but its identity (set by the server from the token); never a name, metadata or attributes.
  *  - rtc-node's logger is set to silent first (R26, see `silenceRtcLogger`).
+ *  - every room-event listener is guarded: a throw becomes a lost room (onDisconnected, once), never an uncaught exception (F5).
  */
 
 /** rtc-node 1.2.1's logger: `dist/log.cjs` exports `log`, a pino logger named "lk-rtc" at level debug unless NODE_ENV=production. */
@@ -46,24 +47,27 @@ export class RtcConn implements RoomConn {
   private readonly goneFns: ((t: { identity: string; trackSid: string }) => void)[] = [];
   private readonly discFns: (() => void)[] = [];
   private closing = false;
+  private faulted = false;
 
   constructor(private readonly room: Room) {
-    room.on(RoomEvent.TrackPublished, (pub, p) => { if (p) this.published(pub, p); });
-    room.on(RoomEvent.TrackUnpublished, (pub, p) => this.gone(pub.sid, p.identity));
-    room.on(RoomEvent.ParticipantDisconnected, (p) => { for (const pub of p.trackPublications.values()) this.gone(pub.sid, p.identity); });
-    room.on(RoomEvent.TrackSubscribed, (track, pub) => {
+    // Batch 3 review F5: every listener body runs guarded. rtc-node dispatches most of these events outside any try (its FFI event
+    // handler), so a throw would escape as an uncaught exception and kill the worker; a fault is routed to onDisconnected instead.
+    room.on(RoomEvent.TrackPublished, (pub, p) => this.guard(() => { if (p) this.published(pub, p); }));
+    room.on(RoomEvent.TrackUnpublished, (pub, p) => this.guard(() => this.gone(pub.sid, p.identity)));
+    room.on(RoomEvent.ParticipantDisconnected, (p) => this.guard(() => { for (const pub of p.trackPublications.values()) this.gone(pub.sid, p.identity); }));
+    room.on(RoomEvent.TrackSubscribed, (track, pub) => this.guard(() => {
       const sid = pub.sid;
       if (sid === undefined) return;
       this.tracks.set(sid, track);
       this.release(sid, track);
-    });
-    room.on(RoomEvent.TrackUnsubscribed, (_track, pub) => { if (pub.sid !== undefined) { this.tracks.delete(pub.sid); this.release(pub.sid, null); } });
+    }));
+    room.on(RoomEvent.TrackUnsubscribed, (_track, pub) => this.guard(() => { if (pub.sid !== undefined) { this.tracks.delete(pub.sid); this.release(pub.sid, null); } }));
     // Batch 3 review F2: a failed subscription ends the waiting read (the ingest re-subscribes, bounded) instead of hanging it.
-    room.on(RoomEvent.TrackSubscriptionFailed, (sid) => { this.release(sid, null); });
-    room.on(RoomEvent.Disconnected, () => {
+    room.on(RoomEvent.TrackSubscriptionFailed, (sid) => this.guard(() => { this.release(sid, null); }));
+    room.on(RoomEvent.Disconnected, () => this.guard(() => {
       for (const sid of [...this.waiting.keys()]) this.release(sid, null);
-      if (!this.closing) for (const fn of this.discFns) fn();
-    });
+      this.lost();
+    }));
   }
 
   onTrack(fn: (t: RoomTrack) => void): void {
@@ -73,7 +77,11 @@ export class RtcConn implements RoomConn {
   onTrackGone(fn: (t: { identity: string; trackSid: string }) => void): void { this.goneFns.push(fn); }
   onDisconnected(fn: () => void): void { this.discFns.push(fn); }
 
-  subscribe(trackSid: string): void { this.pubs.get(trackSid)?.setSubscribed(true); }
+  /** Throws a fixed sentence when rtc-node refuses (the ingest retries, bounded); never called from inside a room event. */
+  subscribe(trackSid: string): void {
+    try { this.pubs.get(trackSid)?.setSubscribed(true); }
+    catch { throw new Error("the LiveKit track could not be subscribed"); }
+  }
   unsubscribe(trackSid: string): void {
     // Batch 3 review F2: forget the subscribed track at once, so the next read waits for a FRESH TrackSubscribed. Otherwise a resume
     // faster than rtc-node's TrackUnsubscribed builds an AudioStream on the old track, which that event then closes.
@@ -115,6 +123,25 @@ export class RtcConn implements RoomConn {
     this.tracks.delete(sid);
     this.release(sid, null);
     for (const fn of this.goneFns) fn({ identity, trackSid: sid });
+  }
+
+  private guard(body: () => void): void {
+    try { body(); } catch { this.fault(); }
+  }
+
+  /** A listener failed: our view of the room cannot be trusted any more, so the room counts as lost (once). */
+  private fault(): void {
+    if (this.faulted) return;
+    this.faulted = true;
+    for (const sid of [...this.waiting.keys()]) { try { this.release(sid, null); } catch { /* a reader's own failure */ } }
+    this.lost();
+  }
+
+  private lostOnce = false;
+  private lost(): void {
+    if (this.closing || this.lostOnce) return;
+    this.lostOnce = true;
+    for (const fn of this.discFns) { try { fn(); } catch { /* the ingest handles its own failures; nothing may escape here */ } }
   }
 
   private release(sid: string, t: RemoteTrack | null): void {

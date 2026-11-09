@@ -609,3 +609,62 @@ describe("LiveKitIngest: a track stream that ends while its seat records (US-007
     expect(h.frames.map((f) => [f.generation, f.first])).toEqual([[G1, 5]]);
   });
 });
+
+describe("LiveKitIngest: a throwing room call never escapes into the room's event dispatch (US-0071, A1b batch 3 review F5)", () => {
+  it("a subscribe that throws once (inside onTrack) does not throw out of the event, and the track is subscribed again", async () => {
+    const h = harness();
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    c.subscribeThrows = new Error("ffi");
+    expect(() => c.publish(mic(A1, "T1"))).not.toThrow();
+    await settle();
+    expect(c.calls.filter((x) => x === "subscribe T1")).toHaveLength(2);
+    c.push("T1", chunk(3));
+    await settle();
+    expect(h.frames.map((f) => f.first)).toEqual([3]);
+    expect(h.status).toEqual(["connected"]);
+  });
+
+  it(`a subscribe that always throws is retried ${MAX_TRACK_RESTARTS} times, then the ingest reports failed (never an uncaught exception)`, async () => {
+    const h = harness();
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    c.subscribe = (sid: string) => { c.calls.push(`subscribe ${sid}`); throw new Error("ffi"); };
+    expect(() => c.publish(mic(A1, "T1"))).not.toThrow();
+    await settle();
+    expect(c.calls.filter((x) => x === "subscribe T1")).toHaveLength(MAX_TRACK_RESTARTS + 1);
+    expect(h.status).toEqual(["connected", "failed"]);
+    expect(h.state()).toBe("rejected");
+  });
+
+  it("a subscribe that throws during setAllowed does not throw out of setAllowed", async () => {
+    const h = harness();
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G3]]));
+    await settle();
+    const c = h.conn(0);
+    c.subscribeThrows = new Error("ffi");
+    expect(() => h.ingest.setAllowed(new Map([["alice", G1]]))).not.toThrow();
+    await settle();
+    expect(c.calls.filter((x) => x === "subscribe T1")).toHaveLength(2);
+  });
+
+  it("a room call that throws inside onTrackGone becomes a failed status, not an exception out of the event", async () => {
+    const h = harness();
+    h.port.initial = [mic(A1, "T1")];
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    const c = h.conn(0);
+    c.unsubscribe = () => { throw new Error("ffi"); };
+    c.subscribe = () => { throw new Error("ffi"); };
+    expect(() => c.unpublish(A1, "T1")).not.toThrow();
+    await settle();
+    expect(h.state()).toBe("pending"); // unsubscribe failures are tolerated (the publication is going away)
+  });
+});

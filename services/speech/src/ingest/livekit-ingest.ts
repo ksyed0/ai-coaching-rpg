@@ -96,6 +96,10 @@ export class LiveKitIngest implements AudioIngest {
     if (this.sink !== null && !this.stopped) this.reconcile();
   }
 
+  private reconcileGuarded(room: Room): void {
+    try { this.reconcileRoom(room); } catch { this.roomLost(room, "failed"); }
+  }
+
   async stop(): Promise<void> {
     if (this.stopped) { await this.done.catch(() => undefined); return; }
     this.stopped = true;
@@ -105,7 +109,7 @@ export class LiveKitIngest implements AudioIngest {
   }
 
   private reconcile(): void {
-    for (const room of this.rooms.values()) this.reconcileRoom(room);
+    for (const room of [...this.rooms.values()]) this.reconcileGuarded(room);
     for (const roleId of this.allowed.keys()) if (!this.rooms.has(roleId) && !this.retries.has(roleId)) this.openRoom(roleId);
   }
 
@@ -131,14 +135,19 @@ export class LiveKitIngest implements AudioIngest {
       room.conn = conn;
       this.joinMisses.delete(roleId);
       this.o.onStatus("connected");
-      conn.onTrack((t) => { if (!room.gone) { room.published.set(t.trackSid, t); this.reconcileRoom(room); } });
-      conn.onTrackGone((t) => {
-        if (room.gone) return;
-        room.published.delete(t.trackSid);
-        for (const sub of room.subs.values()) if (sub.trackSid === t.trackSid) this.endSub(room, sub);
-        this.reconcileRoom(room); // another microphone track of the identity may take its place
+      // Batch 3 review F5: these run inside rtc-node's event dispatch; a throw is a failed room, never an exception out of the event.
+      const guarded = (body: () => void): void => { try { body(); } catch { this.roomLost(room, "failed"); } };
+      guarded(() => {
+        conn.onTrack((t) => guarded(() => { if (!room.gone) { room.published.set(t.trackSid, t); this.reconcileRoom(room); } }));
+        conn.onTrackGone((t) => guarded(() => {
+          if (room.gone) return;
+          room.published.delete(t.trackSid);
+          room.restarts.delete(t.trackSid);
+          for (const sub of room.subs.values()) if (sub.trackSid === t.trackSid) this.endSub(room, sub);
+          this.reconcileRoom(room); // another microphone track of the identity may take its place
+        }));
+        conn.onDisconnected(() => guarded(() => this.roomLost(room, "disconnected")));
       });
-      conn.onDisconnected(() => this.roomLost(room, "disconnected"));
     })();
   }
 
@@ -192,10 +201,16 @@ export class LiveKitIngest implements AudioIngest {
   private startSub(room: Room, conn: RoomConn, t: RoomTrack, generation: string): void {
     const sub: Sub = { trackSid: t.trackSid, identity: t.identity, roleId: room.roleId, generation, ended: false };
     room.subs.set(t.identity, sub);
-    conn.subscribe(t.trackSid);
     let iter: AsyncIterator<Int16Array>;
-    try { iter = conn.frames(t.trackSid, 16000, 1)[Symbol.asyncIterator](); }
-    catch { this.endSub(room, sub); return; }
+    try {
+      conn.subscribe(t.trackSid);
+      iter = conn.frames(t.trackSid, 16000, 1)[Symbol.asyncIterator]();
+    } catch {
+      // Batch 3 review F5: a refused subscribe (or read) is tried again, bounded like a stream that ends by itself.
+      this.endSub(room, sub, false);
+      this.restartTrack(room, t.trackSid);
+      return;
+    }
     sub.iter = iter;
     void this.loop(room, sub, iter);
   }
@@ -234,7 +249,8 @@ export class LiveKitIngest implements AudioIngest {
     const n = (room.restarts.get(trackSid) ?? 0) + 1;
     room.restarts.set(trackSid, n);
     if (n > MAX_TRACK_RESTARTS) { this.o.onStatus("failed"); this.fail(); return; }
-    this.reconcileRoom(room);
+    // On a microtask: never re-entered from inside reconcileRoom's own loop (a subscribe that throws), never from a room event.
+    queueMicrotask(() => this.reconcileGuarded(room));
   }
 
   /** Ends a subscription at once: its loop delivers nothing more (it checks `ended`), its stream is closed, the track unsubscribed. */

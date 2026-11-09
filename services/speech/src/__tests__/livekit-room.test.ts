@@ -67,3 +67,34 @@ describe("RtcConn subscriptions (US-0071, A1b batch 3 review F2)", () => {
     expect(r.state).toBe("done");
   });
 });
+
+describe("RtcConn listeners never throw into rtc-node's event dispatch (US-0071, A1b batch 3 review F5)", () => {
+  it("a callback that throws inside TrackPublished is caught and routed to onDisconnected (the ingest then drops the room)", async () => {
+    const rtc = await import("@livekit/rtc-node");
+    const { RtcConn } = await import("../ingest/livekit-room.js");
+    const room = Object.assign(new EventEmitter(), { remoteParticipants: new Map(), disconnect: async () => undefined });
+    const conn = new RtcConn(room as never);
+    let lost = 0;
+    conn.onDisconnected(() => { lost++; });
+    conn.onTrack(() => { throw new Error("a bug in a callback"); });
+    conn.onTrackGone(() => { throw new Error("a bug in a callback"); });
+    const pub = { sid: "TR_1", kind: rtc.TrackKind.KIND_AUDIO, source: rtc.TrackSource.SOURCE_MICROPHONE, setSubscribed: () => { throw new Error("ffi"); } };
+    const participant = { identity: "alice.g11111111", trackPublications: new Map([["TR_1", pub]]) };
+    expect(() => room.emit(rtc.RoomEvent.TrackPublished, pub, participant)).not.toThrow();
+    expect(() => room.emit(rtc.RoomEvent.TrackUnpublished, pub, participant)).not.toThrow();
+    expect(() => room.emit(rtc.RoomEvent.ParticipantDisconnected, participant)).not.toThrow();
+    expect(lost).toBe(1); // once, however many listeners failed
+    expect(() => room.emit(rtc.RoomEvent.Disconnected)).not.toThrow();
+    expect(lost).toBe(1);
+  });
+
+  it("subscribe whose setSubscribed throws rethrows to the ingest (which retries, bounded) and never from an event", async () => {
+    const rtc = await import("@livekit/rtc-node");
+    const { RtcConn } = await import("../ingest/livekit-room.js");
+    const room = Object.assign(new EventEmitter(), { remoteParticipants: new Map(), disconnect: async () => undefined });
+    const conn = new RtcConn(room as never);
+    const pub = { sid: "TR_1", kind: rtc.TrackKind.KIND_AUDIO, source: rtc.TrackSource.SOURCE_MICROPHONE, setSubscribed: () => { throw new Error("ffi"); } };
+    room.emit(rtc.RoomEvent.TrackPublished, pub, { identity: "alice.g11111111", trackPublications: new Map([["TR_1", pub]]) });
+    expect(() => conn.subscribe("TR_1")).toThrow("the LiveKit track could not be subscribed");
+  });
+});
