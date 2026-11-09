@@ -7,6 +7,7 @@ import { MESSAGES } from "../../lib/messages";
 import { aiPlayerRoles, type ConsoleStreamUi } from "../../lib/use-console-stream";
 import { SceneStatus } from "../SceneStatus";
 import { ConsoleTimeline } from "./ConsoleTimeline";
+import { VoicePanel } from "./VoicePanel";
 import { WordsSpoken } from "./WordsSpoken";
 
 // The facilitator's read-only live view of a session: status, scene and timer, the transcript with notices and alerts, and words spoken.
@@ -59,6 +60,8 @@ export function LiveView({ ui, clock, controls }: LiveViewProps) {
         <SceneStatus scene={index >= 0 ? ui.scenes[index] : undefined} index={index} count={ui.scenes.length} view={sceneView} clock={clock} />
       </section>
       {controls}
+      {/* US-0071: who uses voice and who speaks now; absent in a text-only session; not a live region. */}
+      <VoicePanel roster={ui.roster} />
       <div>
         <h2 className="s">Transcript and notices</h2>
         <ConsoleTimeline entries={view?.timeline ?? []} names={names} playerRoles={playerRoles} aiPlayers={aiPlayers} />
