@@ -12,6 +12,23 @@ export async function waitUntil<T>(what: string, cond: () => T | undefined | fal
 }
 
 /**
+ * F7 (review fix wave, AGENTS.md section 8): waits until "nothing more happens": `size()` (the log's length) is unchanged across `stable`
+ * consecutive observations after its last change, one observation per `step` (a poll tick). Throws after `maxSteps` steps without
+ * settling. No fixed sleep is the assertion: a busy machine only makes the quiet window longer. Returns the settled size.
+ */
+export async function waitQuiet(what: string, size: () => number, o: { stable: number; maxSteps: number; step?: () => Promise<void> }): Promise<number> {
+  const step = o.step ?? (() => new Promise<void>((r) => setTimeout(r, 250)));
+  let last = size();
+  let still = 0;
+  for (let i = 0; i < o.maxSteps; i++) {
+    await step();
+    const now = size();
+    if (now === last) { if (++still >= o.stable) return now; } else { last = now; still = 0; }
+  }
+  throw new Error(`${what} never settled`);
+}
+
+/**
  * US-0070: the voice demo's WebSocket client of a runtime (a player seat or the facilitator). It keeps every raw frame it received, so the
  * demo can scan them (V-06). A player joins by code without asking for a durable credential (`issueCredential: false`).
  */

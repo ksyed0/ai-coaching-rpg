@@ -7,7 +7,7 @@ import { encodeWav } from "@acr/adapters";
 import { logFormatFor } from "@acr/events";
 import { startControl, type RunningControl } from "../main.js";
 import type { VoiceHost } from "../voice/voice-host.js";
-import { RuntimeClient, waitUntil } from "./voice-client.js";
+import { RuntimeClient, waitQuiet, waitUntil } from "./voice-client.js";
 
 /**
  * US-0070 (EPIC-0003 voice A1a, AC-0404): `pnpm demo --voice`, the offline voice pipeline end to end. In a private temp tree it writes two
@@ -16,7 +16,8 @@ import { RuntimeClient, waitUntil } from "./voice-client.js";
  * session of scenarios/friday-escalation, seats its three players by code, gives consent, starts, moves to the scene with the AI character
  * and lets ONE player opt in to voice (the other's file plays at the same time and must never be transcribed). Then it runs checks V-01 to
  * V-08 and removes the tree. Deterministic: turns are separated by long silences and a multi-segment turn comes from forced splits (no
- * gap the turn timer could race), and every wait polls an effect under one watchdog. Prints counts and check results only (no transcript,
+ * gap the turn timer could race), every wait polls an effect under one watchdog, and "nothing more happens" is a quiet log (waitQuiet), never a
+ * fixed sleep. Prints counts and check results only (no transcript,
  * path or secret).
  */
 export const VOICE_CHECKS = [
@@ -47,6 +48,10 @@ const WATCHDOG_MS = 90_000;
 const STEP_MS = 60_000;
 const WORKER_DOWN = "Voice input stopped: the speech worker is not running. Participants can continue by text.";
 const RATE = 16_000;
+/** "Nothing more happens": the log unchanged across this many consecutive 250 ms observations (the ticker runs about once a second). */
+const QUIET_OBSERVATIONS = 12;
+/** At most this many observations before a log that never settles fails the demo. */
+const QUIET_MAX_STEPS = 240;
 
 const AM_LINES = Array.from({ length: TURNS * SEGMENTS_PER_TURN }, (_, i) => `[AM-${i + 1}] ${["We can do the reconciliation in May.", "Finance gets a daily tie-out.", "I will confirm the scope today."][i % 3]}`);
 const DL_LINES = ["[DL-1] This must never be transcribed.", "[DL-2] Nor this."];
@@ -129,7 +134,7 @@ export async function runVoiceDemo(o: { root?: string; stdout: Out; stderr: Out;
       await waitUntil("every voice line", () => voiceLines().length >= AM_LINES.length, STEP_MS);
       await waitUntil("the AI character's answer to the last turn", () => npcLines().some((e) => e.seq > voiceLines().at(-1)!.seq), STEP_MS);
       await waitUntil("a Game Master evaluation", () => evaluations().length >= 1, STEP_MS);
-      await new Promise((r) => setTimeout(r, 2500)); // the "nothing more happens" window: the ticker runs about once a second
+      await waitQuiet("the session log", () => events().length, { stable: QUIET_OBSERVATIONS, maxSteps: QUIET_MAX_STEPS });
       const before = events();
 
       const vl = voiceLines();
@@ -163,7 +168,7 @@ export async function runVoiceDemo(o: { root?: string; stdout: Out; stderr: Out;
       const linesAfterKill = voiceLines().length;
       players[TEXT_ROLE]!.send({ type: "say", text: "[DL-TYPED] I will send Priya the summary." });
       await waitUntil("the typed line", () => events().some((e) => e.type === "utterance" && e.roleId === TEXT_ROLE && e.channel === "text"), STEP_MS);
-      await new Promise((r) => setTimeout(r, 1500));
+      await waitQuiet("the session log", () => events().length, { stable: QUIET_OBSERVATIONS, maxSteps: QUIET_MAX_STEPS });
       const status = (unwrap(await api("GET", `/sessions/${id}`)) as { status: string }).status;
       const downs = events().filter((e) => e.type === "facilitator.alert" && e.message === WORKER_DOWN).length;
       check("V-07", status === "running" && downs === 1 && voice?.workerPid(id) === undefined && voice?.voiceTurnOpen(id) === false && linesAfterKill === AM_LINES.length,
