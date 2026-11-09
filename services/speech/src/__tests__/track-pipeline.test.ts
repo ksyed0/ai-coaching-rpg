@@ -288,3 +288,42 @@ describe("TrackPipeline (US-0070, AC-0398): segment, transcribe, gate, clean, de
     expect(ids.size).toBe(1000);
   });
 });
+
+describe("TrackPipeline and seat generations (US-0071, A1b Task 7, Review Focus 2)", () => {
+  const G1 = "11111111";
+  const G2 = "22222222";
+  const withGen = (g: string) => [{ roleId: "tech_lead", participantId: "p1", recording: true, generation: g }];
+
+  it("TrackPipeline drops a frame whose generation is not the gate's (not even segmented)", async () => {
+    const h = harness({ holders: withGen(G2) });
+    for (const f of frames(BURST)) { h.clock.t += 20; h.p.push(f, G1); }
+    await settle();
+    expect(h.pushes()).toBe(0);
+    expect(h.sent).toEqual([]);
+    for (const f of frames(BURST)) { h.clock.t += 20; h.p.push(f, undefined); } // a frame with no generation while the gate has one
+    await settle();
+    expect(h.pushes()).toBe(0);
+    for (const f of frames(BURST)) { h.clock.t += 20; h.p.push(f, G2); }
+    await settle();
+    expect(h.lines().map((m) => m.participantId)).toEqual(["p1"]);
+  });
+
+  it("a frame with a generation while the gate has none (file ingest) is dropped too", async () => {
+    const h = harness();
+    for (const f of frames(BURST)) { h.clock.t += 20; h.p.push(f, G1); }
+    await settle();
+    expect(h.pushes()).toBe(0);
+  });
+
+  it("stops the open segment when it does: nothing of the old generation's audio is transcribed", async () => {
+    const h = harness({ holders: withGen(G1) });
+    const loud = frames(concat(silence(300), tone(600, LOUD)));
+    for (const f of loud) { h.clock.t += 20; h.p.push(f, G1); } // a segment is open (speech, no closing silence yet)
+    expect(h.sent.some((m) => m.type === "speech_activity" && m.active)).toBe(true);
+    h.p.push(frames(tone(20, LOUD))[0]!, G2); // a frame of another generation arrives: the open segment is discarded
+    for (const f of frames(silence(900))) { h.clock.t += 20; h.p.push(f, G1); }
+    await settle();
+    expect(h.lines()).toEqual([]);
+    expect(h.stt.calls).toHaveLength(0);
+  });
+});

@@ -1,21 +1,25 @@
 import path from "node:path";
 import { DEFAULT_STT_COLD_TIMEOUT_MS, DEFAULT_STT_IDLE_COLD_MS, parseSttUrl } from "@acr/adapters";
-import { isFileSafeId, isReservedRoleId, isScenarioId } from "@acr/events";
+import { isFileSafeId, isReservedRoleId, isSafeId, isScenarioId } from "@acr/events";
 import { MAX_HOLDERS } from "./protocol.js";
 import { DEFAULT_SEGMENTER, HANGOVER_RANGE, MAX_SEGMENT_RANGE, type SegmenterSettings } from "./segmenter.js";
 
 export type WorkerConfig = {
   segmenter: SegmenterSettings;
   stt: { kind: "whisper"; url: URL; coldTimeoutMs: number; idleColdMs: number } | { kind: "fake"; scriptFile: string };
-  ingest: { kind: "file"; dir: string; roles: string[] };
+  /** US-0071: `livekit` listens to the seat rooms (control sends a token per connect); `roles` still names the session's player roles. */
+  ingest: { kind: "file"; dir: string; roles: string[] } | { kind: "livekit"; roles: string[] };
 };
 
 const COLD_RANGE = [1000, 300_000] as const;
+/** US-0071 (R25): STT_MODEL is 1 to 64 characters, every `.`-separated part a safe id ("small.en", "large-v3-turbo-q5_0"). */
+export const MAX_STT_MODEL_CHARS = 64;
+const isModelName = (v: string): boolean => v.length >= 1 && v.length <= MAX_STT_MODEL_CHARS && v.split(".").every((part) => isSafeId(part));
 const IDLE_RANGE = [1000, 86_400_000] as const;
 
 /**
  * US-0070: the speech worker's settings, from the environment control gives it (an allowlist, services/control/src/voice/speech-env.ts).
- * Every error names the variable only and never echoes a value (CodeQL js/clear-text-logging). A1a supports file ingest only.
+ * Every error names the variable only and never echoes a value (CodeQL js/clear-text-logging). US-0071 adds the LiveKit ingest.
  */
 export function parseWorkerConfig(env: NodeJS.ProcessEnv): { ok: true; cfg: WorkerConfig } | { ok: false; errors: string[] } {
   const errors: string[] = [];
@@ -43,14 +47,21 @@ export function parseWorkerConfig(env: NodeJS.ProcessEnv): { ok: true; cfg: Work
     else errors.push("STT_FAKE_SCRIPT must be the absolute path of the fake script when STT_PROVIDER=fake");
   } else errors.push("STT_PROVIDER must be whisper or fake");
 
-  if ((env.SPEECH_INGEST ?? "file") !== "file") errors.push("SPEECH_INGEST must be file (this build supports file ingest only)");
+  // US-0071 (R25): checked so a typo fails at start; what the model name selects is slice A1c (`pnpm voice:up`).
+  const model = env.STT_MODEL;
+  if (model !== undefined && model !== "" && !isModelName(model)) errors.push(`STT_MODEL must be 1 to ${MAX_STT_MODEL_CHARS} characters, dot-separated parts of letters, digits, _ or -`);
+
+  const ingestKind = env.SPEECH_INGEST ?? "file";
+  if (ingestKind !== "file" && ingestKind !== "livekit") errors.push("SPEECH_INGEST must be file or livekit");
   const dir = env.SPEECH_INGEST_DIR;
-  if (!dir || !path.isAbsolute(dir)) errors.push("SPEECH_INGEST_DIR must be an absolute directory");
+  // A LiveKit ingest reads no file: control sends a token per seat room over IPC.
+  if (ingestKind === "file" && (!dir || !path.isAbsolute(dir))) errors.push("SPEECH_INGEST_DIR must be an absolute directory");
   const rawRoles = env.SPEECH_INGEST_ROLES ?? "";
   const roles = rawRoles === "" ? [] : rawRoles.split(",");
   const roleOk = (r: string): boolean => isFileSafeId(r) && isScenarioId(r) && !isReservedRoleId(r);
   if (roles.length > MAX_HOLDERS || !roles.every(roleOk) || new Set(roles).size !== roles.length) errors.push("SPEECH_INGEST_ROLES must be a comma-separated list of distinct role ids");
 
-  if (errors.length > 0 || !stt || !dir) return { ok: false, errors };
-  return { ok: true, cfg: { segmenter: { ...DEFAULT_SEGMENTER, hangoverMs, maxSegmentMs }, stt, ingest: { kind: "file", dir, roles } } };
+  if (errors.length > 0 || !stt) return { ok: false, errors };
+  const ingest: WorkerConfig["ingest"] = ingestKind === "livekit" ? { kind: "livekit", roles } : { kind: "file", dir: dir!, roles };
+  return { ok: true, cfg: { segmenter: { ...DEFAULT_SEGMENTER, hangoverMs, maxSegmentMs }, stt, ingest } };
 }

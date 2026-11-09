@@ -3,10 +3,15 @@ import { LimitedSpeechToText, WhisperHttpSpeechToText, type SpeechToText } from 
 import { parseWorkerConfig } from "./config.js";
 import { loadFakeScript } from "./fake-script.js";
 import { ControlToWorkerSchema, WorkerMessageSchema, type WorkerMessage } from "./protocol.js";
-import { startWorker } from "./worker.js";
+import type { AudioIngest } from "./ingest/audio-ingest.js";
+import { LiveKitIngest, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
+import type { RoomPort } from "./ingest/room-port.js";
+import { startWorker, type RunningWorker } from "./worker.js";
 
 /** After the parent's IPC channel closes: exit this long later whatever happens (a hung stop must not leave an orphan). */
 export const HARD_EXIT_MS = 5_000;
+/** US-0071: the exit code of a worker whose LiveKit ingest failed or lost a room: control restarts it, and it asks for fresh tokens. */
+export const EXIT_LIVEKIT_LOST = 3;
 
 const realSetTimer = (fn: () => void, ms: number): (() => void) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
 const realSleep = (ms: number, signal?: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
@@ -32,6 +37,10 @@ function realtimePace(now: () => number): (ms: number) => Promise<void> {
  * sentences naming the variable only. Every message from the parent is validated (`ControlToWorkerSchema`) and anything else is dropped;
  * every message to it is validated too. The process exits 0 when the parent's channel closes (hard backstop HARD_EXIT_MS). It never logs
  * an environment value, a path or a transcript.
+ *
+ * US-0071 (A1b Task 7): with SPEECH_INGEST=livekit the real room port is loaded here, dynamically (a file-ingest run never loads the
+ * native `@livekit/rtc-node`), its logger silenced first; a failed or lost seat room is reported as `livekit_status` and the worker exits
+ * EXIT_LIVEKIT_LOST. It never logs a room, an identity or a token.
  */
 async function main(): Promise<void> {
   if (typeof process.send !== "function") { console.error("error: the speech worker runs only as a child of the control service"); process.exit(2); }
@@ -52,19 +61,35 @@ async function main(): Promise<void> {
     if (!process.connected || !WorkerMessageSchema.safeParse(m).success) return false;
     try { return process.send!(m, () => {}) !== false; } catch { return false; }
   };
-  const worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m) });
+  let makeIngest: ((deps: { join: (roleId: string) => Promise<LiveKitJoinInfo> }) => AudioIngest) | undefined;
+  let worker: RunningWorker | undefined;
+  if (cfg.ingest.kind === "livekit") {
+    let port: RoomPort;
+    try { port = (await import("./ingest/livekit-room.js")).createRtcRoomPort(); }
+    catch (err) { console.error(`error: the LiveKit client could not be loaded (${err instanceof Error ? err.name : "error"})`); process.exit(2); }
+    const lost = (): void => {
+      console.error("speech LiveKit ingest stopped; exiting for a restart");
+      void (worker?.stop() ?? Promise.resolve()).catch(() => undefined).finally(() => process.exit(EXIT_LIVEKIT_LOST));
+    };
+    makeIngest = ({ join }) => new LiveKitIngest({
+      room: port, join,
+      onStatus: (state) => { send({ type: "livekit_status", state }); if (state !== "connected") lost(); },
+    });
+  }
+  worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}) });
+  const running = worker;
   process.on("message", (raw: unknown) => {
     const m = ControlToWorkerSchema.safeParse(raw);
-    if (m.success) worker.onControl(m.data);
+    if (m.success) running.onControl(m.data);
   });
   let leaving = false;
   process.on("disconnect", () => {
     if (leaving) return;
     leaving = true;
     setTimeout(() => process.exit(0), HARD_EXIT_MS).unref();
-    void worker.stop().catch(() => undefined).finally(() => process.exit(0));
+    void running.stop().catch(() => undefined).finally(() => process.exit(0));
   });
-  process.on("SIGTERM", () => { void worker.stop().catch(() => undefined).finally(() => process.exit(0)); });
+  process.on("SIGTERM", () => { void running.stop().catch(() => undefined).finally(() => process.exit(0)); });
 }
 
 // Only run when executed directly (tsx src/main.ts), never on import.

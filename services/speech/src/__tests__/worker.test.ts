@@ -7,7 +7,9 @@ import type { WorkerConfig } from "../config.js";
 import type { AudioIngest } from "../ingest/audio-ingest.js";
 import type { ControlToWorker, WorkerMessage } from "../protocol.js";
 import { DEFAULT_SEGMENTER } from "../segmenter.js";
-import { startWorker } from "../worker.js";
+import { LIVEKIT_JOIN_WAIT_MS, startWorker } from "../worker.js";
+import { LiveKitIngest } from "../ingest/livekit-ingest.js";
+import { FakeRoomPort, mic, type FakeConn } from "./fake-room.js";
 import { concat, silence, tone } from "./signals.js";
 
 let dir: string;
@@ -41,8 +43,8 @@ function harness(o: { roles: string[]; stt?: SpeechToText | ((roleId: string) =>
   return { w, sent, clock, lines: () => sent.filter((m) => m.type === "voice_line") };
 }
 
-describe("startWorker and the US-0071 control messages (A1b Task 2, characterisation)", () => {
-  it("livekit_join and stt_slot_grant are ignored until their tasks land: no ingest starts, nothing is sent", async () => {
+describe("startWorker and the US-0071 control messages (A1b Task 2, characterisation; Task 7 answers a livekit_join only when asked)", () => {
+  it("an unrequested livekit_join and stt_slot_grant are ignored: no ingest starts, nothing is sent", async () => {
     const ingest = { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
     const h = harness({ roles: ["tech_lead"], ingest });
     await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
@@ -110,7 +112,7 @@ describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
     // An ingest still playing (live audio): every frame is pushed, then it waits for stop, so only the end can close the open segment.
     const pcm = concat(silence(300), tone(900, LOUD)); // still speaking when the end comes
     const ingest: AudioIngest = {
-      start: (onFrame) => { for (let i = 0; i + 320 <= pcm.length; i += 320) onFrame("tech_lead", pcm.slice(i, i + 320)); return new Promise<void>(() => {}); },
+      start: (onFrame) => { for (let i = 0; i + 320 <= pcm.length; i += 320) onFrame("tech_lead", undefined, pcm.slice(i, i + 320)); return new Promise<void>(() => {}); },
       stop: async () => {},
     };
     const h = harness({ roles: ["tech_lead"], ingest });
@@ -185,5 +187,118 @@ describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
     w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: true }]));
     await vi.waitFor(() => expect(log).toEqual(["speech ingest stopped (Error)"]));
     await w.stop();
+  });
+});
+
+describe("startWorker with a LiveKit ingest (US-0071, A1b Task 7)", () => {
+  const G1 = "11111111";
+  const G2 = "22222222";
+  const lkCfg: WorkerConfig = { segmenter: DEFAULT_SEGMENTER, stt: { kind: "fake", scriptFile: "/unused" }, ingest: { kind: "livekit", roles: ["tech_lead", "pm"] } };
+  type Holder = { roleId: string; participantId: string; recording: boolean; generation?: string };
+  const st = (holders: Holder[], o: { paused?: boolean; ended?: boolean } = {}): ControlToWorker => ({ type: "voice_state", paused: o.paused ?? false, ended: o.ended ?? false, holders });
+  type Timer = { fn: () => void; ms: number; cancelled: boolean };
+
+  function lk(o: { ingest?: AudioIngest } = {}) {
+    const sent: WorkerMessage[] = [];
+    const timers: Timer[] = [];
+    const port = new FakeRoomPort();
+    const status: string[] = [];
+    const clock = { t: 9_000_000 };
+    const w = startWorker({
+      cfg: lkCfg, send: (m) => { sent.push(m); return true; }, now: () => clock.t,
+      stt: (roleId) => new FakeSpeechToText({ script: (_s, n) => ({ text: `${roleId} line ${n + 1}`, durationMs: 50 }) }),
+      setTimer: (fn, ms) => { const t: Timer = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+      ...(o.ingest ? { ingest: o.ingest } : { makeIngest: ({ join }) => new LiveKitIngest({ room: port, join, onStatus: (s) => status.push(s) }) }),
+    });
+    const fire = (ms: number) => { for (const t of timers.filter((x) => x.ms === ms && !x.cancelled)) { t.cancelled = true; t.fn(); } };
+    return { w, sent, timers, port, status, clock, fire };
+  }
+  /** A stub ingest that records what setAllowed got, and when. */
+  function stub() {
+    const allowed: Map<string, string>[] = [];
+    let sink: ((roleId: string, generation: string | undefined, f: Int16Array) => void) | null = null;
+    const ingest: AudioIngest = {
+      start: (fn) => { sink = fn; return new Promise<void>(() => {}); }, stop: async () => {},
+      setAllowed: (a) => { allowed.push(new Map(a)); },
+    };
+    return { ingest, allowed, push: (roleId: string, g: string | undefined, f: Int16Array) => sink?.(roleId, g, f) };
+  }
+  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+
+  it("with livekit ingest the worker asks livekit_token_request for a seat before connecting it, and connects with the answer", async () => {
+    const h = lk();
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }]));
+    await settle();
+    expect(h.sent).toContainEqual({ type: "livekit_token_request", roleId: "tech_lead" });
+    expect(h.port.opened).toEqual([]);
+    h.w.onControl({ type: "livekit_join", roleId: "pm", url: "ws://127.0.0.1:7880", token: "wrong-seat", room: `v${"1".repeat(32)}` }); // nobody asked for pm
+    h.w.onControl({ type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: "tok-1", room: `v${"0".repeat(32)}` });
+    await settle();
+    expect(h.port.opened).toEqual([{ url: "ws://127.0.0.1:7880", token: "tok-1" }]);
+    expect(h.status).toEqual(["connected"]);
+    h.w.onControl({ type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: "tok-again", room: `v${"0".repeat(32)}` }); // answered already
+    await settle();
+    expect(h.port.opened).toHaveLength(1);
+    await h.w.stop();
+  });
+
+  it("a token request without an answer within LIVEKIT_JOIN_WAIT_MS fails the join (the ingest reports failed)", async () => {
+    const h = lk();
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }]));
+    await settle();
+    expect(h.timers.filter((t) => t.ms === LIVEKIT_JOIN_WAIT_MS && !t.cancelled)).toHaveLength(1);
+    h.fire(LIVEKIT_JOIN_WAIT_MS);
+    await settle();
+    expect(h.status).toEqual(["failed"]);
+    expect(h.port.opened).toEqual([]);
+    await h.w.stop();
+  });
+
+  it("audio from the seat room becomes the holder's line, attributed by generation", async () => {
+    const h = lk();
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }]));
+    await settle();
+    h.w.onControl({ type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: "tok-1", room: `v${"0".repeat(32)}` });
+    await settle();
+    const conn = h.port.conns[0] as FakeConn;
+    conn.publish(mic(`tech_lead.g${G1}`, "TR_1"));
+    const pcm = concat(silence(300), tone(800, LOUD), silence(900));
+    for (let i = 0; i + 480 <= pcm.length; i += 480) { h.clock.t += 30; conn.push("TR_1", pcm.slice(i, i + 480)); await Promise.resolve(); }
+    await vi.waitFor(() => expect(h.sent.filter((m) => m.type === "voice_line")).toEqual([expect.objectContaining({ roleId: "tech_lead", participantId: "p1", text: "tech_lead line 1" })]));
+    await h.w.stop();
+  });
+
+  it("voice_state with generations drives setAllowed in the same synchronous step as the gate update", () => {
+    const s = stub();
+    const h = lk({ ingest: s.ingest });
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }, { roleId: "pm", participantId: "p2", recording: false, generation: G2 }]));
+    expect(s.allowed.at(-1)).toEqual(new Map([["tech_lead", G1]])); // no await between onControl and here
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p3", recording: true, generation: G2 }]));
+    expect(s.allowed.at(-1)).toEqual(new Map([["tech_lead", G2]]));
+  });
+
+  it("a frame pushed synchronously right after onControl with the old generation is dropped (the gate moved in the same step)", async () => {
+    const s = stub();
+    const h = lk({ ingest: s.ingest });
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }]));
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p2", recording: true, generation: G2 }]));
+    const pcm = concat(silence(300), tone(800, LOUD), silence(900));
+    for (let i = 0; i + 320 <= pcm.length; i += 320) s.push("tech_lead", G1, pcm.slice(i, i + 320));
+    await settle();
+    expect(h.sent.filter((m) => m.type === "voice_line" || m.type === "speech_activity")).toEqual([]);
+  });
+
+  it("paused or ended voice_state gives setAllowed an empty map; a holder without a generation is never allowed", () => {
+    const s = stub();
+    const h = lk({ ingest: s.ingest });
+    const holders = [{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }];
+    h.w.onControl(st(holders, { paused: true }));
+    expect(s.allowed.at(-1)).toEqual(new Map());
+    h.w.onControl(st(holders));
+    expect(s.allowed.at(-1)).toEqual(new Map([["tech_lead", G1]]));
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true }]));
+    expect(s.allowed.at(-1)).toEqual(new Map());
+    h.w.onControl(st(holders, { ended: true }));
+    expect(s.allowed.at(-1)).toEqual(new Map());
   });
 });

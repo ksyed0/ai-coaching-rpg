@@ -21,7 +21,9 @@ type Outcome = { kind: "text"; text: string } | { kind: "failed"; status: "empty
 /**
  * US-0070 (EPIC-0003 voice A1a, spec 7.3, AC-0398, AC-0399): one track's pipeline: segment, transcribe, gate, clean, deliver.
  *
- * Privacy invariant (the worker's half): a frame is IGNORED, not even segmented, unless `gate.recordingFor(roleId)` names a participant.
+ * Privacy invariant (the worker's half): a frame is IGNORED, not even segmented, unless `gate.recordingFor(roleId)` names a participant
+ * and (US-0071, A1b Task 7) the frame's seat generation is exactly the gate's (both absent for file ingest): a frame of an old identity
+ * still queued in a LiveKit stream is never attributed to the seat's new holder.
  * When that changes (opt-out, pause, end, a lost seat, another participant) the open segment and the lead-in are discarded, never
  * transcribed, and the speech edge is closed. A segment belongs to the participant who held the seat at its START; its result is
  * delivered only if that participant still records for the role (else it is dropped silently: the runtime would refuse it anyway).
@@ -34,6 +36,8 @@ export class TrackPipeline {
   private tail: Promise<void> = Promise.resolve();
   /** The participant whose audio is in the segmenter (lead-in or open segment); null when it holds nothing. */
   private feeding: string | null = null;
+  /** US-0071: the seat generation of the audio in the segmenter (undefined for file ingest). */
+  private feedingGeneration: string | undefined = undefined;
   /** The stream time (ms) at the end of the last frame pushed into the segmenter. */
   private pushedEnd = 0;
   /**
@@ -47,17 +51,21 @@ export class TrackPipeline {
     send: (m: WorkerMessage) => void; now: () => number; newSegmentId: () => string; deadlineMs: number;
   }) {}
 
-  push(frame: Int16Array): void {
+  push(frame: Int16Array, generation?: string): void {
     const rec = this.o.gate.recordingFor(this.o.roleId);
     if (rec === null) { if (this.feeding !== null) this.stop(); return; }
+    // US-0071: a frame of another seat generation (an old identity's queued audio, or a second track) is never used, and whatever is in
+    // the segmenter is discarded with it, so no segment can mix the two.
+    if (generation !== rec.generation) { if (this.feeding !== null) this.stop(); return; }
     // Another participant now holds the seat: nothing of the previous one's audio (not even the lead-in) may become theirs.
-    if (this.feeding !== null && this.feeding !== rec.participantId) this.stop();
+    if (this.feeding !== null && (this.feeding !== rec.participantId || this.feedingGeneration !== rec.generation)) this.stop();
     this.feeding = rec.participantId;
+    this.feedingGeneration = rec.generation;
     const r = this.o.segmenter.push(frame);
     this.pushedEnd += SEGMENT_FRAME_MS;
     if (r.started) this.o.activity.speechStarted(this.o.roleId);
     for (const s of r.segments) {
-      const delivered = this.enqueue(s, rec.participantId);
+      const delivered = this.enqueue(s, rec.participantId, rec.generation);
       if (s.reason === "silence") this.o.activity.segmentClosed(this.o.roleId, this.wallOf(s.lastSpeechMs), delivered);
     }
     if (r.dropped) this.o.activity.segmentClosed(this.o.roleId, this.wallOf(r.dropped.lastSpeechMs), this.tail);
@@ -69,6 +77,7 @@ export class TrackPipeline {
     this.cancel = new AbortController();
     this.o.segmenter.discard();
     this.feeding = null;
+    this.feedingGeneration = undefined;
     this.o.activity.stop(this.o.roleId);
   }
 
@@ -76,10 +85,12 @@ export class TrackPipeline {
   async flush(): Promise<void> {
     const rec = this.o.gate.recordingFor(this.o.roleId);
     const owner = this.feeding;
+    const ownerGeneration = this.feedingGeneration;
     const segs = this.o.segmenter.flush();
     this.feeding = null;
-    if (rec !== null && owner === rec.participantId) {
-      for (const s of segs) this.o.activity.segmentClosed(this.o.roleId, this.wallOf(s.lastSpeechMs), this.enqueue(s, owner));
+    this.feedingGeneration = undefined;
+    if (rec !== null && owner === rec.participantId && ownerGeneration === rec.generation) {
+      for (const s of segs) this.o.activity.segmentClosed(this.o.roleId, this.wallOf(s.lastSpeechMs), this.enqueue(s, owner, ownerGeneration));
       // F2: an open segment too short to keep still closes the speech edge (after any earlier outcome of this track).
       if (segs.length === 0) this.o.activity.segmentClosed(this.o.roleId, this.o.now(), this.tail);
     }
@@ -92,7 +103,7 @@ export class TrackPipeline {
   }
 
   /** Starts the transcription now and queues its delivery behind every earlier one of this track; resolves when it is delivered. */
-  private enqueue(s: SegmentOut, participantId: string): Promise<void> {
+  private enqueue(s: SegmentOut, participantId: string, generation: string | undefined): Promise<void> {
     const segmentId = this.o.newSegmentId();
     if (!isFileSafeId(segmentId)) return this.tail; // never happens with the real generator; never used as an id
     const startMs = this.wallOf(s.startMs);
@@ -106,7 +117,7 @@ export class TrackPipeline {
       const out = await result;
       if (signal.aborted) return; // cancelled by a stop: never a line, never a failure notice
       const still = this.o.gate.recordingFor(roleId);
-      if (still === null || still.participantId !== participantId) return; // replaced, opted out, paused or ended meanwhile
+      if (still === null || still.participantId !== participantId || still.generation !== generation) return; // replaced, opted out, paused or ended meanwhile
       if (out.kind === "text") this.o.send({ type: "voice_line", segmentId, roleId, participantId, text: out.text, startMs, endMs });
       else this.o.send({ type: "segment_failed", segmentId, roleId, participantId, status: out.status });
     }).catch(() => undefined); // a throwing send must not stop the track's later deliveries

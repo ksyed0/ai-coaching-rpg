@@ -2,7 +2,7 @@ import { closeSync, constants as fsConstants, fstatSync, openSync, readSync } fr
 import path from "node:path";
 import { decodeWav } from "@acr/adapters";
 import { isFileSafeId } from "@acr/events";
-import type { AudioIngest } from "./audio-ingest.js";
+import type { AudioIngest, FrameSink } from "./audio-ingest.js";
 
 /** The one sentence any unusable ingest file is refused with (never a path or a role id). */
 export const INGEST_FILE_REFUSED = "an ingest file is not a readable 16 kHz 16-bit mono WAV file";
@@ -26,7 +26,8 @@ export class FileIngest implements AudioIngest {
     for (const r of o.roles) if (!isFileSafeId(r)) throw new RangeError("an ingest role id is not a safe file name");
   }
 
-  start(onFrame: (roleId: string, frame: Int16Array) => void): Promise<void> {
+  /** Frames carry no seat generation (`undefined`): control never sends one to a file-ingest worker. */
+  start(onFrame: FrameSink): Promise<void> {
     this.running ??= this.run(onFrame);
     return this.running;
   }
@@ -36,7 +37,7 @@ export class FileIngest implements AudioIngest {
     await this.running?.catch(() => undefined);
   }
 
-  private async run(onFrame: (roleId: string, frame: Int16Array) => void): Promise<void> {
+  private async run(onFrame: FrameSink): Promise<void> {
     const tracks: { roleId: string; pcm: Int16Array }[] = [];
     for (const roleId of this.o.roles) {
       const pcm = readTrack(path.join(this.o.dir, `${roleId}.wav`));
@@ -49,7 +50,7 @@ export class FileIngest implements AudioIngest {
         if (i * per >= t.pcm.length) continue;
         const f = new Int16Array(per);
         f.set(t.pcm.subarray(i * per, Math.min(t.pcm.length, (i + 1) * per)));
-        onFrame(t.roleId, f);
+        onFrame(t.roleId, undefined, f);
       }
       await this.o.pace(this.o.frameMs);
     }
