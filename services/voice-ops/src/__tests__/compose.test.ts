@@ -115,6 +115,21 @@ describe("composeEnv (US-0072, A1c Task 5)", () => {
     }
   });
 
+  // Batch 2 review B F11: CI validates voice.yml in local mode too, with exactly the dummy values composeEnv gives (no secret).
+  it("the CI local-mode config step uses exactly composeEnv's local values", () => {
+    const ci = readFileSync(path.resolve(import.meta.dirname, "../../../..", ".github/workflows/ci.yml"), "utf8").split("\n");
+    const i = ci.findIndex((l) => l.trim() === "- run: docker compose -f deploy/compose/voice.yml --env-file /dev/null config --quiet");
+    expect(i).toBeGreaterThan(0);
+    const vars: Record<string, string> = {};
+    for (let j = i + 2; j < ci.length && /^ {10}VOICE_/.test(ci[j]!); j++) {
+      const [k, ...rest] = ci[j]!.trim().split(": ");
+      vars[k!] = rest.join(": ").replaceAll("'", "");
+    }
+    const env = composeEnv({}, settings({ VOICE_STATE_DIR: "/tmp/voice-state-placeholder" }), "127.0.0.1");
+    const want = Object.fromEntries(Object.entries(env).filter(([k]) => k.startsWith("VOICE_")));
+    expect(vars).toEqual(want);
+  });
+
   it("refuses a node address that is not an IPv4 address", () => {
     expect(() => composeEnv(parent, settings({}), "not-an-ip")).toThrow();
   });
