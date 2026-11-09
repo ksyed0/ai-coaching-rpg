@@ -167,6 +167,9 @@ export async function runVoiceDemo(o: { root?: string; stdout: Out; stderr: Out;
       const pid = voice?.workerPid(id);
       if (pid === undefined) throw new Error("the speech worker is not running");
       process.kill(pid, "SIGKILL");
+      // Review finding 1: a restarted FILE-ingest worker replays its files from the START (file ingest is a stand-in with no position),
+      // so without this unlink the new worker would re-send every earlier line. Removing the files hides that replay from V-07; it
+      // says nothing about a LiveKit worker, whose restart rejoins the room and hears only what is said from then on.
       for (const r of [VOICE_ROLE, TEXT_ROLE]) unlinkSync(path.join(ingest, `${r}.wav`));
       await waitUntil("the worker_restarting alert", () => events().some((e) => e.type === "facilitator.alert" && e.message === WORKER_RESTARTING), STEP_MS);
       await waitUntil("the voice turn to close", () => voice?.voiceTurnOpen(id) === false, STEP_MS);
