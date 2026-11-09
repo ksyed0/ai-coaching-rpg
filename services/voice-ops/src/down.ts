@@ -33,13 +33,27 @@ export async function voiceDown(d: OpsDeps): Promise<0 | 1> {
     say("settings have errors: using the default VOICE_STATE_DIR");
     stateDir = path.join(d.home, ".scenecoach", "voice");
   }
-  try { lstatSync(stateDir); } catch { say("nothing to stop"); return 0; }
+  try { lstatSync(stateDir); } catch { return downWithoutState(d, stateDir, say); }
   try { openStateDir(stateDir, { repoRoot: d.repoRoot }); } catch (err) { say(sentenceOf(err, "VOICE_STATE_DIR cannot be used")); return 1; }
   if (acquireLock(stateDir, d.pid, (p) => alive(d.kill, p)) === "busy") { say(LOCK_BUSY_SENTENCE); return 1; }
   try {
     cleanStaleTemps({ repoRoot: d.repoRoot, stateDir, say });
     return await downLocked(d, stateDir, say);
   } finally { releaseLock(stateDir, d.pid); }
+}
+
+/**
+ * No state folder (review B2 F11 (c)): nothing is recorded and nothing is created, but a stack whose folder was deleted while it ran
+ * (D23: a leftover stack is still taken down) is stopped by the same Docker-checked, idempotent `compose down`. Without a usable Docker
+ * there is nothing to act on: "nothing to stop".
+ */
+async function downWithoutState(d: OpsDeps, stateDir: string, say: (l: string) => void): Promise<0 | 1> {
+  if (await dockerProblem(d.env, d.run)) { say("nothing to stop"); return 0; }
+  const r = await d.run("docker", composeArgs(d.repoRoot, "local", "down"), { env: composeEnv(d.env, downSettings(stateDir), "127.0.0.1"), timeoutMs: COMPOSE_DOWN_TIMEOUT_MS }).catch(() => null);
+  if (r === null || r.code !== 0) { say(`docker compose down failed${r?.code != null ? ` (exit ${r.code})` : ""}: run pnpm voice:down again, or docker compose -p scenecoach-voice down`); return 1; }
+  say("no voice state: a leftover LiveKit stack, if any, was taken down");
+  say("nothing else to stop");
+  return 0;
 }
 
 async function downLocked(d: OpsDeps, stateDir: string, say: (l: string) => void): Promise<0 | 1> {

@@ -3,6 +3,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { voiceCheck, type CheckDeps } from "../check.js";
+import { loopbackRequest } from "../checks/loopback.js";
 import { voiceUp } from "../up.js";
 import { makeWorld, privateTmp, type World } from "./helpers/ops-harness.js";
 
@@ -15,9 +16,10 @@ afterAll(() => tmp.restore());
 const servers: http.Server[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((s) => new Promise((r) => s.close(() => r(null))))); });
 
-/** A stand-in for LiveKit's HTTP port: `status` for ListRooms, 200 for anything else. */
+/** A stand-in for LiveKit's HTTP port: `status` for ListRooms, 200 for anything else; `hits` counts the requests it got. */
+const hits = { n: 0 };
 async function livekitStandIn(status: number): Promise<number> {
-  const s = http.createServer((req, res) => { req.resume(); req.on("end", () => { res.writeHead(req.url?.startsWith("/twirp/") ? status : 200); res.end('{"rooms":[{"name":"seat-room-marker"}]}'); }); });
+  const s = http.createServer((req, res) => { hits.n += 1; req.resume(); req.on("end", () => { res.writeHead(req.url?.startsWith("/twirp/") ? status : 200); res.end('{"rooms":[{"name":"seat-room-marker"}]}'); }); });
   servers.push(s);
   await new Promise<void>((r) => s.listen(0, "127.0.0.1", () => r()));
   return (s.address() as AddressInfo).port;
@@ -41,6 +43,9 @@ function checkDeps(w: World, o: { web?: "loopback" | "lan" | "none" } = {}): Che
   };
 }
 
+/** The key check's request seam, sent to the stand-in instead of the machine's own 7880 (LIVEKIT_HOST stays the default). */
+const toStandIn = (port: number): CheckDeps["keysRequest"] => (url, o) => loopbackRequest(new URL(url.pathname, `http://127.0.0.1:${port}`), o);
+
 async function running(o: Parameters<typeof makeWorld>[1] = {}): Promise<World> {
   const w = makeWorld(tmp.root, o);
   expect(await voiceUp(w.deps())).toBe(0);
@@ -55,10 +60,10 @@ describe("voiceCheck", () => {
     w.ifaces = { en0: [{ address: "192.168.1.20", family: "IPv4", internal: false, netmask: "255.255.255.0", mac: "00:00:00:00:00:00", cidr: "192.168.1.20/24" }] };
     const port = await livekitStandIn(200); // never the machine's own 7880
     const d = checkDeps(w);
-    expect(await voiceCheck({ ...d, env: { ...w.realEnv, LIVEKIT_HOST: `http://127.0.0.1:${port}` }, answers: async () => true })).toBe(0);
+    expect(await voiceCheck({ ...d, keysRequest: toStandIn(port), answers: async () => true })).toBe(0);
     const out = w.out.join("\n");
     expect(out).toContain("OK   whisper-server is healthy on 127.0.0.1");
-    expect(out).toContain(`OK   LiveKit answers on 127.0.0.1:${port}`);
+    expect(out).toContain("OK   LiveKit answers on 127.0.0.1:7880");
     expect(out).toContain("OK   LiveKit accepts control's keys");
     expect(out).toContain("OK   the web app does not listen on this machine's LAN addresses");
     expect(out).toContain("voice:check: only this machine's browser can use the microphone: http://localhost:3000");
@@ -91,7 +96,7 @@ describe("voiceCheck", () => {
     const before = readFileSync(w.envFile);
     const port = await livekitStandIn(200);
     const d = checkDeps(w);
-    const code = await voiceCheck({ ...d, health: async () => "ok", corsOrigin: async () => "*", answers: async () => true, env: { ...w.realEnv, LIVEKIT_HOST: `http://127.0.0.1:${port}` } });
+    const code = await voiceCheck({ ...d, health: async () => "ok", corsOrigin: async () => "*", answers: async () => true, keysRequest: toStandIn(port) });
     expect(code).toBe(1); // nothing is running in lan mode: the TLS route etc. fail
     const report = w.out.join("\n");
     for (const v of [...Object.values(MARKERS), MARKERS.sttPath.slice(1), "marker-real-environment-value-0001", "seat-room-marker"]) expect(report).not.toContain(v);
@@ -137,8 +142,28 @@ describe("voiceCheck", () => {
     const w = await running();
     const port = await livekitStandIn(401);
     const d = checkDeps(w);
-    expect(await voiceCheck({ ...d, env: { ...w.realEnv, LIVEKIT_HOST: `http://127.0.0.1:${port}` }, answers: async () => true })).toBe(1);
+    expect(await voiceCheck({ ...d, keysRequest: toStandIn(port), answers: async () => true })).toBe(1);
     expect(w.out.join("\n")).toContain("FAIL LiveKit does not accept control's keys: run pnpm voice:down and pnpm voice:up");
+  });
+
+  // Review B2 F11 (b): voice:up only ever uses the default LIVEKIT_HOST, so voice:check never sends the admin token anywhere else.
+  it("a LIVEKIT_HOST other than the default skips the key check and sends nothing there", async () => {
+    const w = await running();
+    const port = await livekitStandIn(200);
+    hits.n = 0;
+    await voiceCheck({ ...checkDeps(w), env: { ...w.realEnv, LIVEKIT_HOST: `http://127.0.0.1:${port}` }, answers: async () => true });
+    expect(hits.n).toBe(0);
+    expect(w.out).toContain(`SKIP LIVEKIT_HOST is not http://127.0.0.1:7880: the key check is skipped (voice:up runs LiveKit only there)`);
+  });
+
+  // Review B2 F11 (a): the merged view hides that a shell-exported managed name makes voice:up refuse; one WARN per name, never a value.
+  it("a managed name set in this shell gets one WARN each, naming the variable only", async () => {
+    const w = await running();
+    const env = { ...w.realEnv, LIVEKIT_API_KEY: "APIshellexportedmarker0001", STT_URL: "http://127.0.0.1:23999/shellexportedmarkerpath0001" };
+    await voiceCheck({ ...checkDeps(w), env, answers: async () => true });
+    for (const n of ["LIVEKIT_API_KEY", "STT_URL"]) expect(w.out).toContain(`WARN ${n} is set in this shell: voice:up refuses to start until it is unset (control would read it instead of .env)`);
+    expect(w.out.join("\n")).not.toContain("LIVEKIT_API_SECRET is set in this shell");
+    for (const v of ["APIshellexportedmarker0001", "shellexportedmarkerpath0001"]) expect(w.out.join("\n")).not.toContain(v);
   });
 
   it("a Docker problem is a failure and docker is not asked for versions", async () => {

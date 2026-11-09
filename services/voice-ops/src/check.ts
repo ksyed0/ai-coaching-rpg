@@ -6,7 +6,7 @@ import { caddyManagedCert, certificateCheck } from "./checks/certificate.js";
 import { diskCheck } from "./checks/disk.js";
 import { dnsCheck } from "./checks/dns.js";
 import { livekitCheck } from "./checks/livekit.js";
-import { livekitKeysCheck } from "./checks/livekit-keys.js";
+import { livekitKeysCheck, type KeysRequest } from "./checks/livekit-keys.js";
 import { portsCheck } from "./checks/ports.js";
 import { tlsRouteCheck } from "./checks/tls.js";
 import type { CheckResult } from "./checks/types.js";
@@ -15,7 +15,8 @@ import { lanAddressesOf, webCheck } from "./checks/web.js";
 import { whisperCheck } from "./checks/whisper.js";
 import { COMPOSE_FILE, dockerProblem, nodeAddress } from "./compose.js";
 import type { OpsDeps } from "./ops.js";
-import { loadRootEnv, parseVoiceOpsSettings } from "./settings.js";
+import { MANAGED_NAMES } from "./env-file.js";
+import { DEFAULT_LIVEKIT_HOST, loadRootEnv, parseVoiceOpsSettings } from "./settings.js";
 import { loadState } from "./state.js";
 import { NO_SYSTEM_STORE_SENTENCE } from "./trust.js";
 
@@ -37,6 +38,8 @@ export type CheckDeps = OpsDeps & {
   platform: NodeJS.Platform; whisperPath: () => string | null;
   /** The whisper-server CORS probe (default: an OPTIONS request on loopback). */
   corsOrigin?: (u: URL) => Promise<string | null | undefined>;
+  /** The key check's request (default: `loopbackRequest`; tests point it at a stand-in, LIVEKIT_HOST stays the default). */
+  keysRequest?: KeysRequest;
 };
 
 const PREFIX: Record<CheckResult["level"], string> = { ok: "OK  ", warn: "WARN", fail: "FAIL", skip: "SKIP" };
@@ -77,6 +80,8 @@ export async function voiceCheck(d: CheckDeps): Promise<0 | 1 | 2> {
   if (loaded.status === "unreadable") add({ name: "state", level: "fail", line: "the voice state is unreadable: run pnpm voice:down, then pnpm voice:up" });
   if (!node.ok) add({ name: "node-address", level: "fail", line: node.error });
   const nodeIp = node.ok ? node.ip : "127.0.0.1";
+  // Review B2 F11 (a): the report reads the merged view, which hides a managed name exported in this shell; voice:up refuses that.
+  for (const name of MANAGED_NAMES) if (d.env[name] !== undefined) add({ name: "shell", level: "warn", line: `${name} is set in this shell: voice:up refuses to start until it is unset (control would read it instead of .env)` });
   const running = loaded.status === "ok" && loaded.state.compose !== undefined;
 
   const docker = await dockerProblem(d.env, d.run);
@@ -87,7 +92,9 @@ export async function voiceCheck(d: CheckDeps): Promise<0 | 1 | 2> {
   await guarded("whisper", () => (sttUrl ? whisperCheck({ sttUrl, health: d.health, ...(d.corsOrigin ? { corsOrigin: d.corsOrigin } : {}) })
     : [{ name: "whisper", level: "fail", line: "STT_URL is not set (or not valid) in .env: run pnpm voice:up" }]));
   await guarded("livekit", () => livekitCheck({ host: s.livekitHost, answers: d.answers }));
-  await guarded("livekit-keys", () => livekitKeysCheck({ host: s.livekitHost, key: merged.LIVEKIT_API_KEY, secret: merged.LIVEKIT_API_SECRET, now: d.now() }));
+  // Review B2 F11 (b): the admin token goes only to the address voice:up runs LiveKit on, never to another loopback LIVEKIT_HOST.
+  if (s.livekitHost.origin !== DEFAULT_LIVEKIT_HOST) add({ name: "livekit-keys", level: "skip", line: `LIVEKIT_HOST is not ${DEFAULT_LIVEKIT_HOST}: the key check is skipped (voice:up runs LiveKit only there)` });
+  else await guarded("livekit-keys", () => livekitKeysCheck({ host: s.livekitHost, key: merged.LIVEKIT_API_KEY, secret: merged.LIVEKIT_API_SECRET, now: d.now(), ...(d.keysRequest ? { request: d.keysRequest } : {}) }));
 
   const lan = s.access === "lan" ? s.lan : undefined;
   if (lan) {

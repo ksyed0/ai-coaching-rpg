@@ -48,13 +48,32 @@ describe("voiceDown", () => {
     expect(existsSync(w.statePath)).toBe(false);
   });
 
-  it("down with nothing running exits 0 (and with no state folder at all creates nothing)", async () => {
+  // Review B2 F11 (c): D23 "a leftover stack is still taken down" holds without a state folder too (it was deleted while LiveKit ran):
+  // the same Docker-checked compose down runs, and nothing is created.
+  it("down with nothing running exits 0 (and with no state folder at all creates nothing, but still takes a leftover stack down)", async () => {
     const w = world();
     expect(await voiceDown(w.deps())).toBe(0);
     expect(existsSync(w.stateDir)).toBe(false);
+    expect(existsSync(path.dirname(w.stateDir))).toBe(false);
+    expect(w.composeVerbs()).toEqual(["down"]);
+    expect(w.dockerCalls().map((a) => (a.includes("down") ? "down" : a[0] === "context" ? "context" : "version"))).toEqual(["version", "context", "down"]);
+    expect(w.out).toEqual(["voice:down: no voice state: a leftover LiveKit stack, if any, was taken down", "voice:down: nothing else to stop"]);
+    w.calls.length = 0;
+    w.dockerMissing = true;
+    w.out.length = 0;
+    expect(await voiceDown(w.deps())).toBe(0);
+    expect(w.composeVerbs()).toEqual([]);
     expect(w.out).toEqual(["voice:down: nothing to stop"]);
+    w.dockerMissing = false;
+    w.composeDown = () => ({ code: 1, stdout: "", stderr: "" });
+    w.out.length = 0;
+    expect(await voiceDown(w.deps())).toBe(1);
+    expect(w.out.join("\n")).toContain("docker compose down failed");
+    expect(existsSync(w.stateDir)).toBe(false);
+    w.composeDown = () => ({ code: 0, stdout: "", stderr: "" });
     mkdirSync(w.stateDir, { recursive: true, mode: 0o700 });
     w.out.length = 0;
+    w.calls.length = 0;
     expect(await voiceDown(w.deps())).toBe(0);
     expect(w.composeVerbs()).toEqual(["down"]);
   });

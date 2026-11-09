@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { loopbackRequest } from "./loopback.js";
+import { loopbackRequest, type LoopbackAnswer } from "./loopback.js";
 import type { CheckResult } from "./types.js";
 
 /**
@@ -18,11 +18,13 @@ export function adminToken(key: string, secret: string, now: number): string {
   return `${head}.${createHmac("sha256", secret).update(head).digest("base64url")}`;
 }
 
-export async function livekitKeysCheck(o: { host: URL; key: string | undefined; secret: string | undefined; now: number }): Promise<CheckResult> {
+export type KeysRequest = (url: URL, o: Parameters<typeof loopbackRequest>[1]) => Promise<LoopbackAnswer>;
+
+export async function livekitKeysCheck(o: { host: URL; key: string | undefined; secret: string | undefined; now: number; request?: KeysRequest }): Promise<CheckResult> {
   const r = (level: CheckResult["level"], line: string): CheckResult => ({ name: "livekit-keys", level, line });
   if (o.key === undefined || o.key === "" || o.secret === undefined || o.secret === "") return r("skip", "LiveKit keys are not set in .env: run pnpm voice:up");
   const url = new URL("/twirp/livekit.RoomService/ListRooms", o.host);
-  const a = await loopbackRequest(url, {
+  const a = await (o.request ?? loopbackRequest)(url, {
     method: "POST", body: "{}", limit: 1024,
     headers: { authorization: `Bearer ${adminToken(o.key, o.secret, o.now)}`, "content-type": "application/json", "content-length": "2" },
   });
