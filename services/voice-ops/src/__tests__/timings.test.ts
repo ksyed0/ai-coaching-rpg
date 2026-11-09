@@ -1,4 +1,6 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -56,9 +58,9 @@ describe("voiceTimings (US-0072, A1c Task 12)", () => {
     const r = run([file]);
     expect(r.code).toBe(0);
     expect(r.out).toEqual([
-      "voice:timings: end of speech to line (end_to_append_ms): count 20, p50 1000 ms, p95 1900 ms, max 2000 ms (target p95 at most 1000 ms: NOT met)",
+      "voice:timings: voice-detector end (includes the hangover) to line (end_to_append_ms): count 20, p50 1000 ms, p95 1900 ms, max 2000 ms (target p95 at most 1000 ms: NOT met)",
       "voice:timings: first word to line, approximated by start_to_append_ms: count 20, p50 2000 ms, p95 2900 ms, max 3000 ms (target p95 at most 3000 ms: met)",
-      "voice:timings: reading guide: end of speech to line: target p95 at most 1000 ms; first word to line: target p95 at most 3000 ms, approximated by start_to_append (the segment's first speech frame to the log append)",
+      "voice:timings: reading guide: end_to_append_ms runs from the voice detector's end of the segment, which includes the hangover (VOICE_HANGOVER_MS, default 500 ms of silence after the last word); target p95 at most 1000 ms. First word to line: target p95 at most 3000 ms, approximated by start_to_append_ms (the segment's first frame, 200 ms of lead-in before the first word, to the log append)",
     ]);
     expect(END_TARGET_P95_MS).toBe(1000);
     expect(START_TARGET_P95_MS).toBe(3000);
@@ -98,6 +100,16 @@ describe("voiceTimings (US-0072, A1c Task 12)", () => {
 });
 
 describe("readTimingFile (US-0072, A1c Task 12)", () => {
+  it.skipIf(process.platform === "win32")("review C M1: a FIFO is not_file at once, never waited on (a child process with a 20 s bound)", () => {
+    const fifo = path.join(dir, "fifo.log");
+    execFileSync("mkfifo", [fifo]);
+    const mod = fileURLToPath(new URL("../timings.ts", import.meta.url));
+    const script = `const { readTimingFile } = await import(${JSON.stringify(mod)}); process.stdout.write(JSON.stringify(readTimingFile(${JSON.stringify(fifo)})));`;
+    const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: path.dirname(mod), timeout: 20_000, encoding: "utf8" });
+    expect(r.error, "the child did not finish in time (the open blocked)").toBeUndefined();
+    expect(JSON.parse(r.stdout)).toEqual({ ok: false, why: "not_file" });
+  }, 90_000);
+
   it("refuses a file over the bound without reading it", () => {
     expect(TIMINGS_MAX_BYTES).toBe(4 * 1024 * 1024);
     const file = path.join(dir, "big.log");

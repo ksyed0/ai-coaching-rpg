@@ -5,6 +5,7 @@ import type { RoomAdmin } from "@acr/adapters/livekit";
 import type { ControlConfig } from "../../config.js";
 import type { ParentMessage } from "../../protocol.js";
 import { RESTART_STABLE_MS, RESTART_TRIES } from "../../voice/restart.js";
+import { LIVEKIT_PROBE_TIMEOUT_MS } from "../../voice/livekit-probe.js";
 import { VoiceTokens } from "../../voice/tokens.js";
 import { VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
 import { AI_CONFIG } from "../fake-child.js";
@@ -61,20 +62,20 @@ function withTokens(): VoiceTokens {
 }
 
 /** A LiveKit-ingest host with the probe (the production wiring of main.ts); `o.probe: false` leaves it out, `o.ingest: "file"` too. */
-const make = (o: { probe?: boolean; ingest?: "livekit" | "file" } = {}) => {
+const make = (o: { probe?: boolean; ingest?: "livekit" | "file"; reach?: () => Promise<boolean>; log?: (m: string) => void } = {}) => {
   const ingest = o.ingest ?? "livekit";
   const tokens = withTokens();
   const v = new VoiceHost({
-    spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", SPEECH_INGEST: ingest }, log: (m) => logs.push(m), setTimer,
+    spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", SPEECH_INGEST: ingest }, log: o.log ?? ((m) => logs.push(m)), setTimer,
     toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
-    tokens, ...(o.probe === false ? {} : { livekitReachable: probe }),
+    tokens, ...(o.probe === false ? {} : { livekitReachable: o.reach ?? probe }),
   });
   return { v, tokens };
 };
 const flush = async (): Promise<void> => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 /** Answers the oldest unanswered probe. */
-const answer = async (ok: boolean): Promise<void> => { const p = probes.shift(); expect(p, "a probe is waiting").toBeDefined(); p!.resolve(ok); await flush(); };
-const fail = async (): Promise<void> => { const p = probes.shift(); expect(p, "a probe is waiting").toBeDefined(); p!.reject(new Error("probe broke")); await flush(); };
+const answer = async (ok: boolean): Promise<void> => { await flush(); const p = probes.shift(); expect(p, "a probe is waiting").toBeDefined(); p!.resolve(ok); await flush(); };
+const fail = async (): Promise<void> => { await flush(); const p = probes.shift(); expect(p, "a probe is waiting").toBeDefined(); p!.reject(new Error("probe broke")); await flush(); };
 const live = () => timers.filter((t) => !t.cancelled && t.ms !== RESTART_STABLE_MS);
 /** Fires the ONE pending timer that is not a stable timer (a restart backoff or a probe retry) and returns its delay. */
 const fireNext = (): number => {
@@ -431,3 +432,129 @@ function fireNextOf(ms: number): void {
   expect(t).toBeDefined();
   t!.cancelled = true; t!.fn();
 }
+
+describe("review C fix wave (US-0072, A1c Task 11)", () => {
+  const WATCHDOG = 2 * LIVEKIT_PROBE_TIMEOUT_MS;
+  const fireWatchdog = () => { const t = live().filter((x) => x.ms === WATCHDOG); expect(t).toHaveLength(1); t[0]!.cancelled = true; t[0]!.fn(); };
+
+  it("M2: a probe that never settles is ended by the watchdog (2 x LIVEKIT_PROBE_TIMEOUT_MS) as an error: the exit counts", async () => {
+    const { v } = make({ reach: () => new Promise<boolean>(() => {}) });
+    attach(v);
+    last().exit(LOST);
+    await flush();
+    expect(live().map((t) => t.ms)).toEqual([WATCHDOG]);
+    fireWatchdog();
+    await flush();
+    expect(alerts()).toEqual(["worker_restarting"]);
+    expect(fireNext()).toBe(500);
+    expect(workers).toHaveLength(2);
+  });
+
+  it("M2: a hanging RETRY probe is ended by the watchdog too (the wait ends and counts), and a late answer after it is ignored", async () => {
+    const { v } = make();
+    attach(v);
+    await outage();
+    fireNext(); // the retry probe is out
+    await flush();
+    fireWatchdog();
+    await flush();
+    expect(alerts()).toEqual(["livekit_lost", "worker_restarting"]);
+    await answer(true); // the real answer, after the watchdog: ignored
+    expect(alerts()).toEqual(["livekit_lost", "worker_restarting"]);
+    expect(fireNext()).toBe(500);
+    expect(workers).toHaveLength(2);
+  });
+
+  it("M2: a probe that returns a non-promise value is read as its truth value (false: an outage)", async () => {
+    const { v } = make({ reach: (() => false) as unknown as () => Promise<boolean> });
+    attach(v);
+    last().exit(LOST);
+    await flush();
+    expect(alerts()).toEqual(["livekit_lost"]);
+    expect(live().map((t) => t.ms)).toEqual([2000]); // the watchdog went with the answer
+  });
+
+  it("M2: the watchdog is cancelled by the answer, by end and by shutdown", async () => {
+    const { v } = make();
+    attach(v);
+    last().exit(LOST);
+    await flush();
+    expect(live().map((t) => t.ms)).toEqual([WATCHDOG]);
+    v.end(ID);
+    expect(live()).toEqual([]);
+  });
+
+  it("M3: a log that throws while entering the outage still leaves a retry armed (voice is never stuck waiting with no timer)", async () => {
+    const { v } = make({ log: (m) => { if (m.includes("does not answer")) throw new Error("log broke"); logs.push(m); } });
+    attach(v);
+    await outage();
+    expect(live().map((t) => t.ms)).toEqual([2000]);
+    await recover();
+    expect(workers).toHaveLength(2);
+  });
+
+  it("M3: a log that throws while leaving the outage still starts the new worker", async () => {
+    const { v } = make({ log: (m) => { if (m.includes("answers again")) throw new Error("log broke"); logs.push(m); } });
+    attach(v);
+    await outage();
+    await recover();
+    expect(workers).toHaveLength(2);
+  });
+
+  it("M3: a retry timer that cannot be armed leaves the outage to the budget (counted), never waiting with nothing scheduled", async () => {
+    let refuse = false;
+    const v = new VoiceHost({
+      spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", SPEECH_INGEST: "livekit" }, log: (m) => logs.push(m),
+      setTimer: (fn, ms) => { if (refuse && ms === 2000) { refuse = false; throw new Error("no timer"); } return setTimer(fn, ms); },
+      toRuntime: (id, m) => { toRuntime.push({ id, m }); return true; }, tokens: withTokens(), livekitReachable: probe,
+    });
+    attach(v);
+    refuse = true;
+    last().exit(LOST);
+    await answer(false);
+    expect(alerts()).toEqual(["worker_restarting"]);
+    expect(fireNext()).toBe(500);
+    expect(workers).toHaveLength(2);
+  });
+
+  it("shutdown while the FIRST (exit) probe is in flight: no alert, no spawn, no timer, the late answer ignored", async () => {
+    const { v } = make();
+    attach(v);
+    last().exit(LOST);
+    await flush();
+    const done = v.shutdown();
+    expect(live()).toEqual([]);
+    await answer(false);
+    await done;
+    expect(alerts()).toEqual([]);
+    expect(workers).toHaveLength(1);
+    expect(live()).toEqual([]);
+  });
+
+  it("a re-loss while mediaUnstable whose exit probe answers true counts exactly once (as any fault)", async () => {
+    const { v } = make();
+    attach(v);
+    await outage();
+    await recover(); // mediaUnstable now
+    last().exit(LOST);
+    await answer(true); // LiveKit answers: a plain fault, counted once (failures 1)
+    expect(fireNext()).toBe(500);
+    last().exit(1); // failures 2
+    expect(fireNext()).toBe(1000);
+  });
+
+  it("a retry probe rejecting while mediaUnstable against a partly spent budget counts once more and keeps the remaining tries", async () => {
+    const { v } = make();
+    attach(v);
+    for (let i = 0; i < 3; i++) { last().exit(1); fireNext(); } // failures 3
+    await outage(); // free
+    await recover(); // mediaUnstable
+    await outage(); // a re-loss: failures 4, outage wait
+    fireNext();
+    await fail(); // the retry probe breaks: counted, failures 5 -> the last backoff
+    expect(fireNext()).toBe(8000);
+    last().exit(1); // failures 6: voice off
+    expect(alerts().at(-1)).toBe("voice_off");
+    expect(alerts().filter((c) => c === "voice_off")).toHaveLength(1);
+  });
+});

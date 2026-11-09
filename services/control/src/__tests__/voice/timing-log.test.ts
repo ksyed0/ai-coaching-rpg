@@ -1,7 +1,9 @@
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ControlConfig } from "../../config.js";
 import { TIMING_LOG_FILE, TIMING_LOG_MAX_BYTES, timingLogSink } from "../../voice/timing-log.js";
 import { VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
@@ -15,7 +17,29 @@ let dir: string, logs: string[];
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), "ctl-timing-")); logs = []; });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
+const MODULE = fileURLToPath(new URL("../../voice/timing-log.ts", import.meta.url));
+
 describe("timingLogSink (US-0072, A1c Task 12)", () => {
+  it.skipIf(process.platform === "win32")("review C M1: a FIFO at the record's path is refused at once, never waited on (a child process with a 20 s bound)", () => {
+    execFileSync("mkfifo", [path.join(dir, TIMING_LOG_FILE)]);
+    const script = `const { timingLogSink } = await import(${JSON.stringify(MODULE)}); const logs = []; timingLogSink(${JSON.stringify(dir)}, { log: (m) => logs.push(m) })("x"); process.stdout.write(JSON.stringify(logs));`;
+    const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: path.dirname(MODULE), timeout: 20_000, encoding: "utf8" });
+    expect(r.error, "the child did not finish in time (the open blocked)").toBeUndefined();
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout) as string[]).toEqual([expect.stringMatching(/^voice timing line could not be written \([A-Z]+\)$/)]);
+  });
+
+  it("review C M6: a write failure and a full log are each reported once, separately", () => {
+    const file = path.join(dir, TIMING_LOG_FILE);
+    mkdirSync(file); // a folder where the record should be: the open fails
+    const sink = timingLogSink(dir, { log: (m) => logs.push(m), maxBytes: 22 });
+    sink("0123456789"); sink("0123456789");
+    rmdirSync(file);
+    for (let i = 0; i < 5; i++) sink("0123456789");
+    expect(logs).toEqual([expect.stringMatching(/^voice timing line could not be written \(/), "voice timing log is full; no more timing lines are written"]);
+  });
+
   it("appends one line per call to <log dir>/voice-timing.log, mode 0600, the folder 0700", () => {
     const logDir = path.join(dir, "child-logs");
     const sink = timingLogSink(logDir, { log: (m) => logs.push(m) });

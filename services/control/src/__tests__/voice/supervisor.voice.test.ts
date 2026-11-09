@@ -297,12 +297,14 @@ describe("Supervisor and a LiveKit outage (US-0072, A1c Task 11)", () => {
     const { c } = await boot(sup);
     workers[0]!.emit({ type: "worker_ready", stt: "ok" });
     workers[0]!.exit(3);
+    await settle(); // the probe is called on a microtask (review C M2)
     answers.shift()!(false);
     await settle();
     expect(c.voice.filter((m) => m.type === "voice_alert")).toEqual([{ type: "voice_alert", code: "livekit_lost" }]);
     const retry = timers.filter((t) => !t.cancelled && t.ms === 2000);
     expect(retry).toHaveLength(1);
     retry[0]!.cancelled = true; retry[0]!.fn();
+    await settle();
     answers.shift()!(true);
     await settle();
     expect(workers).toHaveLength(2);

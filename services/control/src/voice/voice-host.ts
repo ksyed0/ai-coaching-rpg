@@ -4,6 +4,7 @@ import { EXIT_LIVEKIT_LOST, WorkerMessageSchema, type ControlToWorker, type Work
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage, VoiceAlertCode } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
+import { LIVEKIT_PROBE_TIMEOUT_MS } from "./livekit-probe.js";
 import { RESTART_TRIES, RESTART_STABLE_MS, livekitRetryDelay, restartDelay } from "./restart.js";
 import { buildSpeechEnv } from "./speech-env.js";
 import { STT_GLOBAL_IN_FLIGHT, SttSlots, sttLeaseMs } from "./stt-slots.js";
@@ -75,6 +76,8 @@ type Session = {
   mediaRetry?: () => void;
   /** US-0072: a probe is in flight (at an exit 3 or a retry): attach spawns nothing meanwhile. */
   probeInFlight: boolean;
+  /** US-0072 (review C M2): cancels the in-flight probe's watchdog; absent when no probe is out. */
+  probeWatchdog?: () => void;
   /** US-0072: bumped by every probe, `end` and `shutdown`; a probe answer whose token is no longer current is ignored. */
   probing: number;
 };
@@ -255,15 +258,33 @@ export class VoiceHost {
   private checkMedia(sessionId: string, s: Session, kind: "exit" | "retry"): void {
     const token = ++s.probing;
     s.probeInFlight = true;
-    let answer: Promise<boolean>;
-    try { answer = this.o.livekitReachable!(); } catch (err) { answer = Promise.reject(err); }
+    let done = false;
     const settle = (r: "answers" | "silent" | "error"): void => {
-      // The one guard: `end`, `shutdown` and voice off all bump `probing` (cancelMedia), so a late answer is never acted on.
-      if (token !== s.probing) return;
+      // The one guard: `end`, `shutdown` and voice off all bump `probing` (cancelMedia), so a late answer is never acted on; `done`
+      // keeps the real answer out once the watchdog has settled this probe.
+      if (done || token !== s.probing) return;
+      done = true;
+      s.probeWatchdog?.();
+      delete s.probeWatchdog;
       s.probeInFlight = false;
-      try { this.mediaAnswer(sessionId, s, kind, r); } catch (err) { this.failed(sessionId, err); }
+      try { this.mediaAnswer(sessionId, s, kind, r); } catch (err) { this.failed(sessionId, err); this.keepGoing(sessionId, s); }
     };
-    answer.then((ok) => settle(ok === true ? "answers" : "silent"), () => settle("error"));
+    // Review C M2: a probe that never settles is ended as an error (bounded: httpAnswers itself stops at LIVEKIT_PROBE_TIMEOUT_MS, so this
+    // only catches a broken probe); a probe that throws or returns a non-promise is wrapped by Promise.resolve().then.
+    s.probeWatchdog = this.o.setTimer(() => settle("error"), 2 * LIVEKIT_PROBE_TIMEOUT_MS);
+    Promise.resolve().then(() => this.o.livekitReachable!()).then((ok) => settle(ok === true ? "answers" : "silent"), () => settle("error"));
+  }
+
+  /**
+   * Review C M3: after a fault inside a probe's handling, voice must not be left waiting with nothing scheduled: no worker, no backoff,
+   * no probe retry and no probe out means the budget path takes over (counted, bounded by RESTART_TRIES).
+   */
+  private keepGoing(sessionId: string, s: Session): void {
+    try {
+      if (this.closed || s.ended || s.voiceOff || s.worker || s.restart || s.mediaRetry || s.probeInFlight || this.sessions.get(sessionId) !== s) return;
+      s.mediaLost = false;
+      this.workerFailed(sessionId, s);
+    } catch (err) { this.failed(sessionId, err); }
   }
 
   private mediaAnswer(sessionId: string, s: Session, kind: "exit" | "retry", r: "answers" | "silent" | "error"): void {
@@ -284,24 +305,24 @@ export class VoiceHost {
       this.workerFailed(sessionId, s);
       return;
     }
-    this.leaveOutage(sessionId, s);
-    if (!s.worker) this.spawnWorker(sessionId, s); // not counted; a spawn that throws counts (spawnWorker -> workerFailed)
+    try { this.leaveOutage(sessionId, s); }
+    finally { if (!s.worker) this.spawnWorker(sessionId, s); } // not counted; a spawn that throws counts (spawnWorker -> workerFailed)
   }
 
   /** US-0072: LiveKit does not answer: no worker, no budget spent, ONE `livekit_lost` (the runtime closes an open voice turn on it). */
   private enterOutage(sessionId: string, s: Session): void {
     s.mediaLost = true;
     s.mediaTries = 0;
+    this.scheduleMediaRetry(sessionId, s); // first (review C M3): nothing below may leave the outage without a retry armed
     this.o.log(`session ${sessionId} LiveKit does not answer; voice waits for it`);
     this.tellAvailability(sessionId, s); // already false since the exit: sends nothing new
     this.alert(sessionId, "livekit_lost");
-    this.scheduleMediaRetry(sessionId, s);
   }
 
   /** US-0072: LiveKit answers again: ONE `livekit_recovered`; the caller spawns the new worker. Until it is stable, a re-loss counts. */
   private leaveOutage(sessionId: string, s: Session): void {
     s.mediaLost = false;
-    s.mediaUnstable = true;
+    s.mediaUnstable = true; // set before anything that could throw (review C M3)
     this.o.log(`session ${sessionId} LiveKit answers again`);
     this.alert(sessionId, "livekit_recovered");
   }
@@ -322,6 +343,8 @@ export class VoiceHost {
     const cancel = s.mediaRetry;
     delete s.mediaRetry;
     cancel?.();
+    s.probeWatchdog?.();
+    delete s.probeWatchdog;
     s.probing += 1;
     s.probeInFlight = false;
   }
@@ -570,9 +593,11 @@ export class VoiceHost {
   }
 
   /**
-   * US-0072 (A1c Task 12): the room test's measurement points (plan R17): control's clock at the runtime's ack minus the segment's last
-   * speech frame (`end_to_append_ms`, "end of speech to line") and minus its first (`start_to_append_ms`, approximating "first word to
-   * line"). Integers clamped at 0 (the worker's wall clock may run ahead). Never throws: a broken sink must not break the ack.
+   * US-0072 (A1c Task 12): the room test's measurement points (plan R17): control's clock at the runtime's ack minus the segment's
+   * `endMs` (`end_to_append_ms`: from the VOICE-DETECTOR END of the segment, which INCLUDES the hangover, VOICE_HANGOVER_MS of silence
+   * after the last speech frame; review C I1, pinned by timing-chain.test.ts) and minus its `startMs` (`start_to_append_ms`: the segment's
+   * first frame, lead-in included, approximating "first word to line"). Integers clamped at 0 (the worker's wall clock may run ahead).
+   * Never throws: a broken sink must not break the ack.
    */
   private timing(sessionId: string, p: Pending): void {
     const sink = this.o.timingLog;

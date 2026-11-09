@@ -11,7 +11,10 @@ import path from "node:path";
 
 /** The largest record read (control stops its record at 1 MiB; anything far larger is not one). */
 export const TIMINGS_MAX_BYTES = 4 * 1024 * 1024;
-/** The room test's targets (runbook): end of speech to line, and first word to line. */
+/**
+ * The room test's targets (runbook): the voice detector's end of the segment to the line (review C I1: that end includes the hangover,
+ * VOICE_HANGOVER_MS of silence after the last word, so the spoken word ended that much earlier), and first word to line.
+ */
 export const END_TARGET_P95_MS = 1000;
 export const START_TARGET_P95_MS = 3000;
 
@@ -58,7 +61,8 @@ export type TimingsReadResult = { ok: true; text: string } | { ok: false; why: "
 export function readTimingFile(file: string, maxBytes = TIMINGS_MAX_BYTES): TimingsReadResult {
   let fd: number | undefined;
   try {
-    fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    // O_NONBLOCK: a FIFO is not waited on (review C M1); O_NOFOLLOW: a link is not followed.
+    fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
     const st = fstatSync(fd);
     if (!st.isFile()) return { ok: false, why: "not_file" };
     if (st.size > maxBytes) return { ok: false, why: "too_large" };
@@ -102,8 +106,8 @@ export function voiceTimings(o: { args: readonly string[]; out: (line: string) =
   const end = summarise(endToAppend);
   const start = summarise(startToAppend);
   if (!end || !start) { o.out("voice:timings: no voice lines in the timing record"); return 1; }
-  o.out(describeSummary("end of speech to line (end_to_append_ms)", end, END_TARGET_P95_MS));
+  o.out(describeSummary("voice-detector end (includes the hangover) to line (end_to_append_ms)", end, END_TARGET_P95_MS));
   o.out(describeSummary("first word to line, approximated by start_to_append_ms", start, START_TARGET_P95_MS));
-  o.out("voice:timings: reading guide: end of speech to line: target p95 at most 1000 ms; first word to line: target p95 at most 3000 ms, approximated by start_to_append (the segment's first speech frame to the log append)");
+  o.out("voice:timings: reading guide: end_to_append_ms runs from the voice detector's end of the segment, which includes the hangover (VOICE_HANGOVER_MS, default 500 ms of silence after the last word); target p95 at most 1000 ms. First word to line: target p95 at most 3000 ms, approximated by start_to_append_ms (the segment's first frame, 200 ms of lead-in before the first word, to the log append)");
   return 0;
 }

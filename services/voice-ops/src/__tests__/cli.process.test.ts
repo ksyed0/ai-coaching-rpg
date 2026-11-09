@@ -210,7 +210,7 @@ describe("the root voice scripts as real processes (US-0072, A1c Tasks 7 and 9)"
     const id = "f".repeat(32);
     writeFileSync(path.join(s.root, "logs", "voice-timing.log"), [300, 500, 900].map((d) => `session ${id} voice line timing end_to_append_ms=${d} start_to_append_ms=${d + 2000}`).join("\n") + "\n");
     const r = await runRoot(s, "voice:timings", { args: ["logs/voice-timing.log"] });
-    expect(r.out).toContain("voice:timings: end of speech to line (end_to_append_ms): count 3, p50 500 ms, p95 900 ms, max 900 ms (target p95 at most 1000 ms: met)");
+    expect(r.out).toContain("voice:timings: voice-detector end (includes the hangover) to line (end_to_append_ms): count 3, p50 500 ms, p95 900 ms, max 900 ms (target p95 at most 1000 ms: met)");
     expect(r.code).toBe(0);
     expect(r.out).not.toContain(id);
     expect(r.out).not.toContain(s.root);

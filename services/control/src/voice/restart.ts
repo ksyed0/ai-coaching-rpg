@@ -17,8 +17,8 @@ export function restartDelay(attempt: number): number {
 
 /**
  * US-0072 (EPIC-0003 voice A1c, Task 11, "Restart budget: the decision"): while LiveKit does not answer control's probe (a LiveKit
- * outage), no worker runs and the outage does not spend the budget above; the probe is asked again after `livekitRetryDelay(n)` for
- * the n-th retry: 2, 4, 8, 16 s, then every 30 s, with no cap on the number of retries (a loopback GET every 30 s costs nothing, and the
+ * outage), no worker runs and the outage does not spend the budget above; the probe is asked again `livekitRetryDelay(n)` after the
+ * previous probe's answer for the n-th retry: 2, 4, 8, 16 s after the previous answer, then every 30 s, with no cap on the number of retries (a loopback GET every 30 s costs nothing, and the
  * session goes on by text). Code review constants, not settings.
  */
 export const LIVEKIT_RETRY_BASE_MS = 2000;
