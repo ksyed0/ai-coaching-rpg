@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
-import { isValidSessionId } from "@acr/events";
+import { isSafeId, isValidSessionId } from "@acr/events";
 import type { BotHost } from "./bots/bot-host.js";
 import type { IntentEntry } from "./bots/intent-log.js";
 import { buildChildEnv } from "./child-env.js";
@@ -11,12 +11,14 @@ import { ChildMessageSchema, ParentMessageSchema, RoleIdSchema, type ChildMessag
 import { loadScenario } from "@acr/script";
 import { isAllowedScenario, scenarioDir } from "./scenarios.js";
 import type { SessionList } from "./session-list.js";
+import { VoiceTokenRefused } from "./voice/tokens.js";
 import type { VoiceFromRuntime } from "./voice/voice-host.js";
 
 export type ControlErrorCode =
   | "capacity" | "unknown_scenario" | "start_failed" | "timeout" | "bad_request" | "not_found" | "conflict" | "unavailable"
   | "ai_role" | "ai_notice" | "ai_started" | "ai_no_human" | "ai_too_many" | "ai_invalid"
-  | "ai_busy" | "ai_budget" | "ai_absent" | "ai_expired";
+  | "ai_busy" | "ai_budget" | "ai_absent" | "ai_expired"
+  | "voice_refused" | "voice_off" | "voice_unavailable";
 
 /** A plain, safe-to-show failure: the message never carries a path, port, token or code. */
 export class ControlError extends Error {
@@ -91,7 +93,15 @@ export type VoiceLink = {
   detach(sessionId: string): void;
   end(sessionId: string): void;
   shutdown(): Promise<void>;
+  /** US-0071 (A1b Task 5): a microphone-only LiveKit token for the caller's own seat; rejects VoiceTokenRefused. */
+  voiceToken(sessionId: string, roleId: string, participantId: string): Promise<{ token: string; expiresAt: number }>;
+  /** US-0071: a reissue (or removal) gave the seat to someone new: its LiveKit identity goes at once. Never throws. */
+  roleReissued(sessionId: string, roleId: string): void;
 };
+/** US-0071: the fixed sentences of the voice token refusals (the BFF maps them to its own words; nothing else is ever said). */
+const VOICE_TOKEN_SENTENCES = {
+  voice_refused: "Voice is not available for this seat.", voice_off: "Voice is off for this session.", voice_unavailable: "Voice is not available right now.",
+} as const;
 const BOTS_CLOSE_TIMEOUT_MS = 3_000;
 
 export class Supervisor {
@@ -389,6 +399,25 @@ export class Supervisor {
     const codes = (ready.codes ?? []).filter((c) => aiRoles.includes(c.roleId));
     try { bots.attach(id, { port: ready.port, aiRoles, aiCalls: ready.aiCalls, ...(codes.length > 0 ? { codes } : {}) }).catch(failed); }
     catch (err) { failed(err); }
+  }
+
+  /**
+   * US-0071 (A1b Task 5): a LiveKit token for the caller's own seat (POST /sessions/:id/voice-token). Rejects a ControlError:
+   * `not_found` for an unknown session, `voice_refused` / `voice_off` / `voice_unavailable` (fixed sentences) otherwise.
+   */
+  async voiceToken(id: string, roleId: string, participantId: string): Promise<{ token: string; expiresAt: number }> {
+    if (!this.entryOf(id)) throw new ControlError("not_found", "that session does not exist");
+    if (!this.voice) throw new ControlError("voice_unavailable", VOICE_TOKEN_SENTENCES.voice_unavailable);
+    try { return await this.voice.voiceToken(id, roleId, participantId); }
+    catch (err) {
+      const code = err instanceof VoiceTokenRefused ? err.code : "voice_unavailable";
+      if (!(err instanceof VoiceTokenRefused)) this.logFn(`session ${id} voice token failed (${err instanceof Error && isSafeId(err.name) ? err.name : "error"})`);
+      throw new ControlError(code, VOICE_TOKEN_SENTENCES[code]);
+    }
+  }
+
+  private voiceReissued(id: string, roles: readonly string[]): void {
+    for (const roleId of roles) { try { this.voice?.roleReissued(id, roleId); } catch (err) { this.logFn(`session ${id} voice reissue failed (${err instanceof Error ? err.name : "error"})`); } }
   }
 
   /** US-0070: a runtime's voice message. `voice_turn` reaches the bots even without a VoiceHost; the rest goes to the VoiceHost. Never throws. */
@@ -771,7 +800,7 @@ export class Supervisor {
     return this.withLock(id, () => {
       // Inside the lock: a set_ai_roles queued ahead may just have made the role AI. Nothing is sent for an AI role.
       if (this.aiRolesOf(id).includes(roleId) || this.uncertain.get(id)?.includes(roleId)) return Promise.reject(new ControlError("ai_role", AI_ROLE_REFUSED));
-      return this.reissueLocked(id, msg);
+      return this.reissueLocked(id, msg).then((code) => { this.voiceReissued(id, [roleId]); return code; });
     }).finally(() => { this.reissuing.delete(key); });
   }
 
@@ -858,7 +887,9 @@ export class Supervisor {
       this.botForget(id); // the old bots and their intent files go with the old codes (B12)
       const ready = await this.launch(id, e.scenarioId, true);
       this.logFn(`session ${id} codes reissued`);
-      return await this.afterCodedLaunch(id, ready, captured);
+      const codes = await this.afterCodedLaunch(id, ready, captured);
+      this.voiceReissued(id, codes.map((c) => c.roleId)); // every seat changed hands: their LiveKit identities go (US-0071)
+      return codes;
     });
   }
 

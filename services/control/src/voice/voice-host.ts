@@ -1,9 +1,11 @@
 import path from "node:path";
+import { isSafeId } from "@acr/events";
 import { WorkerMessageSchema, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
 import { buildSpeechEnv } from "./speech-env.js";
+import { VoiceTokenRefused, type VoiceTokens } from "./tokens.js";
 
 /** The runtime must answer a voice line within this; otherwise the worker is told `refused: "failed"`. */
 export const VOICE_LINE_TIMEOUT_MS = 10_000;
@@ -66,7 +68,14 @@ export class VoiceHost {
     spawn: SpeechSpawnFn; config: ControlConfig; parentEnv: NodeJS.ProcessEnv; log: (m: string) => void; setTimer: SetTimer;
     toRuntime: (sessionId: string, m: ParentMessage) => boolean;
     bots?: { voiceTurn(sessionId: string, open: boolean): void };
-  }) {}
+    /** US-0071 (A1b Task 5): the seat rooms, generations and tokens; absent when control has no LiveKit settings. */
+    tokens?: VoiceTokens;
+  }) {
+    // A generation reaches the worker only for a LiveKit ingest: a file-ingest worker would drop every frame (none of its frames has one).
+    this.livekitIngest = o.tokens !== undefined && o.parentEnv.SPEECH_INGEST === "livekit";
+  }
+
+  private readonly livekitIngest: boolean;
 
   private session(id: string): Session {
     let s = this.sessions.get(id);
@@ -78,6 +87,12 @@ export class VoiceHost {
     if (this.closed) return;
     const s = this.session(sessionId);
     s.runtimeUp = true;
+    if (ready.voice === true && !s.ended && this.o.tokens) {
+      try {
+        this.o.tokens.openSession(sessionId);
+        if (s.seats) this.o.tokens.seatsChanged(sessionId, s.seats); // a report that came before the attach
+      } catch (err) { this.failed(sessionId, err); }
+    }
     if (ready.voice !== true || s.ended || s.workerLost || s.worker) return;
     let handle: WorkerHandle;
     try {
@@ -100,7 +115,13 @@ export class VoiceHost {
       // F9b: only a live seats report may create the entry (the first one can come before attach); nothing brings back an ended session.
       if (!this.sessions.has(sessionId) && (m.type !== "voice_seats" || m.ended)) return;
       const s = this.session(sessionId);
-      if (m.type === "voice_seats") { s.seats = m; this.pushState(s); return; }
+      if (m.type === "voice_seats") {
+        // US-0071: the tokens see every report first (identity removal, waiting token requests), then the worker gets its state.
+        try { this.o.tokens?.seatsChanged(sessionId, m); } catch (err) { this.failed(sessionId, err); }
+        s.seats = m;
+        this.pushState(sessionId, s);
+        return;
+      }
       if (m.type === "voice_turn") { s.turnOpen = m.open; this.o.bots?.voiceTurn(sessionId, m.open); return; }
       if (m.type === "voice_choice") return; // A2 writes it to the audio audit log
       const answer = s.pending.get(m.segmentId);
@@ -122,12 +143,14 @@ export class VoiceHost {
       this.failPending(s);
       const paused = s.seats?.paused ?? false;
       delete s.seats;
+      this.o.tokens?.runtimeExited(sessionId);
       if (s.worker?.ready && !s.ended) this.toWorker(s, { type: "voice_state", paused, ended: false, holders: [] });
     } catch (err) { this.failed(sessionId, err); }
   }
 
   end(sessionId: string): void {
     try {
+      try { this.o.tokens?.endSession(sessionId); } catch (err) { this.failed(sessionId, err); } // every seat room is deleted
       const s = this.sessions.get(sessionId);
       if (!s || s.ended) return;
       s.ended = true;
@@ -158,6 +181,20 @@ export class VoiceHost {
     for (const w of live) if (!w.exited) { try { w.handle.forceKill(); } catch { /* already gone */ } }
   }
 
+  /**
+   * US-0071 (A1b Task 5): a microphone-only LiveKit token for the caller's own seat room (POST /sessions/:id/voice-token). Rejects
+   * VoiceTokenRefused: `voice_unavailable` without LiveKit, for an unknown, non-voice or ended session.
+   */
+  voiceToken(sessionId: string, roleId: string, participantId: string): Promise<{ token: string; expiresAt: number }> {
+    if (!this.o.tokens || this.closed) return Promise.reject(new VoiceTokenRefused("voice_unavailable"));
+    return this.o.tokens.issue(sessionId, roleId, participantId);
+  }
+
+  /** US-0071: a code reissue (or removal) succeeded: the seat's LiveKit identity goes at once. Never throws. */
+  roleReissued(sessionId: string, roleId: string): void {
+    try { this.o.tokens?.roleReissued(sessionId, roleId); } catch (err) { this.failed(sessionId, err); }
+  }
+
   /** Whether the session's runtime last reported an open voice turn (for the demo's V-07 and tests). */
   voiceTurnOpen(sessionId: string): boolean { return this.sessions.get(sessionId)?.turnOpen ?? false; }
 
@@ -176,7 +213,7 @@ export class VoiceHost {
       case "worker_ready":
         w.ready = true;
         if (m.stt === "unavailable") this.alert(sessionId, "stt_unavailable");
-        this.pushState(s);
+        this.pushState(sessionId, s);
         return;
       case "voice_line": {
         const refuse = (): void => this.toWorker(s, { type: "voice_line_result", segmentId: m.segmentId, refused: "failed" });
@@ -195,10 +232,22 @@ export class VoiceHost {
         if (m.status === "stt_failed" || NOTICE_EMPTY_SEGMENTS) this.o.toRuntime(sessionId, { type: "voice_notice", roleId: m.roleId, participantId: m.participantId, code: m.status });
         if (m.status === "stt_failed") this.alert(sessionId, "stt_failed");
         return;
-      // US-0071 (A1b): accepted and ignored until their tasks land (token requests: Task 5; slots: Task 6; health: Task 9;
-      // livekit_status is logged as a fixed sentence from Task 5).
-      case "livekit_token_request":
+      case "livekit_token_request": {
+        // US-0071 (A1b Task 5): a fresh worker token for that seat's room, every time (never cached). A refusal is logged by name and
+        // not answered: the worker's own wait times out. Without LiveKit the request is ignored.
+        const tokens = this.o.tokens;
+        if (!tokens || s.ended) return;
+        const roleId = m.roleId;
+        tokens.workerJoin(sessionId, roleId).then(
+          (j) => { if (s.worker === w && !w.exited) this.toWorker(s, { type: "livekit_join", roleId, url: j.url, token: j.token, room: j.room }); },
+          (err: unknown) => this.o.log(`session ${sessionId} speech room token refused (${errName(err)})`),
+        );
+        return;
+      }
       case "livekit_status":
+        this.o.log(`session ${sessionId} speech room ${m.state}`); // a fixed sentence: never a role, a room or an identity
+        return;
+      // US-0071 (A1b): accepted and ignored until their tasks land (slots: Task 6; health: Task 9).
       case "stt_health":
       case "stt_slot_request":
       case "stt_slot_release":
@@ -226,10 +275,13 @@ export class VoiceHost {
     if (this.sessions.get(sessionId) === s) this.sessions.delete(sessionId);
   }
 
-  private pushState(s: Session): void {
+  private pushState(sessionId: string, s: Session): void {
     if (!s.worker?.ready || !s.seats || s.ended) return;
     const { paused, ended, holders } = s.seats;
-    this.toWorker(s, { type: "voice_state", paused, ended, holders });
+    const tokens = this.o.tokens;
+    // US-0071: each holder's seat generation, only for a LiveKit ingest (see the constructor); the worker attributes a frame only to it.
+    const withGen = this.livekitIngest && tokens ? holders.map((h) => ({ ...h, generation: tokens.generation(sessionId, h.roleId, h.participantId) })) : holders;
+    this.toWorker(s, { type: "voice_state", paused, ended, holders: withGen });
   }
 
   private failPending(s: Session): void {
@@ -255,4 +307,9 @@ export class VoiceHost {
   private failed(sessionId: string, err: unknown): void {
     this.o.log(`session ${sessionId} voice message failed (${err instanceof Error ? err.name : "error"})`);
   }
+}
+
+/** An error's name when it is a plain identifier, else a fixed word: never a message (it could name a room or an identity). */
+function errName(err: unknown): string {
+  return err instanceof Error && isSafeId(err.name) ? err.name : "Error";
 }

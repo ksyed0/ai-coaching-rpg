@@ -70,9 +70,9 @@ describe("buildChildEnv", () => {
 
   it("US-0070: copies VOICE_ENABLED and TURN_END_MS to the runtime, never the speech worker's settings or the LiveKit secrets", () => {
     const env = build({ VOICE_ENABLED: "1", TURN_END_MS: "900", VOICE_HANGOVER_MS: "500", VOICE_MAX_SEGMENT_MS: "2500", STT_URL: "http://127.0.0.1:1/x", STT_MODEL: "small.en",
-      LIVEKIT_API_KEY: "k", LIVEKIT_API_SECRET: "s", LIVEKIT_URL: "wss://x" });
+      LIVEKIT_API_KEY: "k", LIVEKIT_API_SECRET: "s", LIVEKIT_URL: "wss://x", LIVEKIT_HOST: "http://127.0.0.1:7880" });
     expect(env.VOICE_ENABLED).toBe("1");
     expect(env.TURN_END_MS).toBe("900");
-    for (const k of ["VOICE_HANGOVER_MS", "VOICE_MAX_SEGMENT_MS", "STT_URL", "STT_MODEL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_URL"]) expect(env[k], k).toBeUndefined();
+    for (const k of ["VOICE_HANGOVER_MS", "VOICE_MAX_SEGMENT_MS", "STT_URL", "STT_MODEL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_URL", "LIVEKIT_HOST"]) expect(env[k], k).toBeUndefined();
   });
 });

@@ -7,7 +7,7 @@ const parent: NodeJS.ProcessEnv = {
   STT_URL: "http://127.0.0.1:9123/abc", STT_MODEL: "small.en", STT_PROVIDER: "whisper", STT_FAKE_SCRIPT: "/x/s.json", SPEECH_INGEST: "file",
   SPEECH_INGEST_DIR: "/x/in", STT_COLD_TIMEOUT_MS: "20000", STT_IDLE_COLD_MS: "60000",
   // never copied:
-  LIVEKIT_API_SECRET: "s1", LIVEKIT_API_KEY: "k1", ANTHROPIC_API_KEY: "sk-ant", OPENROUTER_API_KEY: "or", LOCAL_API_KEY: "l", LAUNCHER_TOKEN: "lt",
+  LIVEKIT_API_SECRET: "s1", LIVEKIT_API_KEY: "k1", LIVEKIT_HOST: "http://127.0.0.1:7880", RUST_LOG: "trace", LIVEKIT_DEBUG_LOG_ROOM_EVENTS: "1", ANTHROPIC_API_KEY: "sk-ant", OPENROUTER_API_KEY: "or", LOCAL_API_KEY: "l", LAUNCHER_TOKEN: "lt",
   FACILITATOR_SECRET: "fs", HOME: "/home/x", VOICE_ENABLED: "1", TURN_END_MS: "800", CONSENT_NOTICE_VERSION: "v3", SPEECH_INGEST_ROLES: "evil", MODEL_PROVIDER: "mock",
 };
 
@@ -22,7 +22,9 @@ describe("the speech worker's environment (US-0070)", () => {
 
   it("LIVEKIT_*, provider keys, LAUNCHER_TOKEN, FACILITATOR_SECRET and HOME are never copied", () => {
     const env = buildSpeechEnv(parent, []);
-    for (const k of ["LIVEKIT_API_SECRET", "LIVEKIT_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "LOCAL_API_KEY", "LAUNCHER_TOKEN", "FACILITATOR_SECRET", "HOME", "VOICE_ENABLED", "MODEL_PROVIDER"]) {
+    // US-0071 (R26): LIVEKIT_HOST, RUST_LOG (rtc-node's native log filter) and LIVEKIT_DEBUG_LOG_ROOM_EVENTS (rtc-node prints every room
+    // event, identities included) stay out too.
+    for (const k of ["LIVEKIT_API_SECRET", "LIVEKIT_API_KEY", "LIVEKIT_HOST", "RUST_LOG", "LIVEKIT_DEBUG_LOG_ROOM_EVENTS", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "LOCAL_API_KEY", "LAUNCHER_TOKEN", "FACILITATOR_SECRET", "HOME", "VOICE_ENABLED", "MODEL_PROVIDER"]) {
       expect(env, k).not.toHaveProperty(k);
     }
     expect(JSON.stringify(env)).not.toMatch(/sk-ant|"s1"|"lt"|"fs"/);

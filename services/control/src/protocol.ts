@@ -48,6 +48,8 @@ const MAX_SILENT_MS = 60_000;
 const MAX_SEQ = Number.MAX_SAFE_INTEGER;
 const SegmentId = z.string().refine(isFileSafeId, { message: "invalid segment id" });
 const ParticipantId = z.string().min(1).max(CLIENT_ID_MAX_CHARS).refine((v) => v !== REBIND_PENDING, { message: "invalid participant id" });
+/** US-0071: the participant-id rule, shared with the voice token route (which adds a no-control-character check). */
+export const ParticipantIdSchema = ParticipantId;
 const VoiceLineSchema = z.strictObject({ type: z.literal("voice_line"), segmentId: SegmentId, roleId: RoleId, participantId: ParticipantId, text: z.string().min(1).max(MAX_VOICE_TEXT_CHARS) });
 /** `silentMs` (milliseconds since the track's last speech frame) only with `active: false`. */
 const SpeechActivitySchema = z

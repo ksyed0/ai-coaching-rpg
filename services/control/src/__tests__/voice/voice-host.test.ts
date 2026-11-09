@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { ControlToWorker } from "@acr/speech/protocol";
 import type { ControlConfig } from "../../config.js";
 import type { ParentMessage } from "../../protocol.js";
+import { createHash } from "node:crypto";
+import { parseParticipantIdentity, type RoomAdmin } from "@acr/adapters/livekit";
+import { VoiceTokenRefused, VoiceTokens } from "../../voice/tokens.js";
 import { VOICE_LINE_TIMEOUT_MS, VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
 import { AI_CONFIG } from "../fake-child.js";
 
@@ -47,8 +50,8 @@ const live = (v: VoiceHost) => { v.attach(ID, { voice: true, roles: ["tech_lead"
 
 beforeEach(() => { timers = []; workers = []; toRuntime = []; logs = []; turns = []; runtimeUp = true; });
 
-describe("VoiceHost and the US-0071 worker messages (A1b Task 2, characterisation)", () => {
-  it("livekit_token_request, livekit_status, stt_health and the slot messages are accepted and ignored until their tasks land", () => {
+describe("VoiceHost and the US-0071 worker messages (A1b Task 2, characterisation; Task 5 for LiveKit)", () => {
+  it("without LiveKit, livekit_token_request, stt_health and the slot messages are ignored; livekit_status is a fixed log line", () => {
     const v = make();
     const w = live(v);
     const sentBefore = w.sent.length; const logsBefore = logs.length;
@@ -58,7 +61,7 @@ describe("VoiceHost and the US-0071 worker messages (A1b Task 2, characterisatio
     ]) w.emit(m);
     expect(w.sent.slice(sentBefore)).toEqual([]);
     expect(toRuntime).toEqual([]);
-    expect(logs.slice(logsBefore)).toEqual([]);
+    expect(logs.slice(logsBefore)).toEqual([`session ${ID} speech room connected`]);
     expect(v.workerPid(ID)).toBe(4242);
   });
 });
@@ -296,5 +299,156 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     expect(w.forced).toBe(1);
     w.exit(0);
     expect(toRuntime.filter((x) => x.m.type === "voice_alert")).toEqual([]);
+  });
+});
+
+describe("VoiceHost and LiveKit (US-0071, A1b Task 5)", () => {
+  const CFG = { apiKey: "APIkey", apiSecret: "s".repeat(40), host: new URL("http://127.0.0.1:7880"), workerUrl: "ws://127.0.0.1:7880" };
+  let n = 0;
+  const seeded = (n0: number) => { let i = n0; return (k: number) => { const b = Buffer.alloc(k); for (let o = 0; o < k; o += 32) createHash("sha256").update(String(i++)).digest().copy(b, o); return b; }; };
+  type Admin = RoomAdmin & { rooms: Map<string, Set<string>>; calls: string[] };
+  const fakeAdmin = (): Admin => {
+    const rooms = new Map<string, Set<string>>();
+    const calls: string[] = [];
+    return {
+      rooms, calls,
+      async removeParticipant(room, identity) { calls.push(`remove ${identity}`); rooms.get(room)?.delete(identity); },
+      async listParticipants(room) { calls.push("list"); return [...(rooms.get(room) ?? [])]; },
+      async deleteRoom(room) { calls.push("delete"); rooms.delete(room); },
+    };
+  };
+  const withLiveKit = (ingest: "file" | "livekit" = "livekit") => {
+    const admin = fakeAdmin();
+    const tokens = new VoiceTokens({
+      cfg: CFG, admin, random: seeded(1), log: (m) => logs.push(m),
+      setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+      mint: async () => ({ token: `jwt-p-${++n}`, expiresAt: 1 }), mintWorker: async () => ({ token: `jwt-w-${++n}`, expiresAt: 1 }),
+    });
+    const v = new VoiceHost({
+      spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", SPEECH_INGEST: ingest }, log: (m) => logs.push(m),
+      setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+      toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
+      tokens,
+    });
+    return { v, tokens, admin };
+  };
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+
+  it("livekit_token_request is answered with a fresh livekit_join for that role", async () => {
+    const { v, tokens } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    await settle();
+    const joins = w.sent.filter((m) => m.type === "livekit_join");
+    expect(joins).toEqual([
+      { type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: expect.stringMatching(/^jwt-w-/), room: tokens.roomOf(ID, "tech_lead") },
+      { type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: expect.stringMatching(/^jwt-w-/), room: tokens.roomOf(ID, "tech_lead") },
+    ]);
+    expect((joins[0] as { token: string }).token).not.toBe((joins[1] as { token: string }).token);
+  });
+
+  it("a token request for a seat that does not record is logged by name and not answered", async () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats({ holders: [{ ...holders[0]!, recording: false }] }));
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    await settle();
+    expect(w.sent.filter((m) => m.type === "livekit_join")).toEqual([]);
+    expect(logs.at(-1)).toBe(`session ${ID} speech room token refused (VoiceTokenRefused)`);
+  });
+
+  it("a join minted for a worker that exited meanwhile is not sent to its successor", async () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    w.exit(1);
+    await settle();
+    expect(w.sent.filter((m) => m.type === "livekit_join")).toEqual([]);
+  });
+
+  it("pushState carries generation only with SPEECH_INGEST=livekit", () => {
+    const lk = withLiveKit("livekit");
+    const w1 = live(lk.v);
+    lk.v.fromRuntime(ID, seats());
+    expect(w1.sent.at(-1)).toEqual({ type: "voice_state", paused: false, ended: false, holders: [{ ...holders[0]!, generation: lk.tokens.generation(ID, "tech_lead", "p-secret-1") }] });
+    const file = withLiveKit("file");
+    const ID2 = "b".repeat(32);
+    file.v.attach(ID2, { voice: true, roles: ["tech_lead"] });
+    const w2 = workers.at(-1)!;
+    ready(w2);
+    file.v.fromRuntime(ID2, seats());
+    expect(w2.sent.at(-1)).toEqual({ type: "voice_state", paused: false, ended: false, holders });
+    // Without LiveKit at all (control without keys) the file ingest gets no generation either.
+    const plain = make();
+    const ID3 = "c".repeat(32);
+    plain.attach(ID3, { voice: true, roles: ["tech_lead"] });
+    const w3 = workers.at(-1)!;
+    ready(w3);
+    plain.fromRuntime(ID3, seats());
+    expect(w3.sent.at(-1)).toEqual({ type: "voice_state", paused: false, ended: false, holders });
+  });
+
+  it("voiceToken issues for the holder who chose voice, waits for seats, and is voice_unavailable without LiveKit", async () => {
+    const { v } = withLiveKit();
+    live(v);
+    v.fromRuntime(ID, seats());
+    await expect(v.voiceToken(ID, "tech_lead", "p-secret-1")).resolves.toEqual({ token: expect.stringMatching(/^jwt-p-/), expiresAt: 1 });
+    await expect(make().voiceToken(ID, "tech_lead", "p-secret-1")).rejects.toEqual(new VoiceTokenRefused("voice_unavailable"));
+  });
+
+  it("a session without voice (no attach with voice) is voice_unavailable", async () => {
+    const { v } = withLiveKit();
+    v.attach(ID, { roles: ["tech_lead"] });
+    await expect(v.voiceToken(ID, "tech_lead", "p-secret-1")).rejects.toMatchObject({ code: "voice_unavailable" });
+  });
+
+  it("seats that arrived before the attach are given to the tokens at the attach", async () => {
+    const { v } = withLiveKit();
+    v.fromRuntime(ID, seats());
+    v.attach(ID, { voice: true, roles: ["tech_lead"] });
+    await expect(v.voiceToken(ID, "tech_lead", "p-secret-1")).resolves.toMatchObject({ expiresAt: 1 });
+  });
+
+  it("a new holder in voice_seats removes the old identity from the seat room; the end deletes the room", async () => {
+    const { v, tokens, admin } = withLiveKit();
+    live(v);
+    v.fromRuntime(ID, seats());
+    await v.voiceToken(ID, "tech_lead", "p-secret-1");
+    const room = tokens.roomOf(ID, "tech_lead");
+    const old = `tech_lead.g${tokens.generation(ID, "tech_lead", "p-secret-1")}`;
+    admin.rooms.set(room, new Set([old]));
+    v.fromRuntime(ID, seats({ holders: [{ ...holders[0]!, participantId: "p-secret-2" }] }));
+    await settle();
+    expect(admin.calls).toContain(`remove ${old}`);
+    expect(parseParticipantIdentity(old)?.roleId).toBe("tech_lead");
+    v.end(ID);
+    await settle();
+    expect(admin.calls.at(-1)).toBe("delete");
+  });
+
+  it("roleReissued sweeps the seat at once; a runtime exit forgets the seats (a token request then waits for the next ones)", async () => {
+    const { v, tokens, admin } = withLiveKit();
+    live(v);
+    v.fromRuntime(ID, seats());
+    await v.voiceToken(ID, "tech_lead", "p-secret-1");
+    const room = tokens.roomOf(ID, "tech_lead");
+    admin.rooms.set(room, new Set([`tech_lead.g${tokens.generation(ID, "tech_lead", "p-secret-1")}`]));
+    v.roleReissued(ID, "tech_lead");
+    await settle();
+    expect(admin.rooms.get(room)!.size).toBe(0);
+    v.detach(ID);
+    const p = v.voiceToken(ID, "tech_lead", "p-secret-1");
+    fire(1000);
+    await expect(p).rejects.toMatchObject({ code: "voice_refused" });
+  });
+
+  it("livekit_status is logged as a fixed sentence with no role, room or identity", () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    for (const state of ["connected", "failed", "disconnected"]) w.emit({ type: "livekit_status", state });
+    expect(logs.slice(-3)).toEqual([`session ${ID} speech room connected`, `session ${ID} speech room failed`, `session ${ID} speech room disconnected`]);
   });
 });
