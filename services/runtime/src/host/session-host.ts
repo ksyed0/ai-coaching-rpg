@@ -30,7 +30,7 @@ export const MAX_REPLAY_BYTES = 256 * 1024;
  */
 export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
 
-export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined" | "starting" | "ai_notice" | "voice_off" | "forbidden" | "voice_notice_required";
+export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined" | "starting" | "ai_notice" | "voice_off" | "forbidden" | "voice_notice_required" | "failed";
 
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
@@ -390,7 +390,8 @@ export class SessionHost {
    * US-0070: the holder chooses to take part with voice. Refusals, in order: voice_off (disabled, or pinned off after a failed opt-out),
    * forbidden (an AI seat), not_joined (not the holder), consent_version (not the server's notice), voice_notice_required (this
    * participant's own consent is missing or to a notice that does not describe voice: such a seat stays text only for the session, C10).
-   * The choice is written before it counts: a failed write takes it back and throws (fail closed, not recording).
+   * The choice is written before it counts: a failed write takes it back and throws HostError("failed") (fail closed, not recording; the
+   * error is logged by name only, F8).
    */
   optInVoice(roleId: string, participantId: string, noticeVersion: string): void {
     if (!this.voice.enabled || this.voiceBlocked.has(roleId)) throw new HostError("voice_off");
@@ -407,7 +408,9 @@ export class SessionHost {
     try { this.voiceIO!.write(choices); }
     catch (err) {
       if (before) choices.set(roleId, before); else choices.remove(roleId);
-      throw err;
+      // F8: a raw fs error can quote the data directory: the log gets its name only and the player a fixed code.
+      this.safeLog(`saving a voice opt-in: ${errorName(err)}`);
+      throw new HostError("failed");
     }
     this.noteVoiceSeats();
     this.emitVoiceChoice({ roleId, participantId, choice: "voice", at });

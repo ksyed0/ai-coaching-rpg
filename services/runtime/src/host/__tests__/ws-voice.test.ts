@@ -39,7 +39,7 @@ async function open(port: number): Promise<Client> {
   return { inbox, next, send: (m) => ws.send(JSON.stringify(m)) };
 }
 
-async function setup(voice: VoiceConfig = { enabled: true, turnEndMs: 800 }, aiRoles: string[] = []) {
+async function setup(voice: VoiceConfig = { enabled: true, turnEndMs: 800 }, aiRoles: string[] = [], o: { writeError?: Error; logs?: string[] } = {}) {
   const scenario = await loadScenario(friday);
   const clock = new FakeClock(1_000);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock });
@@ -48,11 +48,11 @@ async function setup(voice: VoiceConfig = { enabled: true, turnEndMs: 800 }, aiR
   const credentials = PlayerCredentials.create(BIND);
   const vbind = { sessionId: "local", logIdentity: credentials.logIdentity };
   let record: unknown = null;
-  const voiceFile: VoiceFileIO = { read: () => ({ choices: record === null ? VoiceChoices.empty(vbind) : VoiceChoices.fromRecord(record, vbind) }), write: (c) => { record = c.toRecord(); }, remove: () => { record = null; } };
+  const voiceFile: VoiceFileIO = { read: () => ({ choices: record === null ? VoiceChoices.empty(vbind) : VoiceChoices.fromRecord(record, vbind) }), write: (c) => { if (o.writeError) throw o.writeError; record = c.toRecord(); }, remove: () => { record = null; } };
   const seats: Seats = { credentials, consent: new ConsentStore({ version: "v3", text: "notice v3" }), aiRoles: ai, persist: () => {}, voiceFile };
-  const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats, voice });
+  const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats, voice, log: (m) => o.logs?.push(m) });
   const issued = JoinCodes.issue(PLAYERS, BIND);
-  server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: () => {}, joinCodes: new Map([["local", issued.codes]]) });
+  server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: (m) => o.logs?.push(m), joinCodes: new Map([["local", issued.codes]]) });
   return { port: server.port, host, plain: issued.plain };
 }
 async function player(e: Awaited<ReturnType<typeof setup>>, roleId: string, participantId: string, consent = true) {
@@ -83,6 +83,22 @@ describe("voice on the player socket (US-0070)", () => {
     await sam.next((m) => m.type === "voice");
     expect(sam.inbox.filter((m) => m.type === "voice")).toEqual([{ type: "voice", state: "text_only" }]);
     for (const m of sam.inbox) expect(JSON.stringify(m)).not.toContain("pat");
+  });
+
+  // F8 (review fix wave): a raw fs error can name the data directory; a failed voice-file write must not log its message or stack.
+  it("a voice opt-in whose file write fails answers failed and logs no path (the error name at most)", async () => {
+    const secret = "/Users/someone/private-data/sessions/local.voice.json";
+    const err = Object.assign(new Error(`EACCES: permission denied, open '${secret}'`), { code: "EACCES", path: secret });
+    const logs: string[] = [];
+    const e = await setup(undefined, [], { writeError: err, logs });
+    const pat = await player(e, "account_manager", "pat");
+    pat.send({ type: "voice_opt_in", noticeVersion: "v3" });
+    const answer = await pat.next((m) => m.type === "voice" || m.type === "error");
+    expect(answer).toMatchObject({ type: "error", code: "failed" });
+    expect(JSON.stringify(answer)).not.toContain("private-data");
+    expect(e.host.voiceStateOf("account_manager")).toBe("none");
+    expect(logs.join("\n")).not.toContain("private-data");
+    expect(logs.join("\n")).not.toContain("EACCES: permission");
   });
 
   it("joined.voice carries only the joining player's own state", async () => {

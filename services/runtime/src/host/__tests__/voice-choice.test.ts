@@ -136,7 +136,7 @@ describe("opting in and out (US-0070)", () => {
     h.host.join("tech_lead", "p1");
     h.host.giveConsent("tech_lead", "p1", "v3");
     h.disk.writeFails = true;
-    expect(code(() => h.host.optInVoice("tech_lead", "p1", "v3"))).toMatch(/^other:/);
+    expect(code(() => h.host.optInVoice("tech_lead", "p1", "v3"))).toBe("failed"); // F8: a fixed code, never the fs error
     expect(h.host.voiceStateOf("tech_lead")).toBe("none");
     expect(h.host.voiceSeats().holders[0]!.recording).toBe(false);
   });
