@@ -1,5 +1,5 @@
 import { unlinkSync } from "node:fs";
-import type os from "node:os";
+import os from "node:os";
 import path from "node:path";
 import type { Run } from "./run.js";
 import type { VoiceOpsSettings } from "./settings.js";
@@ -35,12 +35,15 @@ const LOCAL_DUMMY_UPSTREAM = "127.0.0.1:1";
 const NULL_DEVICE = "/dev/null";
 
 /**
- * The docker CLI's arguments. `up`: detached, never a build, `--wait` (a service that exits at once fails the command instead of
+ * The docker CLI's arguments. Every head names the file and `--env-file <null device>` (`os.devNull`, cross-platform; batch 2 review
+ * B F3): Compose otherwise reads `<project dir>/.env` (deploy/compose/.env), where COMPOSE_PROFILES=lan would start Caddy in local mode
+ * and any VOICE_* value would fill an interpolation `composeEnv` left out. (The process environment wins over a project `.env` anyway,
+ * so a VOICE_* there could never override a value `composeEnv` sets.) `up`: detached, never a build, `--wait` (a service that exits at once fails the command instead of
  * returning 0) with a 60 s bound, quiet pulls; the `lan` profile only in `lan` mode; an optional list of services (repair mode, Task 7).
  * `down`: every profile, whatever the mode (so a `lan` stack is stopped from any setting), and orphans removed.
  */
 export function composeArgs(repoRoot: string, access: "local" | "lan", verb: "up" | "down", services?: string[]): string[] {
-  const head = ["compose", "-p", COMPOSE_PROJECT, "-f", path.join(path.resolve(repoRoot), COMPOSE_FILE)];
+  const head = ["compose", "-p", COMPOSE_PROJECT, "-f", path.join(path.resolve(repoRoot), COMPOSE_FILE), "--env-file", os.devNull];
   if (verb === "down") return [...head, "--profile", "lan", "down", "--remove-orphans"];
   for (const s of services ?? []) if (!(COMPOSE_SERVICES as readonly string[]).includes(s)) throw new Error("compose up names only the voice services");
   return [

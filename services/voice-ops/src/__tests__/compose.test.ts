@@ -42,17 +42,25 @@ const LAN_ENV = {
 };
 
 describe("composeArgs (US-0072, A1c Task 5)", () => {
-  const file = path.join(REPO, COMPOSE_FILE);
+  // Batch 2 review B F3: `--env-file <null device>` in every head, so a `.env` beside voice.yml (Compose reads `<project dir>/.env`)
+  // cannot set COMPOSE_PROFILES (local mode would start Caddy) or any interpolation value.
+  const head = ["compose", "-p", "scenecoach-voice", "-f", path.join(REPO, COMPOSE_FILE), "--env-file", nodeOs.devNull];
   it("up in local mode: no profile, --wait with its timeout, --quiet-pull, never a build", () => {
-    expect(composeArgs(REPO, "local", "up")).toEqual(["compose", "-p", "scenecoach-voice", "-f", file, "up", "-d", "--no-build", "--wait", "--wait-timeout", "60", "--quiet-pull"]);
+    expect(composeArgs(REPO, "local", "up")).toEqual([...head, "up", "-d", "--no-build", "--wait", "--wait-timeout", "60", "--quiet-pull"]);
   });
   it("up in lan mode adds the lan profile; a service list goes last", () => {
-    expect(composeArgs(REPO, "lan", "up")).toEqual(["compose", "-p", "scenecoach-voice", "-f", file, "--profile", "lan", "up", "-d", "--no-build", "--wait", "--wait-timeout", "60", "--quiet-pull"]);
-    expect(composeArgs(REPO, "lan", "up", ["livekit"])).toEqual(["compose", "-p", "scenecoach-voice", "-f", file, "--profile", "lan", "up", "-d", "--no-build", "--wait", "--wait-timeout", "60", "--quiet-pull", "livekit"]);
+    expect(composeArgs(REPO, "lan", "up")).toEqual([...head, "--profile", "lan", "up", "-d", "--no-build", "--wait", "--wait-timeout", "60", "--quiet-pull"]);
+    expect(composeArgs(REPO, "lan", "up", ["livekit"])).toEqual([...head, "--profile", "lan", "up", "-d", "--no-build", "--wait", "--wait-timeout", "60", "--quiet-pull", "livekit"]);
   });
   it("down names every profile, whatever the mode, and removes orphans", () => {
     for (const access of ["local", "lan"] as const) {
-      expect(composeArgs(REPO, access, "down")).toEqual(["compose", "-p", "scenecoach-voice", "-f", file, "--profile", "lan", "down", "--remove-orphans"]);
+      expect(composeArgs(REPO, access, "down")).toEqual([...head, "--profile", "lan", "down", "--remove-orphans"]);
+    }
+  });
+  it("every head reads no .env: --env-file is the null device, right after the file", () => {
+    for (const a of [composeArgs(REPO, "local", "up"), composeArgs(REPO, "lan", "up", ["caddy"]), composeArgs(REPO, "local", "down")]) {
+      expect(a.slice(0, 7)).toEqual(head);
+      expect(a.filter((x) => x === "--env-file")).toHaveLength(1);
     }
   });
   it("refuses a service name that is not one of ours", () => {
