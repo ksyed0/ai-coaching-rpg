@@ -14,7 +14,8 @@ import path from "node:path";
  *   stderr goes to a log opened O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW and set to 0600; `unref()`, so `voice:up` can exit. It
  *   returns the pid and `exited()`, read from the child's handle.
  * - `isOurWhisper`: before `voice:down` signals a recorded pid, all three of: its `ps -o comm=` basename is the one recorded right after
- *   voice:up's own spawn, its `ps -o lstart=` start time is within 5 s of the recorded `startedAt`, and its `ps -o args=` holds
+ *   voice:up's own spawn, its `ps -o lstart=` start time (either reading in the repeated autumn hour) is within 5 s of the recorded
+ *   `startedAt`, and its `ps -o args=` holds
  *   `--port <port>` as two words. The arguments also hold the STT request path (K14): they are compared and dropped, never printed,
  *   logged or kept. `ps` runs with a fixed PATH (`/usr/bin:/bin`) and the C locale (so `lstart` is in English).
  */
@@ -103,7 +104,26 @@ export async function readComm(pid: number, run: Run): Promise<string | null> {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const allDigits = (s: string): boolean => s.length > 0 && [...s].every((c) => c >= "0" && c <= "9");
 
-/** `ps -o lstart=` in the C locale (`Mon Nov  9 12:00:05 2026`, local time) as epoch ms, or null when it is not exactly that shape. */
+/**
+ * Every instant whose local time is the `ps -o lstart=` text (C locale, `Mon Nov  9 12:00:05 2026`), ascending, or null when it is not
+ * exactly that shape. Usually one; TWO in the repeated hour of a change back from summer time (batch 2 review B F6): `new Date(y, m, d,
+ * h, mi, s)` picks the earlier offset, so a process started in the second occurrence would read an hour off. The other reading is found
+ * by trying the instants up to 3 hours either side in 15-minute steps (every real offset change is a multiple of 15 minutes) and keeping
+ * those whose local fields are exactly the parsed ones.
+ */
+export function lstartCandidates(v: string): number[] | null {
+  const t = parseLstart(v);
+  if (t === null) return null;
+  const want = new Date(t);
+  const fields = (d: Date): string => [d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].join(",");
+  const key = fields(want);
+  const out: number[] = [];
+  for (let k = -12; k <= 12; k++) { const c = t + k * 15 * 60_000; if (fields(new Date(c)) === key) out.push(c); }
+  return out.length > 0 ? out : [t];
+}
+
+/** `ps -o lstart=` in the C locale (`Mon Nov  9 12:00:05 2026`, local time) as epoch ms (the earlier reading in an ambiguous hour, see
+ * `lstartCandidates`), or null when it is not exactly that shape. */
 export function parseLstart(v: string): number | null {
   const parts = v.trim().split(/\s+/);
   if (parts.length !== 5) return null;
@@ -132,8 +152,8 @@ export async function isOurWhisper(w: { pid: number; port: number; startedAt: nu
   const comm = await readComm(w.pid, run);
   if (comm === null || comm !== w.comm) return false;
   const lstart = await ps("lstart=", w.pid, run);
-  const t = lstart === null ? null : parseLstart(lstart);
-  if (t === null || Math.abs(t - w.startedAt) > START_TOLERANCE_MS) return false;
+  const ts = lstart === null ? null : lstartCandidates(lstart);
+  if (ts === null || !ts.some((t) => Math.abs(t - w.startedAt) <= START_TOLERANCE_MS)) return false;
   const args = await ps("args=", w.pid, run);
   return args !== null && hasPortWords(args, w.port);
 }

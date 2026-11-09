@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { isOurWhisper, parseLstart, readComm, realRun, realSetTimer, realSpawnDetached, type Run } from "../run.js";
+import { isOurWhisper, lstartCandidates, parseLstart, readComm, realRun, realSetTimer, realSpawnDetached, type Run } from "../run.js";
 import type { GitRun } from "../env-file.js";
 
 // US-0072 (EPIC-0003 voice A1c, Task 3): the command runner, the detached spawn and the process identity, against REAL processes.
@@ -179,6 +179,34 @@ describe("process identity (US-0072, A1c Task 3)", () => {
     expect(parseLstart("Tue Dec 31 23:59:59 2030\n")).toBe(new Date(2030, 11, 31, 23, 59, 59).getTime());
     for (const bad of ["", "garbage", "Mon Foo 9 12:00:00 2026", "Mon Nov 32 12:00:00 2026", "Mon Nov 9 25:00:00 2026", "Mon Nov 9 12:00 2026", "Mon Nov 9 12:00:00"]) {
       expect(parseLstart(bad), bad).toBeNull();
+    }
+  });
+
+  // Batch 2 review B F6: in the repeated hour of the autumn change local time is ambiguous; `new Date(y, m, d, h, mi, s)` picks the
+  // earlier offset, so a whisper-server started in the second 01:30 parsed an hour off and voice:down called it "not ours". Both
+  // readings are accepted. TZ is set in this process (Node resets its time zone on assignment) and restored in `finally`.
+  it("an lstart in the repeated hour of the autumn change accepts either reading (America/New_York, 2026-11-01)", async () => {
+    const saved = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const first = Date.UTC(2026, 10, 1, 5, 30, 0); // 01:30 EDT
+      const second = Date.UTC(2026, 10, 1, 6, 30, 0); // 01:30 EST, one hour later
+      expect(new Date(first).getHours()).toBe(1); // the zone is in effect
+      expect(lstartCandidates("Sun Nov  1 01:30:00 2026")).toEqual([first, second]);
+      expect(lstartCandidates("Sun Nov  1 03:30:00 2026")).toEqual([Date.UTC(2026, 10, 1, 8, 30, 0)]); // unambiguous: one reading
+      expect(lstartCandidates("Sun Mar  8 12:00:00 2026")).toEqual([Date.UTC(2026, 2, 8, 16, 0, 0)]);
+      expect(lstartCandidates("garbage")).toBeNull();
+      const fake = (lstart: string): Run => async (_cmd, args) => {
+        if (args[1] === "comm=") return { code: 0, stdout: "whisper-server\n", stderr: "" };
+        if (args[1] === "lstart=") return { code: 0, stdout: `${lstart}\n`, stderr: "" };
+        return { code: 0, stdout: "whisper-server --host 127.0.0.1 --port 24680\n", stderr: "" };
+      };
+      for (const startedAt of [first + 2000, second + 2000]) {
+        expect(await isOurWhisper({ pid: 123, port: 24680, startedAt, comm: "whisper-server" }, fake("Sun Nov  1 01:30:00 2026")), String(startedAt)).toBe(true);
+      }
+      expect(await isOurWhisper({ pid: 123, port: 24680, startedAt: second + 3_600_000, comm: "whisper-server" }, fake("Sun Nov  1 01:30:00 2026"))).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
     }
   });
 
