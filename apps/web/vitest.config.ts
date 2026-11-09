@@ -17,6 +17,8 @@ export default defineConfig({
       // CI step (Web E2E), never by vitest.
       // src/lib/livekit-room-browser.ts (US-0071) is the thin wrapper over livekit-client, the one file that imports it: unit tests run
       // VoiceClient against a fake room instead; the wrapper is covered by the opt-in live checks and the browser e2e.
+      // Review finding 4: the rule "disableMicrophone unpublishes the track" (not merely mutes it) is proven in CI ONLY against the fake
+      // BrowserRoom; against a real LiveKit server it is proven only by the opt-in VOICE_LIVE=1 run, which CI does not execute.
       exclude: ["src/app/**", "src/demo/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**", "src/lib/livekit-room-browser.ts"],
       thresholds: { lines: 80 },
     },

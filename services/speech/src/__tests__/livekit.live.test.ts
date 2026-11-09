@@ -17,7 +17,7 @@ import type { RoomConn, RoomPort } from "../ingest/room-port.js";
 //   VOICE_LIVE_LONG=1 for the more-than-10-minutes case.
 // Every native and SDK module is loaded dynamically inside the suite, so the skipped run loads neither @livekit/rtc-node nor
 // livekit-server-sdk. Nothing here prints a key, a token, a room name or an identity: assertions only; the few timings printed are numbers.
-// `livekit-room.ts` is excluded from coverage by name: these checks are its proof against a real server.
+// `livekit-room-native.ts` is excluded from coverage by name: these checks are its proof against a real server.
 const LIVE = process.env.VOICE_LIVE === "1";
 const LONG = process.env.VOICE_LIVE_LONG === "1";
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -58,7 +58,7 @@ const ENTRY = path.join(PKG, "src", "main.ts");
 describe.skipIf(!LIVE)("LiveKit live checks (US-0071, A1b Task 18; VOICE_LIVE=1)", () => {
   let env: Live;
   let lk: typeof import("@acr/adapters/livekit");
-  let rtc: typeof import("../ingest/livekit-room.js");
+  let rtc: typeof import("../ingest/livekit-room-native.js");
   let ingestMod: typeof import("../ingest/livekit-ingest.js");
   let pubMod: typeof import("./live-publisher.js");
   let rtcNode: typeof import("@livekit/rtc-node");
@@ -71,7 +71,7 @@ describe.skipIf(!LIVE)("LiveKit live checks (US-0071, A1b Task 18; VOICE_LIVE=1)
     env = liveEnv();
     dir = await mkdtemp(path.join(os.tmpdir(), "acr-speech-live-"));
     lk = await import("@acr/adapters/livekit");
-    rtc = await import("../ingest/livekit-room.js");
+    rtc = await import("../ingest/livekit-room-native.js");
     rtc.silenceRtcLogger(); // before any room opens, also for the test-only publisher
     ingestMod = await import("../ingest/livekit-ingest.js");
     pubMod = await import("./live-publisher.js");

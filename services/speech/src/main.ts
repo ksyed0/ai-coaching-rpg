@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   let worker: RunningWorker | undefined;
   if (cfg.ingest.kind === "livekit") {
     let port: RoomPort;
-    try { port = (await import("./ingest/livekit-room.js")).createRtcRoomPort(); }
+    try { port = (await import("./ingest/livekit-room-native.js")).createRtcRoomPort(); }
     catch (err) { console.error(`error: the LiveKit client could not be loaded (${err instanceof Error ? err.name : "error"})`); process.exit(2); }
     const lost = (): void => {
       console.error("speech LiveKit ingest stopped; exiting for a restart");

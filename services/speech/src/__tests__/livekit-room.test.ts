@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 // must be silent before the worker opens a room. This loads the native library (glibc or macOS), like the worker with SPEECH_INGEST=livekit.
 describe("the rtc-node logger (US-0071, A1b Task 7, R26)", () => {
   it("silenceRtcLogger sets the logger the library itself uses to silent", async () => {
-    const { silenceRtcLogger } = await import("../ingest/livekit-room.js");
+    const { silenceRtcLogger } = await import("../ingest/livekit-room-native.js");
     const req = createRequire(import.meta.url);
     const dist = path.dirname(req.resolve("@livekit/rtc-node"));
     const room = req.cache[path.join(dist, "room.cjs")];
@@ -21,18 +21,19 @@ describe("the rtc-node logger (US-0071, A1b Task 7, R26)", () => {
 });
 
 // Batch 3 review F2: RtcConn against a stand-in for rtc-node's Room (an EventEmitter with the same event names). The library's own enum
-// values are used, so a renamed event fails here.
+// values are used (the native module's `rtcBindings`), so a renamed event fails here.
 describe("RtcConn subscriptions (US-0071, A1b batch 3 review F2)", () => {
   const settle = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
   async function setup() {
     const rtc = await import("@livekit/rtc-node");
     const { RtcConn } = await import("../ingest/livekit-room.js");
+    const { rtcBindings } = await import("../ingest/livekit-room-native.js");
     const room = Object.assign(new EventEmitter(), { remoteParticipants: new Map(), disconnect: async () => undefined });
     /** Manual timers (A1b Task 18 D60): `fire()` runs every armed and not cancelled one. */
     const timers: { fn: () => void; ms: number; live: boolean }[] = [];
     const setTimer = (fn: () => void, ms: number) => { const t = { fn, ms, live: true }; timers.push(t); return () => { t.live = false; }; };
     const fire = () => { for (const t of timers.splice(0)) if (t.live) t.fn(); };
-    const conn = new RtcConn(room as never, { setTimer });
+    const conn = new RtcConn(room as never, rtcBindings, { setTimer });
     const subscribed: boolean[] = [];
     const pub = { sid: "TR_1", kind: rtc.TrackKind.KIND_AUDIO, source: rtc.TrackSource.SOURCE_MICROPHONE, setSubscribed: (b: boolean) => { subscribed.push(b); } };
     const participant = { identity: "alice.g11111111", trackPublications: new Map([["TR_1", pub]]) };
@@ -145,8 +146,9 @@ describe("RtcConn listeners never throw into rtc-node's event dispatch (US-0071,
   it("a callback that throws inside TrackPublished is caught and routed to onDisconnected (the ingest then drops the room)", async () => {
     const rtc = await import("@livekit/rtc-node");
     const { RtcConn } = await import("../ingest/livekit-room.js");
+    const { rtcBindings } = await import("../ingest/livekit-room-native.js");
     const room = Object.assign(new EventEmitter(), { remoteParticipants: new Map(), disconnect: async () => undefined });
-    const conn = new RtcConn(room as never);
+    const conn = new RtcConn(room as never, rtcBindings);
     let lost = 0;
     conn.onDisconnected(() => { lost++; });
     conn.onTrack(() => { throw new Error("a bug in a callback"); });
@@ -164,10 +166,111 @@ describe("RtcConn listeners never throw into rtc-node's event dispatch (US-0071,
   it("subscribe whose setSubscribed throws rethrows to the ingest (which retries, bounded) and never from an event", async () => {
     const rtc = await import("@livekit/rtc-node");
     const { RtcConn } = await import("../ingest/livekit-room.js");
+    const { rtcBindings } = await import("../ingest/livekit-room-native.js");
     const room = Object.assign(new EventEmitter(), { remoteParticipants: new Map(), disconnect: async () => undefined });
-    const conn = new RtcConn(room as never);
+    const conn = new RtcConn(room as never, rtcBindings);
     const pub = { sid: "TR_1", kind: rtc.TrackKind.KIND_AUDIO, source: rtc.TrackSource.SOURCE_MICROPHONE, setSubscribed: () => { throw new Error("ffi"); } };
     room.emit(rtc.RoomEvent.TrackPublished, pub, { identity: "alice.g11111111", trackPublications: new Map([["TR_1", pub]]) });
     expect(() => conn.subscribe("TR_1")).toThrow("the LiveKit track could not be subscribed");
+  });
+});
+
+// Review finding 4 (coverage honesty): RtcConn is measured; only the native wiring (livekit-room-native.ts) is excluded. These cover
+// what the stand-in Room above cannot reach with the real AudioStream: the frame format filter, the replay of tracks already in the
+// room, the kind/source mapping, and the waiting reads ended by Disconnected and by our own disconnect.
+describe("RtcConn with stand-in bindings (US-0071, A1b review finding 4)", () => {
+  const settle = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  type Frame = { sampleRate: number; channels: number; data: Int16Array };
+  async function setup(frames: Frame[] = []) {
+    const rtc = await import("@livekit/rtc-node");
+    const { RtcConn } = await import("../ingest/livekit-room.js");
+    const opened: { track: unknown; o: unknown }[] = [];
+    const bindings = {
+      RoomEvent: rtc.RoomEvent, TrackKind: rtc.TrackKind, TrackSource: rtc.TrackSource,
+      audioStream: (track: unknown, o: unknown) => { opened.push({ track, o }); return (async function* () { yield* frames; })(); },
+    };
+    let disconnects = 0;
+    const room = Object.assign(new EventEmitter(), { remoteParticipants: new Map(), disconnect: async () => { disconnects++; } });
+    const timers: (() => void)[] = [];
+    const conn = new RtcConn(room as never, bindings as never, { setTimer: () => () => { timers.push(() => undefined); } });
+    const pub = (sid: string | undefined, kind = rtc.TrackKind.KIND_AUDIO, source = rtc.TrackSource.SOURCE_MICROPHONE) =>
+      ({ sid, kind, source, setSubscribed: () => undefined });
+    return { rtc, room, conn, opened, pub, disconnects: () => disconnects };
+  }
+
+  it("frames yields only 16 kHz mono frames from an AudioStream opened on the subscribed track", async () => {
+    const good = new Int16Array([1, 2, 3]);
+    const t = await setup([
+      { sampleRate: 16000, channels: 1, data: good },
+      { sampleRate: 48000, channels: 1, data: new Int16Array([9]) },
+      { sampleRate: 16000, channels: 2, data: new Int16Array([8]) },
+    ]);
+    const p = t.pub("TR_1");
+    t.room.emit(t.rtc.RoomEvent.TrackPublished, p, { identity: "alice.g11111111", trackPublications: new Map([["TR_1", p]]) });
+    t.conn.subscribe("TR_1");
+    const track = { sid: "TR_1" };
+    t.room.emit(t.rtc.RoomEvent.TrackSubscribed, track, p, {});
+    const got: Int16Array[] = [];
+    for await (const f of t.conn.frames("TR_1", 16000, 1)) got.push(f);
+    expect(got).toEqual([good]);
+    expect(t.opened).toEqual([{ track, o: { sampleRate: 16000, numChannels: 1, frameSizeMs: 20 } }]);
+  });
+
+  it("onTrack replays tracks already in the room and maps kind and source (audio microphone, video, unknown, other)", async () => {
+    const t = await setup();
+    const mic = t.pub("TR_A");
+    const cam = t.pub("TR_V", t.rtc.TrackKind.KIND_VIDEO, t.rtc.TrackSource.SOURCE_CAMERA);
+    const odd = t.pub("TR_U", t.rtc.TrackKind.KIND_UNKNOWN, t.rtc.TrackSource.SOURCE_SCREENSHARE_AUDIO);
+    const nosid = t.pub(undefined);
+    t.room.remoteParticipants.set("alice.g11111111", { identity: "alice.g11111111", trackPublications: new Map<string, unknown>([["a", mic], ["v", cam], ["u", odd], ["n", nosid]]) });
+    const seen: unknown[] = [];
+    t.conn.onTrack((x) => seen.push(x));
+    expect(seen).toEqual([
+      { identity: "alice.g11111111", trackSid: "TR_A", kind: "audio", source: "microphone" },
+      { identity: "alice.g11111111", trackSid: "TR_V", kind: "video", source: "other" },
+      { identity: "alice.g11111111", trackSid: "TR_U", kind: "unknown", source: "other" },
+    ]);
+  });
+
+  it("events without a track sid are ignored, and a gone track is reported to onTrackGone", async () => {
+    const t = await setup();
+    const gone: unknown[] = [];
+    t.conn.onTrackGone((x) => gone.push(x));
+    const p = t.pub(undefined);
+    expect(() => t.room.emit(t.rtc.RoomEvent.TrackSubscribed, {}, p, {})).not.toThrow();
+    expect(() => t.room.emit(t.rtc.RoomEvent.TrackUnsubscribed, {}, p, {})).not.toThrow();
+    t.room.emit(t.rtc.RoomEvent.TrackUnpublished, p, { identity: "alice.g11111111" });
+    expect(gone).toEqual([]);
+    const q = t.pub("TR_1");
+    t.room.emit(t.rtc.RoomEvent.TrackPublished, q, { identity: "alice.g11111111", trackPublications: new Map() });
+    t.room.emit(t.rtc.RoomEvent.ParticipantDisconnected, { identity: "alice.g11111111", trackPublications: new Map([["TR_1", q]]) });
+    expect(gone).toEqual([{ identity: "alice.g11111111", trackSid: "TR_1" }]);
+  });
+
+  it("Disconnected ends a waiting read and reports the room lost once", async () => {
+    const t = await setup();
+    let lost = 0;
+    t.conn.onDisconnected(() => { lost++; });
+    t.conn.onDisconnected(() => { throw new Error("a bug in a callback"); }); // never escapes
+    const it = t.conn.frames("TR_1", 16000, 1)[Symbol.asyncIterator]();
+    const next = it.next();
+    await settle();
+    expect(() => t.room.emit(t.rtc.RoomEvent.Disconnected)).not.toThrow();
+    expect(await next).toEqual({ done: true, value: undefined });
+    t.room.emit(t.rtc.RoomEvent.Disconnected);
+    expect(lost).toBe(1);
+  });
+
+  it("our own disconnect ends a waiting read, closes the room and is never reported as lost", async () => {
+    const t = await setup();
+    let lost = 0;
+    t.conn.onDisconnected(() => { lost++; });
+    const next = t.conn.frames("TR_1", 16000, 1)[Symbol.asyncIterator]().next();
+    await settle();
+    await t.conn.disconnect();
+    expect(await next).toEqual({ done: true, value: undefined });
+    expect(t.disconnects()).toBe(1);
+    t.room.emit(t.rtc.RoomEvent.Disconnected);
+    expect(lost).toBe(0);
   });
 });

@@ -46,8 +46,9 @@ describe("speech sources and the other services", () => {
 });
 
 // US-0071 (EPIC-0003 voice A1b, Task 7): `@livekit/rtc-node` is native and glibc-only; a file-ingest worker (the demo, CI, any host
-// without LiveKit) must never load it. Only src/ingest/livekit-room.ts imports it, and main.ts loads that file dynamically, only for
-// SPEECH_INGEST=livekit. Each probe is a fresh Node process that records every resolved URL and dumps its CommonJS require.cache.
+// without LiveKit) must never load it. Only src/ingest/livekit-room-native.ts imports it, and main.ts loads that file dynamically, only
+// for SPEECH_INGEST=livekit. RtcConn (livekit-room.ts) takes the library's values injected, so it loads nothing native (review finding 4).
+// Each probe is a fresh Node process that records every resolved URL and dumps its CommonJS require.cache.
 describe("the speech worker and @livekit/rtc-node (US-0071)", () => {
   const run = promisify(execFile);
   const pkgDir = path.resolve(SRC, "..");
@@ -78,12 +79,13 @@ describe("the speech worker and @livekit/rtc-node (US-0071)", () => {
   }
   const rtc = (keys: string[]) => keys.filter((u) => u.includes("@livekit/rtc-node") || u.includes("rtc-ffi-bindings") || u.includes("@livekit+rtc"));
 
-  it("only src/ingest/livekit-room.ts names @livekit/rtc-node, and main.ts loads it only by a dynamic import", () => {
+  it("only src/ingest/livekit-room-native.ts names @livekit/rtc-node, and main.ts loads it only by a dynamic import", () => {
     const users = sources(SRC).filter((f) => specifiers(readFileSync(f, "utf8")).some((sp) => sp.startsWith("@livekit/rtc-node")));
-    expect(users.map((f) => path.relative(SRC, f))).toEqual([path.join("ingest", "livekit-room.ts")]);
+    expect(users.map((f) => path.relative(SRC, f))).toEqual([path.join("ingest", "livekit-room-native.ts")]);
     const main = readFileSync(path.join(SRC, "main.ts"), "utf8");
-    expect(main).toMatch(/await import\("\.\/ingest\/livekit-room\.js"\)/);
-    expect(main).not.toMatch(/from "\.\/ingest\/livekit-room\.js"/);
+    expect(main).toMatch(/await import\("\.\/ingest\/livekit-room-native\.js"\)/);
+    expect(main).not.toMatch(/from "\.\/ingest\/livekit-room(-native)?\.js"/);
+    expect(main).not.toMatch(/import\("\.\/ingest\/livekit-room\.js"\)/);
   });
 
   it("a file-ingest run never loads @livekit/rtc-node (main, the worker, both ingests and the config)", async () => {
@@ -92,8 +94,14 @@ describe("the speech worker and @livekit/rtc-node (US-0071)", () => {
     expect(rtc(keys)).toEqual([]);
   }, 90_000);
 
-  it("importing livekit-room.ts does load it (the probe works)", async () => {
-    const keys = await loadedBy(["ingest/livekit-room.ts"], "room");
+  it("importing livekit-room-native.ts does load it (the probe works)", async () => {
+    const keys = await loadedBy(["ingest/livekit-room-native.ts"], "room");
     expect(rtc(keys).length).toBeGreaterThan(0);
+  }, 90_000);
+
+  it("importing livekit-room.ts (RtcConn) loads nothing native: it is unit-tested and measured by coverage", async () => {
+    const keys = await loadedBy(["ingest/livekit-room.ts"], "conn");
+    expect(keys.some((u) => u.includes("/src/ingest/livekit-room.ts"))).toBe(true);
+    expect(rtc(keys)).toEqual([]);
   }, 90_000);
 });

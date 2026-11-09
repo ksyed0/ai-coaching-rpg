@@ -1,6 +1,6 @@
 /**
  * US-0071 (EPIC-0003 voice A1b, Task 7): the LiveKit room as the ingest sees it, behind a port so the privacy rules are tested with a
- * fake (`__tests__/fake-room.ts`) and only `livekit-room.ts` loads `@livekit/rtc-node`. A track is described by what the ingest may use
+ * fake (`__tests__/fake-room.ts`) and only `livekit-room-native.ts` loads `@livekit/rtc-node`. A track is described by what the ingest may use
  * and nothing more: the publisher's identity, the track's id, its kind and whether it is a microphone. Never a track name, a participant
  * name, metadata or attributes (Global Constraints).
  */

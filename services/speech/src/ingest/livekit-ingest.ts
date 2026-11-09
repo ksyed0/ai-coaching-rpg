@@ -44,7 +44,7 @@ type Room = {
  * US-0071 (EPIC-0003 voice A1b, Task 7, R9, Review Focus 1 and 2): live audio from LiveKit, the worker's half of the privacy invariant at
  * the source.
  *  - **One connection per seat room.** A role that appears in the allowed set has its room joined (`join` asks control for a fresh
- *    worker token: never reused) and the connection is kept for the session; auto-subscribe is off (livekit-room.ts).
+ *    worker token: never reused) and the connection is kept for the session; auto-subscribe is off (livekit-room-native.ts).
  *  - **Subscription.** A track is subscribed only when it is audio from a microphone, its identity parses as THIS room's role with the
  *    generation the allowed set names for it, and no other track of that identity is subscribed. Nothing else of a participant is read.
  *  - **Per-frame gate.** A track loop's role and generation are fixed when it starts; before EVERY frame it checks, synchronously, that
