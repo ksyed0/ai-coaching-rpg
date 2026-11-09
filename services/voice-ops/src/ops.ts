@@ -2,6 +2,7 @@ import { lstatSync, readdirSync, unlinkSync } from "node:fs";
 import type os from "node:os";
 import path from "node:path";
 import type { Run, SetTimer, SpawnDetached } from "./run.js";
+import { LiveKitEnvError } from "./compose.js";
 import { StateDirError } from "./state.js";
 import { EnvFileError } from "./env-file.js";
 import { isHex } from "./text.js";
@@ -38,9 +39,12 @@ export function alive(kill: OpsDeps["kill"], pid: number): boolean {
   try { kill(pid, 0); return true; } catch (err) { return (err as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
-/** The message of an error voice-ops made (fixed sentences); anything else becomes a fixed sentence, never Node's text (it names paths). */
+/**
+ * The message of an error voice-ops made (fixed sentences naming a variable, never a value or a path: StateDirError, EnvFileError and,
+ * review B2 F12, LiveKitEnvError); anything else becomes a fixed sentence, never Node's text (it names paths).
+ */
 export function sentenceOf(err: unknown, fallback: string): string {
-  if (err instanceof StateDirError || err instanceof EnvFileError) return err.message;
+  if (err instanceof StateDirError || err instanceof EnvFileError || err instanceof LiveKitEnvError) return err.message;
   return fallback;
 }
 

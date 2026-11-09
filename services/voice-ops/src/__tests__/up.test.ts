@@ -1,6 +1,8 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { LiveKitEnvError } from "../compose.js";
+import { sentenceOf } from "../ops.js";
 import { LOCK_FILE, readState } from "../state.js";
 import { tlsRouteAnswers } from "../tls-route.js";
 import { voiceDown } from "../down.js";
@@ -518,6 +520,22 @@ describe("voiceUp lock and leftovers", () => {
     expect(said).toContain("removed a leftover temporary file (.env.voice-ops.*.tmp)");
     expect(said).toContain("left alone a leftover .env.voice-ops.*.tmp that is not a regular file of yours");
     expect(said).not.toContain(w.repoRoot);
+  });
+});
+
+// Review B2 F12: a writeLiveKitEnv refusal (LiveKitEnvError: a fixed sentence naming the variable) is shown as such, not "voice:up failed".
+describe("voiceUp and LiveKitEnvError", () => {
+  it("sentenceOf maps LiveKitEnvError to its fixed sentence and anything else to the fallback", () => {
+    const e = new LiveKitEnvError("LIVEKIT_API_KEY");
+    expect(sentenceOf(e, "fallback")).toBe(e.message);
+    expect(e.message.startsWith("LIVEKIT_API_KEY is missing or outside LiveKit's key rule")).toBe(true);
+    expect(sentenceOf(new Error("/a/path/that/must/not/show"), "fallback")).toBe("fallback");
+  });
+
+  // Through voiceUp the writer refuses such a pair first (ensureVoiceSecrets applies the same key rule to .env), so writeLiveKitEnv's
+  // refusal is a defence in depth; the mapping above is what keeps it a fixed sentence if it is ever reached.
+  it("each LiveKitEnvError names only its variable", () => {
+    for (const v of ["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const) expect(sentenceOf(new LiveKitEnvError(v), "fallback").startsWith(`${v} is missing`)).toBe(true);
   });
 });
 
