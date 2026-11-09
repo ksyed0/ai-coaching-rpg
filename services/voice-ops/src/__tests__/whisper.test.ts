@@ -216,6 +216,19 @@ describe("startWhisper and stopWhisper, with fakes (US-0072, A1c Task 4)", () =>
     expect(order).toEqual(["started:whisper-server", "health", "warm"]);
   });
 
+  // Review B2 F7: the record is handed over synchronously after the spawn (comm = whisper-server), then refined when ps says otherwise.
+  it("onStarted runs before the first ps call, and again with the comm ps reads when it differs", async () => {
+    const timers = autoTimers();
+    const sys = fakeSystem({ startedAt: () => timers.now(), comm: "whisper-server-1.9" });
+    const order: string[] = [];
+    const run: Run = async (cmd, args, o) => { order.push(`ps:${args[1]}`); return sys.run(cmd, args, o); };
+    await startWhisper({
+      spawnDetached: sys.spawnDetached, run, kill: sys.kill, env: {}, stateDir: stateDir(), sttUrl: sttUrl(), modelFile: "/m.bin",
+      health: async () => "ok", warm: async () => {}, setTimer: timers.setTimer, now: timers.now, onStarted: (w) => { order.push(`started:${w.comm}`); },
+    });
+    expect(order).toEqual(["started:whisper-server", "ps:comm=", "started:whisper-server-1.9"]);
+  });
+
   it("waits through loading and warms once ok", async () => {
     const answers: HealthAnswer[] = ["down", "loading", "loading", "ok"];
     const { p, order, timers } = setup({ health: async () => answers.shift() ?? "ok" });

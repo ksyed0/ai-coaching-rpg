@@ -237,6 +237,31 @@ describe("voiceUp fresh start", () => {
   });
 });
 
+// Review B2 F7: the whisper record is in state.json from the moment of the spawn (before the first ps), so a CLI killed right after the
+// spawn leaves a record voice:down can act on.
+describe("voiceUp records whisper-server synchronously after the spawn (review B2 F7)", () => {
+  it("state.json names the new pid before the first ps call after the spawn", async () => {
+    const w = world();
+    let spawned = false;
+    let atFirstPs: unknown = "never asked";
+    w.onStep = (step) => {
+      if (step === "spawn") spawned = true;
+      else if (step === "ps" && spawned && atFirstPs === "never asked") atFirstPs = readState(w.stateDir)?.whisper ?? null;
+    };
+    expect(await voiceUp(w.deps())).toBe(0);
+    expect(atFirstPs).toEqual({ pid: 4000, port: 23456, startedAt: 1_800_000_000_000, comm: "whisper-server" });
+  });
+
+  it("a spawn whose comm cannot be read clears that early record again", async () => {
+    const w = world();
+    let spawned = false;
+    w.onStep = (step) => { if (step === "spawn") spawned = true; else if (step === "ps" && spawned) w.procs.clear(); };
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(existsSync(w.statePath)).toBe(false);
+    expect(w.out.join("\n")).toContain("whisper-server exited while starting");
+  });
+});
+
 describe("voiceUp rollback", () => {
   it("compose failure stops whisper-server and clears the state", async () => {
     const w = world();

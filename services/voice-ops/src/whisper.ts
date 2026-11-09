@@ -148,8 +148,9 @@ function sleep(setTimer: SetTimer, ms: number, signal?: AbortSignal): Promise<"s
 
 /**
  * Starts whisper-server and waits until it is healthy and warm. `onStarted` receives the pid, `startedAt` (the injected clock right
- * after the spawn) and the `ps -o comm=` basename read right after the spawn, BEFORE the first health poll: Task 7 writes them into the
- * state then, so a crash or an interrupt during the wait leaves nothing that `voice:down` cannot find. Rejects WhisperStartError after
+ * after the spawn) and the comm: first synchronously right after the spawn with `whisper-server` (review B2 F7), then once more with the
+ * `ps -o comm=` basename if that differs, all BEFORE the first health poll: Task 7 writes them into the state, so a crash, a kill or an
+ * interrupt during the wait leaves nothing that `voice:down` cannot find. Rejects WhisperStartError after
  * stopping the process through its own handle (`stopSpawned`): `not_ready` (no ok within WHISPER_READY_WAIT_MS), `warm_failed`,
  * `exited` (it died while starting), `interrupted` (`signal` aborted: Task 7's Ctrl-C), `bad_url` and `spawn_failed` (nothing was
  * started); `not_stopped` (with `after` = the reason the start failed) when the process could not be stopped: then it may still run,
@@ -177,9 +178,12 @@ export async function startWhisper(o: {
     const r = await stopSpawned(child, { kill: o.kill, setTimer: o.setTimer, graceMs: o.graceMs ?? WHISPER_STOP_GRACE_MS });
     throw r === "stopped" ? new WhisperStartError(code) : new WhisperStartError("not_stopped", code);
   };
+  // Review B2 F7: the record is handed over SYNCHRONOUSLY, before the first await, with the binary's own name (one exec: what ps
+  // reports for it), so a CLI killed right after the spawn leaves a record voice:down can act on; then refined if ps says otherwise.
+  o.onStarted({ pid, startedAt, comm: WHISPER_BINARY });
   const comm = await readComm(pid, o.run);
-  if (comm === null) return fail("exited"); // gone already, or ps cannot see it: it is never recorded
-  o.onStarted({ pid, startedAt, comm });
+  if (comm === null) return fail("exited"); // gone already, or ps cannot see it: stopped through the handle, the caller drops the record
+  if (comm !== WHISPER_BINARY) o.onStarted({ pid, startedAt, comm });
   for (;;) {
     if (o.signal?.aborted) return fail("interrupted");
     const answer = await o.health();

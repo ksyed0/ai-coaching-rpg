@@ -106,6 +106,7 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     const ok = (stdout = ""): RunResult => ({ code: 0, stdout, stderr: "" });
     if (cmd === "git") return w.git();
     if (cmd === "ps") {
+      w.onStep("ps");
       if (w.psFails) return { code: null, stdout: "", stderr: "" };
       const pid = Number(args[3]);
       const p = w.procs.get(pid);
