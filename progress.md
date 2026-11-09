@@ -589,3 +589,10 @@ See the batch report; summary: `pnpm -r typecheck` clean, `pnpm test:coverage` e
 ### Next
 
 The controller's final independent review; then the PR into `develop`; then the owner-approved real run (TC-0204), which must pass before AC-0417, AC-0419, AC-0420 and AC-0422 are ticked; then A2 (audio retention).
+
+### Session 43 close-out (after the merge)
+
+- **Merged:** PR #135 (US-0072, voice A1c) squash-merged into `develop` as 6151032 after CI was green; the feature branch was deleted. Review D (whole branch, documents) found no Critical or Important issues; its seven Minor items went in as b724455.
+- **CI fixes on the PR:** the voice-ops SIGINT test failed only on the Linux runner because pnpm 9.15.9 itself exits 0 after a group SIGINT (the CLI's own 130 is now proven by a direct test with no pnpm); one flaky control test (`bots.real.test.ts`) now waits for the second human's copy; eight CodeQL alerts were fixed without changing behaviour (rejection sampling for the STT port, no `rejectUnauthorized: false` in the TLS route probe, WebCrypto HMAC for the LiveKit admin token, child programs that read data from argv, single-descriptor reads in the env-file tests), then two follow-up file-system-race alerts in the same test (loops 314bce5, ec8fbe1, de9860f, 4f5f0ec). All threads replied to and resolved.
+- **State:** US-0072 stays In Progress; AC-0417, AC-0419, AC-0420, AC-0422 stay open until the owner-approved real run (TC-0204, `docs/VOICE_RUNBOOK.md` section 11). Voice stays dark (`VOICE_ENABLED=0`) and must not go live before A2.
+- **Next:** the owner decides when to do the real run; then A2 (audio retention) and A3. Open owner items: save the uncommitted cost-log rows, rotate the OpenRouter key, the room test, domain and certificate (US-0048), legal and HR items (deferred).
