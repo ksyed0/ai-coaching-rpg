@@ -65,8 +65,8 @@ describe("livekitKeysCheck", () => {
   const now = 1_800_000_000_000;
   const b64 = (s: string): unknown => JSON.parse(Buffer.from(s, "base64url").toString("utf8"));
 
-  it("the admin token is HS256 with only roomList and a 60 s expiry", () => {
-    const t = adminToken(key, secret, now);
+  it("the admin token is HS256 with only roomList and a 60 s expiry (signed through WebCrypto HMAC, PR #135)", async () => {
+    const t = await adminToken(key, secret, now);
     const [h, p, sig] = t.split(".") as [string, string, string];
     expect(b64(h)).toEqual({ alg: "HS256", typ: "JWT" });
     expect(b64(p)).toEqual({ iss: key, nbf: now / 1000, exp: now / 1000 + 60, video: { roomList: true } });
@@ -83,7 +83,7 @@ describe("livekitKeysCheck", () => {
     const host = new URL(`http://127.0.0.1:${port}`);
     const ok = await livekitKeysCheck({ host, key, secret, now });
     expect(ok).toEqual({ name: "livekit-keys", level: "ok", line: "LiveKit accepts control's keys" });
-    expect(seen).toEqual([{ url: "/twirp/livekit.RoomService/ListRooms", method: "POST", auth: `Bearer ${adminToken(key, secret, now)}`, body: "{}" }]);
+    expect(seen).toEqual([{ url: "/twirp/livekit.RoomService/ListRooms", method: "POST", auth: `Bearer ${await adminToken(key, secret, now)}`, body: "{}" }]);
     status = 401;
     expect(await livekitKeysCheck({ host, key, secret, now })).toEqual({ name: "livekit-keys", level: "fail", line: "LiveKit does not accept control's keys: run pnpm voice:down and pnpm voice:up" });
     status = 500;
@@ -97,7 +97,7 @@ describe("livekitKeysCheck", () => {
     const lines: string[] = [];
     for (const st of [200]) { void st; lines.push((await livekitKeysCheck({ host: new URL(`http://127.0.0.1:${port}`), key, secret, now })).line); }
     lines.push((await livekitKeysCheck({ host: new URL("http://127.0.0.1:1"), key, secret, now })).line);
-    const token = adminToken(key, secret, now);
+    const token = await adminToken(key, secret, now);
     for (const l of lines) for (const v of [token, key, secret, "seat-room-secret-name", token.split(".")[2]!]) expect(l).not.toContain(v);
   });
 

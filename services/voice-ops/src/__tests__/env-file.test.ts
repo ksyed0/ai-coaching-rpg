@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, chownSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, appendFileSync } from "node:fs";
+import { chmodSync, chownSync, closeSync, fchmodSync, fstatSync, linkSync, lstatSync, openSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, appendFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
@@ -159,8 +159,12 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       const file = envFile("A=1\n");
       const saved = process.umask(mask);
       try { await ensure(file); } finally { process.umask(saved); }
-      expect(statSync(file).mode & 0o777, mask.toString(8)).toBe(0o600);
-      expect(parseEnv(readFileSync(file, "utf8")).STT_URL).toBeDefined();
+      // One descriptor for the mode and the content (PR #135, CodeQL js/file-system-race: no check-then-use of the path).
+      const fd = openSync(file, "r");
+      try {
+        expect(fstatSync(fd).mode & 0o777, mask.toString(8)).toBe(0o600);
+        expect(parseEnv(readFileSync(fd, "utf8")).STT_URL).toBeDefined();
+      } finally { closeSync(fd); }
     }
   });
 
@@ -379,7 +383,9 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     {
       const file = envFile("A=1\n");
       const r = readPrivateEnv(file);
-      for (let i = 0; i < 1_000_000 && lstatSync(file).ctimeMs === r.id.ctimeMs; i++) chmodSync(file, 0o600);
+      // Through one descriptor (PR #135, js/file-system-race): fchmod until the ctime has moved, read back with fstat.
+      const fd = openSync(file, "r");
+      try { for (let i = 0; i < 1_000_000 && fstatSync(fd).ctimeMs === r.id.ctimeMs; i++) fchmodSync(fd, 0o600); } finally { closeSync(fd); }
       const now = lstatSync(file);
       expect([now.ctimeMs !== r.id.ctimeMs, now.mtimeMs, now.size, now.ino]).toEqual([true, r.id.mtimeMs, r.id.size, r.id.ino]);
       expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));

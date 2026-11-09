@@ -73,9 +73,10 @@ describe("realRun (US-0072, A1c Task 3)", () => {
     const dir = newDir();
     const ready = path.join(dir, "ready");
     const ended = path.join(dir, "ended");
-    const code = `const fs=require("node:fs");process.on("SIGTERM",()=>{setTimeout(()=>{fs.writeFileSync(${JSON.stringify(ended)},"x");process.exit(0)},300)});fs.writeFileSync(${JSON.stringify(ready)},"x");setInterval(()=>{},1000)`;
+    // A fixed program; the two paths are arguments, never generated code (PR #135, CodeQL js/bad-code-sanitization).
+    const code = 'const fs=require("node:fs");const [ended,ready]=process.argv.slice(1);process.on("SIGTERM",()=>{setTimeout(()=>{fs.writeFileSync(ended,"x");process.exit(0)},300)});fs.writeFileSync(ready,"x");setInterval(()=>{},1000)';
     const ctl = new AbortController();
-    const p = realRun(process.execPath, ["-e", code], { env: {}, signal: ctl.signal, timeoutMs: 60_000 });
+    const p = realRun(process.execPath, ["-e", code, ended, ready], { env: {}, signal: ctl.signal, timeoutMs: 60_000 });
     await vi.waitFor(() => { expect(existsSync(ready)).toBe(true); }, { timeout: 60_000, interval: 20 });
     ctl.abort();
     const r = await p;
@@ -105,9 +106,9 @@ describe("realRun (US-0072, A1c Task 3)", () => {
   it("refuses a call without an environment and starts nothing", async () => {
     const loose = realRun as unknown as (cmd: string, args: string[], o?: object) => Promise<unknown>;
     const marker = path.join(newDir(), "ran");
-    const code = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`;
-    await expect(loose(process.execPath, ["-e", code])).rejects.toThrow("needs an explicit environment");
-    await expect(loose(process.execPath, ["-e", code], { timeoutMs: 1000 })).rejects.toThrow("needs an explicit environment");
+    const code = 'require("node:fs").writeFileSync(process.argv[1], "x")';
+    await expect(loose(process.execPath, ["-e", code, marker])).rejects.toThrow("needs an explicit environment");
+    await expect(loose(process.execPath, ["-e", code, marker], { timeoutMs: 1000 })).rejects.toThrow("needs an explicit environment");
     expect(existsSync(marker)).toBe(false);
   });
 

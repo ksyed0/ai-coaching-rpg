@@ -1,7 +1,8 @@
 import dgram from "node:dgram";
 import net from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { portFree } from "../port-probe.js";
+import { STT_PORT_MAX, STT_PORT_MIN } from "../env-file.js";
+import { drawSttPort, portFree } from "../port-probe.js";
 
 // US-0072 (review B2 F10): the port probe of voice:up and voice:check against REAL loopback listeners. libuv sets SO_REUSEADDR on TCP
 // listeners, and on macOS (BSD rules) that lets a probe bind 127.0.0.1:<p> while ANOTHER socket listens on the wildcard 0.0.0.0:<p> or
@@ -48,5 +49,33 @@ describe("portFree", () => {
     await new Promise<void>((r) => sock.bind(0, "0.0.0.0", () => r()));
     open.push(sock);
     expect(await portFree("127.0.0.1", sock.address().port, "udp")).toBe("taken");
+  });
+});
+
+describe("drawSttPort (PR #135 CodeQL js/biased-cryptographic-random)", () => {
+  /** A random source that hands out the given 16-bit values in order. */
+  const source = (values: number[]) => { const left = [...values]; return (n: number): Buffer => { expect(n).toBe(2); const b = Buffer.alloc(2); b.writeUInt16BE(left.shift()!, 0); return b; }; };
+
+  it("maps an accepted 16-bit draw onto 20000..32767 without modulo bias: values at or above the largest multiple of the range are redrawn", () => {
+    const range = STT_PORT_MAX - STT_PORT_MIN + 1; // 12768
+    const limit = 65536 - (65536 % range); // 63840: five whole copies of the range
+    expect(drawSttPort(source([0]))).toBe(STT_PORT_MIN);
+    expect(drawSttPort(source([4]))).toBe(STT_PORT_MIN);
+    expect(drawSttPort(source([5]))).toBe(STT_PORT_MIN + 1);
+    expect(drawSttPort(source([limit - 1]))).toBe(STT_PORT_MAX);
+    expect(drawSttPort(source([limit, 65535, 5]))).toBe(STT_PORT_MIN + 1); // two rejected draws, then 5
+  });
+
+  it("every value of the range is hit equally often over all accepted draws", () => {
+    const counts = new Map<number, number>();
+    const range = STT_PORT_MAX - STT_PORT_MIN + 1;
+    for (let v = 0; v < 65536; v++) {
+      const b = Buffer.alloc(2); b.writeUInt16BE(v, 0);
+      let first = true;
+      const p = drawSttPort(() => { if (first) { first = false; return b; } const z = Buffer.alloc(2); return z; });
+      if (v < 65536 - (65536 % range)) counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
+    expect(counts.size).toBe(range);
+    expect(new Set(counts.values())).toEqual(new Set([5]));
   });
 });

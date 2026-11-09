@@ -1,5 +1,6 @@
 import dgram from "node:dgram";
 import net from "node:net";
+import { STT_PORT_MAX, STT_PORT_MIN } from "./env-file.js";
 import type { PortProbe } from "./ops.js";
 
 /**
@@ -40,4 +41,19 @@ export async function portFree(host: string, port: number, proto: "tcp" | "udp")
   const bound = await bindProbe(host, port, proto);
   if (bound !== "free" || proto === "udp") return bound;
   return (await accepts(host, port)) ? "taken" : "free";
+}
+
+/**
+ * PR #135 (CodeQL js/biased-cryptographic-random): one STT port, uniform over STT_PORT_MIN..STT_PORT_MAX, from 16-bit draws of `random`
+ * (crypto.randomBytes in the CLI). A draw at or above the largest multiple of the range is redrawn (rejection sampling), so no port
+ * is likelier than another; a draw is rejected with probability under 3%.
+ */
+export function drawSttPort(random: (n: number) => Buffer): number {
+  const range = STT_PORT_MAX - STT_PORT_MIN + 1; // 12768
+  const copies = Math.floor(65536 / range); // 5 whole copies of the range fit in 16 bits
+  const limit = copies * range; // 63840
+  for (;;) {
+    const v = random(2).readUInt16BE(0);
+    if (v < limit) return STT_PORT_MIN + Math.floor(v / copies); // each port has exactly `copies` accepted draws
+  }
 }

@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,8 +23,8 @@ const MODULE = fileURLToPath(new URL("../../voice/timing-log.ts", import.meta.ur
 describe("timingLogSink (US-0072, A1c Task 12)", () => {
   it.skipIf(process.platform === "win32")("review C M1: a FIFO at the record's path is refused at once, never waited on (a child process with a 20 s bound)", () => {
     execFileSync("mkfifo", [path.join(dir, TIMING_LOG_FILE)]);
-    const script = `const { timingLogSink } = await import(${JSON.stringify(MODULE)}); const logs = []; timingLogSink(${JSON.stringify(dir)}, { log: (m) => logs.push(m) })("x"); process.stdout.write(JSON.stringify(logs));`;
-    const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: path.dirname(MODULE), timeout: 20_000, encoding: "utf8" });
+    const script = 'const [mod, dir] = process.argv.slice(1); const { timingLogSink } = await import(mod); const logs = []; timingLogSink(dir, { log: (m) => logs.push(m) })("x"); process.stdout.write(JSON.stringify(logs));';
+    const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, pathToFileURL(MODULE).href, dir], { cwd: path.dirname(MODULE), timeout: 20_000, encoding: "utf8" });
     expect(r.error, "the child did not finish in time (the open blocked)").toBeUndefined();
     expect(r.status).toBe(0);
     expect(JSON.parse(r.stdout) as string[]).toEqual([expect.stringMatching(/^voice timing line could not be written \([A-Z]+\)$/)]);

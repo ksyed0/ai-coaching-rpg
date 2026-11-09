@@ -41,8 +41,9 @@ if (args[0] === "compose" && args[1] === "version") {
     process.on("SIGTERM", () => process.exit(143));
     setInterval(() => {}, 1000);
   } else {
-    const code = `const s=require("node:http").createServer((q,r)=>{r.writeHead(200);r.end("OK")});s.listen(${port},"127.0.0.1",()=>require("node:fs").writeFileSync(${JSON.stringify(pidFile)},String(process.pid)));process.on("SIGTERM",()=>process.exit(0));`;
-    const child = spawn(process.execPath, ["-e", code], {
+    // A fixed program; the port and the pid file reach it as arguments, never as generated code (PR #135, CodeQL js/bad-code-sanitization).
+    const code = 'const [port,pidFile]=process.argv.slice(1);const s=require("node:http").createServer((q,r)=>{r.writeHead(200);r.end("OK")});s.listen(Number(port),"127.0.0.1",()=>require("node:fs").writeFileSync(pidFile,String(process.pid)));process.on("SIGTERM",()=>process.exit(0));';
+    const child = spawn(process.execPath, ["-e", code, String(port), pidFile], {
       detached: true,
       stdio: "ignore",
     });

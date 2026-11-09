@@ -9,12 +9,11 @@ import { fileURLToPath } from "node:url";
 import { httpAnswers } from "@acr/adapters";
 import { voiceCheck, type CheckDeps } from "./check.js";
 import { voiceDown } from "./down.js";
-import { STT_PORT_MAX, STT_PORT_MIN } from "./env-file.js";
 import type { OpsDeps } from "./ops.js";
 import { realRun, realSpawnDetached, type SetTimer } from "./run.js";
 import { makeResolver } from "./checks/dns.js";
 import { trustStore } from "./trust.js";
-import { portFree } from "./port-probe.js";
+import { drawSttPort, portFree } from "./port-probe.js";
 import { exitCodeOf, installSignals, lastLine, type RollbackOutcome } from "./signals.js";
 import { voiceTimings } from "./timings.js";
 import { voiceUpOutcome } from "./up.js";
@@ -51,7 +50,7 @@ const refSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); return
 
 async function freePort(): Promise<number> {
   for (let i = 0; i < 20; i++) {
-    const port = STT_PORT_MIN + (randomBytes(2).readUInt16BE(0) % (STT_PORT_MAX - STT_PORT_MIN + 1));
+    const port = drawSttPort((n) => randomBytes(n)); // unbiased (rejection sampling), PR #135
     if ((await portFree("127.0.0.1", port, "tcp")) === "free") return port;
   }
   throw new Error("no free port for whisper-server in 20000..32767");
@@ -65,7 +64,9 @@ function tlsConnect(host: string, port: number, servername: string): Promise<{ a
   return new Promise((resolve) => {
     let done = false;
     const finish = (v: { authorized: boolean; status: number | null }): void => { if (!done) { done = true; sock.destroy(); resolve(v); } };
-    const sock = tls.connect({ host, port, servername, ca: TRUST.cas, rejectUnauthorized: false, timeout: 5_000 });
+    // Certificate validation stays ON (PR #135): an untrusted or wrong-host certificate fails the handshake ('error' below), which the
+    // checks report as "no trusted certificate"; `socket.authorized` is checked again before the request is sent.
+    const sock = tls.connect({ host, port, servername, ca: TRUST.cas, timeout: 5_000 });
     let buf = "";
     sock.once("secureConnect", () => {
       if (!sock.authorized) { finish({ authorized: false, status: null }); return; }

@@ -450,20 +450,22 @@ describe("whisperHealth and whisperWarm against a loopback server (US-0072, A1c 
     const dir = newDir();
     const script = path.join(dir, "probe.mts");
     const url = `http://127.0.0.1:${target.port}${REQUEST_PATH}`;
+    // A fixed program; the module, the URL and the self-check URL are arguments, never generated code (PR #135, js/bad-code-sanitization).
     writeFileSync(script, `
       import http from "node:http";
-      const { whisperHealth, whisperWarm } = await import(${JSON.stringify(whisperFile)});
-      const health = await whisperHealth(new URL(${JSON.stringify(url)}));
+      const [whisperFile, url, selfcheck] = process.argv.slice(2);
+      const { whisperHealth, whisperWarm } = await import(whisperFile);
+      const health = await whisperHealth(new URL(url));
       let warmed = true;
-      try { await whisperWarm(new URL(${JSON.stringify(url)})); } catch { warmed = false; }
-      await new Promise((r) => { const q = http.get(${JSON.stringify(`http://127.0.0.1:${target.port}/selfcheck`)}, (res) => { res.resume(); res.on("end", r); }); q.on("error", r); });
+      try { await whisperWarm(new URL(url)); } catch { warmed = false; }
+      await new Promise((r) => { const q = http.get(selfcheck, (res) => { res.resume(); res.on("end", r); }); q.on("error", r); });
       process.stdout.write(JSON.stringify({ health, warmed }));
       process.exit(0);`);
     const proxyUrl = `http://127.0.0.1:${proxy.port}`;
     const env = { PATH: process.env.PATH ?? "", HOME: dir, NODE_USE_ENV_PROXY: "1", HTTP_PROXY: proxyUrl, http_proxy: proxyUrl, NO_PROXY: "", no_proxy: "" };
     try {
       const out = await new Promise<string>((resolve, reject) => {
-        execFile(process.execPath, ["--import", "tsx", script], { env, cwd: PACKAGE_DIR, timeout: 60_000 }, (err, stdout, stderr) => {
+        execFile(process.execPath, ["--import", "tsx", script, whisperFile, url, `http://127.0.0.1:${target.port}/selfcheck`], { env, cwd: PACKAGE_DIR, timeout: 60_000 }, (err, stdout, stderr) => {
           if (err) reject(new Error(`child failed: ${String(stderr).slice(0, 500)}`)); else resolve(String(stdout));
         });
       });

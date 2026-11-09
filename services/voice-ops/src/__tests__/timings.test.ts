@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -104,8 +104,8 @@ describe("readTimingFile (US-0072, A1c Task 12)", () => {
     const fifo = path.join(dir, "fifo.log");
     execFileSync("mkfifo", [fifo]);
     const mod = fileURLToPath(new URL("../timings.ts", import.meta.url));
-    const script = `const { readTimingFile } = await import(${JSON.stringify(mod)}); process.stdout.write(JSON.stringify(readTimingFile(${JSON.stringify(fifo)})));`;
-    const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: path.dirname(mod), timeout: 20_000, encoding: "utf8" });
+    const script = 'const [mod, fifo] = process.argv.slice(1); const { readTimingFile } = await import(mod); process.stdout.write(JSON.stringify(readTimingFile(fifo)));';
+    const r = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script, pathToFileURL(mod).href, fifo], { cwd: path.dirname(mod), timeout: 20_000, encoding: "utf8" });
     expect(r.error, "the child did not finish in time (the open blocked)").toBeUndefined();
     expect(JSON.parse(r.stdout)).toEqual({ ok: false, why: "not_file" });
   }, 90_000);
