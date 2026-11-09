@@ -78,7 +78,7 @@ export type LauncherStackOptions = {
      * these keys and LIVEKIT_HOST (its speech workers subscribe to the seat rooms), and the web server's LIVEKIT_URL is `url`. Never
      * set in the default suite (no LiveKit server there).
      */
-    live?: { url: string; host: string; apiKey: string; apiSecret: string };
+    live?: { url: string; host: string; issuer: string; apiSecret: string };
     /** The fake speech-to-text script: role id -> the lines its segments give, in order (default: none, every segment is empty). */
     sttLines?: Record<string, string[]>;
   };
@@ -92,7 +92,7 @@ async function voiceEnv(dir: string, v: NonNullable<LauncherStackOptions["voice"
   if (v.live) {
     return {
       script,
-      env: { ...common, SPEECH_INGEST: "livekit", LIVEKIT_API_KEY: v.live.apiKey, LIVEKIT_API_SECRET: v.live.apiSecret, LIVEKIT_HOST: v.live.host },
+      env: { ...common, SPEECH_INGEST: "livekit", LIVEKIT_API_KEY: v.live.issuer, LIVEKIT_API_SECRET: v.live.apiSecret, LIVEKIT_HOST: v.live.host },
     };
   }
   const ingest = path.join(dir, "ingest");

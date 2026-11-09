@@ -70,18 +70,18 @@ function instrument(): void {
 }
 const trackStates = (p: Page) => p.evaluate(() => (window as unknown as { __tracks: MediaStreamTrack[] }).__tracks.map((t) => t.readyState));
 
-type Live = { url: string; host: string; apiKey: string; apiSecret: string };
+type Live = { url: string; host: string; issuer: string; apiSecret: string };
 function liveEnv(): Live {
-  const { LIVEKIT_LIVE_URL: url, LIVEKIT_LIVE_HOST: host, LIVEKIT_LIVE_KEY: apiKey, LIVEKIT_LIVE_SECRET: apiSecret } = process.env;
-  if (!url || !host || !apiKey || !apiSecret) throw new Error("VOICE_LIVE=1 needs LIVEKIT_LIVE_URL, LIVEKIT_LIVE_HOST, LIVEKIT_LIVE_KEY and LIVEKIT_LIVE_SECRET");
-  return { url, host, apiKey, apiSecret };
+  const { LIVEKIT_LIVE_URL: url, LIVEKIT_LIVE_HOST: host, LIVEKIT_LIVE_KEY: issuer, LIVEKIT_LIVE_SECRET: apiSecret } = process.env;
+  if (!url || !host || !issuer || !apiSecret) throw new Error("VOICE_LIVE=1 needs LIVEKIT_LIVE_URL, LIVEKIT_LIVE_HOST, LIVEKIT_LIVE_KEY and LIVEKIT_LIVE_SECRET");
+  return { url, host, issuer, apiSecret };
 }
 
 /** A 60-second HS256 admin token for one room (the claims LiveKit reads); made here, used for the twirp calls below only. */
 function adminToken(env: Live, room: string): string {
   const b = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const now = Math.floor(Date.now() / 1000);
-  const head = `${b({ alg: "HS256", typ: "JWT" })}.${b({ iss: env.apiKey, nbf: now - 10, exp: now + 60, video: { roomAdmin: true, room } })}`;
+  const head = `${b({ alg: "HS256", typ: "JWT" })}.${b({ iss: env.issuer, nbf: now - 10, exp: now + 60, video: { roomAdmin: true, room } })}`;
   return `${head}.${createHmac("sha256", env.apiSecret).update(head).digest("base64url")}`;
 }
 type Participant = { identity: string; tracks?: { source?: string | number }[] };
@@ -340,7 +340,7 @@ test.describe("voice against a real LiveKit server (VOICE_LIVE=1)", () => {
     const logDir = path.join(stack.dataDir, "child-logs");
     const speechLogs = existsSync(logDir) ? readdirSync(logDir).filter((f) => f.endsWith(".speech.log")).map((f) => readFileSync(path.join(logDir, f), "utf8")) : [];
     expect(speechLogs.length).toBeGreaterThan(0);
-    const secrets = [env.apiKey, env.apiSecret, room, identity, ...tokens, ...tokens.map((t) => t.split(".")[1]!)];
+    const secrets = [env.issuer, env.apiSecret, room, identity, ...tokens, ...tokens.map((t) => t.split(".")[1]!)];
     const texts: [string, string][] = [["the page console", consoleText.join("\n")], ["the services' output", output.join("\n")], ...speechLogs.map((t, i) => [`speech log ${i + 1}`, t] as [string, string])];
     for (const [where, text] of texts) {
       for (const s of secrets) expect(text.includes(s), `${where} holds a value of length ${s.length}`).toBe(false);

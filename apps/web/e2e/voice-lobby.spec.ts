@@ -323,7 +323,8 @@ test.describe("voice with LiveKit configured in the web server", () => {
     expect(bFrames.some((f) => f.type === "joined")).toBe(true);
     expect([...peerKeys(bFrames)].every((k) => PEER_KEYS.includes(k)), `B's roster keys: ${[...peerKeys(bFrames)].join(",")}`).toBe(true);
     for (const f of bFrames) {
-      expect(f.type, "no voice frame or notice reaches B").not.toMatch(/^voice|speaking|facilitator/);
+      expect(f.type, "no voice frame or notice reaches B").not.toMatch(/^voice/);
+      expect(f.type, "no speaking or facilitator frame reaches B").not.toMatch(/speaking|facilitator/);
       expect(f.data).not.toContain('"speaking"');
       if (f.type === "joined") expect((JSON.parse(f.data) as { voice?: { state?: string } }).voice?.state).toBe("none");
       else expect(f.data).not.toContain('"voice"');
