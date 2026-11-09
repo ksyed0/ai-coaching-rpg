@@ -17,6 +17,7 @@ import { COMPOSE_FILE, dockerProblem, nodeAddress } from "./compose.js";
 import type { OpsDeps } from "./ops.js";
 import { loadRootEnv, parseVoiceOpsSettings } from "./settings.js";
 import { loadState } from "./state.js";
+import { NO_SYSTEM_STORE_SENTENCE } from "./trust.js";
 
 /**
  * US-0072 (EPIC-0003 voice A1c, Task 9): `pnpm voice:check`, a report of whether everything a voice session needs is in place. One line
@@ -90,6 +91,7 @@ export async function voiceCheck(d: CheckDeps): Promise<0 | 1 | 2> {
 
   const lan = s.access === "lan" ? s.lan : undefined;
   if (lan) {
+    if (!d.systemTrust) add({ name: "trust-store", level: "warn", line: NO_SYSTEM_STORE_SENTENCE }); // review B2 F9
     await guarded("certificate", () => {
       const certFile = lan.tls.mode === "files" ? lan.tls.certFile : caddyManagedCert(s.stateDir, lan.hostname);
       const keyMode = ((): number | null => { if (lan.tls.mode !== "files") return 0o600; try { return statSync(lan.tls.keyFile).mode; } catch { return null; } })();

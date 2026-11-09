@@ -119,6 +119,13 @@ describe("voiceCheck", () => {
     expect(w.tlsAsked.map((t) => `${t.host}:${t.port}`)).toContain("voice.pilot.example:443");
   });
 
+  it("lan mode warns when this Node cannot read the system certificate store (review B2 F9)", async () => {
+    const w = await running({ lan: true });
+    w.systemTrust = false;
+    await voiceCheck({ ...checkDeps(w), answers: async () => true });
+    expect(w.out).toContain(`WARN this Node (${process.version}) cannot read the system certificate store: a certificate trusted only by this machine's keychain fails the TLS route check; use Node 22.15 or newer`);
+  });
+
   it("a node address that changed since voice:up fails", async () => {
     const w = await running({ lan: true });
     w.ifaces = { en0: [{ address: "192.168.1.77", family: "IPv4", internal: false, netmask: "255.255.255.0", mac: "00:00:00:00:00:00", cidr: "192.168.1.77/24" }] };

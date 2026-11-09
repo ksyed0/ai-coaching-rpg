@@ -8,6 +8,7 @@ import { DEFAULT_LIVEKIT_HOST, loadRootEnv, parseVoiceOpsSettings, type VoiceOps
 import { acquireLock, clearState, loadState, openPrivateSubdir, openStateDir, releaseLock, writeState, type VoiceOpsState } from "./state.js";
 import type { RollbackOutcome } from "./signals.js";
 import { tlsRouteAnswers } from "./tls-route.js";
+import { NO_SYSTEM_STORE_SENTENCE } from "./trust.js";
 import { checkModelFile, startWhisper, stopSpawned, WHISPER_READY_WAIT_MS, WHISPER_POLL_MS, WHISPER_STOP_GRACE_MS, WhisperStartError } from "./whisper.js";
 import type { SpawnedChild } from "./run.js";
 
@@ -144,6 +145,7 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
     }
     // 5. dns mode waits for Task 13
     if (s.lan?.tls.mode === "dns") throw new Stop(1, "VOICE_TLS_MODE=dns is not available yet: use VOICE_TLS_MODE=files with your own certificate (docs/VOICE_RUNBOOK.md)");
+    if (s.access === "lan" && !d.systemTrust) say(NO_SYSTEM_STORE_SENTENCE); // review B2 F9: a warning, a public CA's certificate still works
     // 6. a tracked .env (the writer checks it again; this keeps the refusal before the model and Docker checks)
     try { if (await trackedByGit(d.run, d.repoRoot, d.env)) throw new EnvFileError("tracked"); }
     catch (err) { if (err instanceof EnvFileError) throw new Stop(1, err.message); throw err; }

@@ -14,6 +14,7 @@ import { STT_PORT_MAX, STT_PORT_MIN } from "./env-file.js";
 import type { OpsDeps, PortProbe } from "./ops.js";
 import { realRun, realSpawnDetached, type SetTimer } from "./run.js";
 import { makeResolver } from "./checks/dns.js";
+import { trustStore } from "./trust.js";
 import { exitCodeOf, installSignals, lastLine, type RollbackOutcome } from "./signals.js";
 import { voiceUpOutcome } from "./up.js";
 import { whisperHealth, whisperWarm } from "./whisper.js";
@@ -70,19 +71,15 @@ async function freePort(): Promise<number> {
   throw new Error("no free port for whisper-server in 20000..32767");
 }
 
-/** Node's CAs plus the system store (Node 22.23 has `tls.getCACertificates("system")`), so a certificate macOS trusts is trusted. */
-function trustStore(): string[] {
-  const extra = typeof (tls as { getCACertificates?: (t: string) => string[] }).getCACertificates === "function"
-    ? (tls as unknown as { getCACertificates: (t: string) => string[] }).getCACertificates("system") : [];
-  return [...tls.rootCertificates, ...extra];
-}
+/** Node's CAs plus the system store (trust.ts; review B2 F9: missing before Node 22.15, then reported by voice:up and voice:check). */
+const TRUST = trustStore(tls);
 
 /** A TLS handshake to host:port with SNI `servername`, then `GET /rtc/validate`; the HTTP status of the answer (any) or null. */
 function tlsConnect(host: string, port: number, servername: string): Promise<{ authorized: boolean; status: number | null }> {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v: { authorized: boolean; status: number | null }): void => { if (!done) { done = true; sock.destroy(); resolve(v); } };
-    const sock = tls.connect({ host, port, servername, ca: trustStore(), rejectUnauthorized: false, timeout: 5_000 });
+    const sock = tls.connect({ host, port, servername, ca: TRUST.cas, rejectUnauthorized: false, timeout: 5_000 });
     let buf = "";
     sock.once("secureConnect", () => {
       if (!sock.authorized) { finish({ authorized: false, status: null }); return; }
@@ -111,7 +108,7 @@ function deps(root: string): OpsDeps {
     freePort, portFree, random: (n) => randomBytes(n), now: () => Date.now(), setTimer: refSetTimer,
     interfaces: () => os.networkInterfaces(),
     onInterrupt: signals.onInterrupt,
-    tlsConnect,
+    tlsConnect, systemTrust: TRUST.system,
     health: (u) => whisperHealth(u), warm: (u) => whisperWarm(u), answers: (u) => httpAnswers(u),
   };
 }

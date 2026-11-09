@@ -571,6 +571,25 @@ describe("voiceUp lock and leftovers", () => {
 
 // Review B2 F12: a writeLiveKitEnv refusal (LiveKitEnvError: a fixed sentence naming the variable) is shown as such, not "voice:up failed".
 // Review B2 F3: the CLI's last line after an interrupt says "rolled back" only when the rollback really completed.
+// Review B2 F9: without tls.getCACertificates (Node before 22.15) a certificate only the system store trusts fails the TLS route; say so.
+describe("voiceUp and the system certificate store", () => {
+  const SENTENCE = `this Node (${process.version}) cannot read the system certificate store: a certificate trusted only by this machine's keychain fails the TLS route check; use Node 22.15 or newer`;
+  it("lan mode warns before starting when the store is unavailable", async () => {
+    const w = world({ lan: true });
+    w.systemTrust = false;
+    expect(await voiceUp(w.deps())).toBe(0);
+    expect(w.out).toContain(`voice:up: ${SENTENCE}`);
+  });
+  it("lan with the store, and local mode, say nothing about it", async () => {
+    const w = world({ lan: true });
+    expect(await voiceUp(w.deps())).toBe(0);
+    const l = world();
+    l.systemTrust = false;
+    expect(await voiceUp(l.deps())).toBe(0);
+    for (const x of [w, l]) expect(x.out.join("\n")).not.toContain("system certificate store");
+  });
+});
+
 describe("voiceUpOutcome", () => {
   it("a rollback that stopped everything is complete", async () => {
     const w = world();

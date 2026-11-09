@@ -29,6 +29,8 @@ export type OpsDeps = {
   random: (n: number) => Buffer; now: () => number; setTimer: SetTimer;
   interfaces: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>; onInterrupt: (fn: () => void) => () => void;
   tlsConnect: TlsConnect;
+  /** Whether `tlsConnect` trusts the system certificate store too (review B2 F9: `tls.getCACertificates`, Node 22.15+). */
+  systemTrust: boolean;
   health: (sttUrl: URL) => Promise<HealthAnswer>; warm: (sttUrl: URL) => Promise<void>; answers: (url: string) => Promise<boolean>;
 };
 

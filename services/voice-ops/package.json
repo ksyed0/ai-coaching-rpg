@@ -3,6 +3,9 @@
   "version": "0.2.1",
   "license": "MIT",
   "private": true,
+  "engines": {
+    "node": ">=22.15"
+  },
   "type": "module",
   "scripts": {
     "voice-up": "node --import tsx src/cli.ts up",

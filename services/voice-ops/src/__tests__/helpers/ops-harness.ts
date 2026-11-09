@@ -89,6 +89,8 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     onStep: (_step: string): void => {},
     ifaces: (o.lan ? { en0: [{ address: "192.168.1.20", family: "IPv4", internal: false, netmask: "255.255.255.0", mac: "00:00:00:00:00:00", cidr: "192.168.1.20/24" }] } : {}) as NodeJS.Dict<os.NetworkInterfaceInfo[]>,
     realEnv: { PATH: "/usr/bin:/bin", HOME: home } as NodeJS.ProcessEnv,
+    /** Whether this Node can read the system certificate store (review B2 F9). */
+    systemTrust: true,
   };
 
   const errno = (code: string): NodeJS.ErrnoException => Object.assign(new Error(code), { code });
@@ -145,6 +147,7 @@ export function makeWorld(root: string, o: { lan?: boolean; envLines?: string[] 
     setTimer: (fn, ms) => { let live = true; w.clock += ms; queueMicrotask(() => { if (live) fn(); }); return () => { live = false; }; },
     interfaces: () => w.ifaces,
     onInterrupt: (fn) => { w.interrupt = fn; return () => { w.interrupt = null; }; },
+    systemTrust: w.systemTrust,
     tlsConnect: async (host, port, servername) => { w.tlsAsked.push({ host, port, servername }); return w.tls(); },
     health: async () => { w.onStep("health"); return w.health(); },
     warm: async () => { w.onStep("warm"); await w.warm(); },
