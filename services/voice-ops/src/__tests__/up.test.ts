@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { LOCK_FILE, readState } from "../state.js";
 import { tlsRouteAnswers } from "../tls-route.js";
+import { voiceDown } from "../down.js";
 import { voiceUp } from "../up.js";
 import { makeWorld, privateTmp, secretsOf, type World } from "./helpers/ops-harness.js";
 
@@ -385,6 +386,74 @@ describe("voiceUp existing state", () => {
     writeFileSync(w.statePath, "{not json", { mode: 0o600 });
     expect(await voiceUp(w.deps())).toBe(1);
     expect(w.out).toEqual(["voice:up: the voice state is unreadable: run pnpm voice:down, then pnpm voice:up"]);
+  });
+});
+
+// Review B2 F1: a refusal or an interrupt BEFORE this run touched anything must leave the running stack's state as it is (the plan:
+// "settings changed ... (nothing is stopped)"; the rollback runs only after this run's first start), so voice:down can still stop it.
+describe("voiceUp leaves the state alone when it starts nothing (review B2 F1)", () => {
+  const lanIfaces = (address: string): World["ifaces"] => ({ en0: [{ address, family: "IPv4", internal: false, netmask: "255.255.255.0", mac: "00:00:00:00:00:00", cidr: `${address}/24` }] });
+
+  it("settings changed: state.json stays byte-identical, and voice:down then stops the whisper-server it names", async () => {
+    const w = world({ lan: true });
+    expect(await voiceUp(w.deps())).toBe(0);
+    const before = readFileSync(w.statePath);
+    const livekitEnv = readFileSync(path.join(w.stateDir, "livekit.env"));
+    const pid = readState(w.stateDir)!.whisper!.pid;
+    w.ifaces = lanIfaces("192.168.1.77");
+    w.out.length = 0;
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(w.out).toEqual(["voice:up: settings changed: run pnpm voice:down first"]);
+    expect(readFileSync(w.statePath).equals(before)).toBe(true);
+    expect(readFileSync(path.join(w.stateDir, "livekit.env")).equals(livekitEnv)).toBe(true);
+    expect(w.composeVerbs()).toEqual(["up"]);
+    w.out.length = 0;
+    expect(await voiceDown(w.deps())).toBe(0);
+    expect(w.procs.has(pid)).toBe(false);
+    expect(w.out).toContain("voice:down: whisper-server stopped");
+  });
+
+  it("an unreadable state stays byte-identical", async () => {
+    const w = world();
+    mkdirSync(w.stateDir, { recursive: true, mode: 0o700 });
+    chmodSync(path.dirname(w.stateDir), 0o700);
+    writeFileSync(w.statePath, "{not json", { mode: 0o600 });
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(readFileSync(w.statePath, "utf8")).toBe("{not json");
+  });
+
+  it("an interrupt during the already-running probe leaves state.json byte-identical and the whisper record intact", async () => {
+    const w = world();
+    expect(await voiceUp(w.deps())).toBe(0);
+    const before = readFileSync(w.statePath);
+    const pid = readState(w.stateDir)!.whisper!.pid;
+    w.onStep = (s) => { if (s === "answers" && w.interrupt) w.interrupt(); };
+    w.out.length = 0;
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(readFileSync(w.statePath).equals(before)).toBe(true);
+    expect(w.procs.has(pid)).toBe(true);
+    expect(w.composeVerbs()).toEqual(["up"]);
+    expect(w.signals).toEqual([]);
+  });
+
+  it("a repair-mode refusal before any start (the model file is gone) leaves state.json byte-identical", async () => {
+    const w = world();
+    expect(await voiceUp(w.deps())).toBe(0);
+    w.procs.clear(); // whisper-server died: repair would start it, but the model file is gone
+    writeFileSync(w.modelFile, "x");
+    const before = readFileSync(w.statePath);
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(w.out.join("\n")).toContain("No speech model at STT_MODEL_FILE");
+    expect(readFileSync(w.statePath).equals(before)).toBe(true);
+  });
+
+  it("a fresh start that fails after its first start still rolls back everything", async () => {
+    const w = world();
+    w.livekit = () => false;
+    expect(await voiceUp(w.deps())).toBe(1);
+    expect(w.procs.size).toBe(0);
+    expect(w.composeVerbs()).toEqual(["up", "down"]);
+    for (const f of ["state.json", "livekit.env"]) expect(existsSync(path.join(w.stateDir, f))).toBe(false);
   });
 });
 

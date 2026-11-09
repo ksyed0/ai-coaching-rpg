@@ -19,7 +19,8 @@ export type { OpsDeps, PortProbe } from "./ops.js";
  * address; the lan certificate files; THEN the secrets (`ensureVoiceSecrets` with the real environment) and the merged view read again;
  * the ports; then `livekit.env`, the state, whisper-server, compose, the LiveKit wait and (lan) the TLS route.
  *
- * Rollback, on any failure after this run's first start and on an interrupt: compose down (after `dockerProblem`) if this run started
+ * Rollback, on any failure or interrupt after this run's first change (livekit.env, the state, a start; review B2 F1: a refusal or an
+ * interrupt before that changes nothing, so a running stack keeps the state voice:down needs): compose down (after `dockerProblem`) if this run started
  * compose on a fresh start, whisper-server through its own spawn handle, then (fresh) `livekit.env` and the state. Repair mode never runs
  * compose down and never stops a whisper-server it did not start. An interrupt is handled once; the interrupt handler only sets a flag
  * and aborts the waits, the main flow does the rollback (so a second Ctrl-C cannot start a second rollback).
@@ -100,7 +101,11 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
   let whisperChild: SpawnedChild | null = null;
   let composeStarted = false;
   let wroteLiveKitEnv = false;
-  const save = (): void => { if (state) writeState(s.stateDir, state); };
+  // Review B2 F1: whether this run changed anything (a file of the state directory or a process). Every refusal and interrupt before
+  // the first change leaves the running stack's state and livekit.env exactly as they are: no rollback, nothing cleared.
+  let touched = false;
+  let createdState = false;
+  const save = (): void => { if (state) { touched = true; writeState(s.stateDir, state); } };
 
   try {
     const profiles = profilesOf(s);
@@ -177,9 +182,10 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
     checkpoint();
 
     // 13. start: livekit.env, the state, whisper-server, compose, the waits
+    touched = true;
     writeLiveKitEnv(s.stateDir, merged);
     wroteLiveKitEnv = true;
-    if (mode === "fresh") state = { v: 1, access: s.access, nodeIp, ports, profiles };
+    if (mode === "fresh") { state = { v: 1, access: s.access, nodeIp, ports, profiles }; createdState = true; }
     save();
     if (restartWhisper) {
       try {
@@ -238,7 +244,7 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
     else if (isInterrupt) say("interrupted: rolling back what this run started");
     else if (!(err instanceof Stop)) say(sentenceOf(err, "voice:up failed"));
     if (err instanceof Stop && err.code === 2) return 2;
-    await rollback();
+    if (touched) await rollback();
     return 1;
   } finally { unhook(); }
 
@@ -265,7 +271,7 @@ async function upLocked(d: OpsDeps, s: VoiceOpsSettings, merged0: NodeJS.Process
     try {
       if (mode === "fresh") {
         if (wroteLiveKitEnv && !composeLeft) removeLiveKitEnv(s.stateDir);
-        if (!composeLeft && !whisperLeft) clearState(s.stateDir);
+        if (!composeLeft && !whisperLeft && createdState) clearState(s.stateDir);
         else save();
       } else save();
     } catch (err) { say(sentenceOf(err, "the voice state could not be updated")); }
