@@ -2638,3 +2638,173 @@ Actual Result: Steps 1 and 2 as expected, 2026-11-08 (macOS): 8 of 8 checks pass
 Status: [x] Pass
 Defect Raised: None
 Notes: Pass on 2026-11-08: the PR #130 Demo Run job was green (AC-0404 says "in CI"). The other demo counts are unchanged on this branch (29 for `--fast`, 42 for `--fast --security --resume`, 14 for `--showcase --fast`; run in Task 21). Review fix wave (2026-11-08, macOS): F7, the demo has no fixed sleep: "nothing more happens" is `waitQuiet` (the log unchanged across 12 consecutive 250 ms observations, at most 240), `voice-client.test.ts` (3 tests, injected step, no real time); V-04 now allows the extra (empty) calls of the long last burst, still none for the text-only seat. `pnpm demo --voice` 8 of 8; `voice-demo.test.ts` passed.
+
+## US-0071: LiveKit and the web consent flow (EPIC-0003 voice A1b)
+
+TC-0171: The LiveKit packages are allowed only in their own package
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0405
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From the repository root: `bash scripts/check-sdk-imports.test.sh` and `pnpm lint:sdk`; from `packages/adapters`: `pnpm exec vitest run src/__tests__/root-index-imports.test.ts`.
+Expected Result: Every fixture gives its expected exit code (a LiveKit package outside its allowed package fails with `LiveKit package used outside its allowed package`; the provider rule's fixtures are unchanged); `sdk-imports: ok`; importing `@acr/adapters` does not load `livekit-server-sdk`, importing `@acr/adapters/livekit` does.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0172: A voice token is issued only to the current holder who chose voice, for the seat's own room
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0406
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `packages/adapters`: `pnpm exec vitest run src/livekit`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts src/__tests__/voice/token-route.test.ts`.
+Expected Result: The participant grant equals the plan's Global Constraints exactly (600 s, microphone only, no subscribe, no data, no metadata), the room is the seat's own `v` + 32 hex; another participant, a text-only seat, an AI seat, an unknown or ended session and voice off are refused with the fixed codes; the route answers only `token` and `expiresAt`.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0173: Stale LiveKit identities are removed; a plain disconnect removes nothing
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0407
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-choice.test.ts`.
+Expected Result: A reissue, a rebind, a leave, a withdrawal, an AI fill, an opt-out, a removal, voice off and the session end remove the old identity from the seat's room (the worker identity never); a socket close puts the role in `open` and removes nothing.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0174: The worker subscribes only to recording holders and attributes each frame to its generation
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0408
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/livekit-ingest.test.ts src/__tests__/reframe.test.ts src/__tests__/voice-gate.test.ts src/__tests__/track-pipeline.test.ts`.
+Expected Result: An unconsented, not started, paused, muted or unavailable seat's track is never subscribed; a second microphone track and a non-microphone track are not subscribed; frames are 320 samples of 16 kHz mono; a frame whose generation is not the gate's is dropped, including frames queued after an unsubscribe.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0175: One leased speech-to-text budget is shared across sessions
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0409
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/stt-slots.test.ts src/__tests__/voice/voice-host.test.ts`; from `services/speech`: `pnpm exec vitest run src/__tests__/slot-stt.test.ts`.
+Expected Result: At most 2 transcriptions run at once across all sessions; a worker exit frees its slots; an expired lease is reclaimed, the next waiter granted and that session's worker killed.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0176: A worker that exits is restarted with bounded backoff, then voice is off
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0410
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/restart.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: Restarts follow 500, 1000, 2000, 4000, 8000 ms; after 5 consecutive failures voice is off for the session with one `voice_off` alert; the count resets after 60 s ready; typed lines keep working.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0177: Whisper health is polled and voice availability follows it
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0411
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/health.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/voice-host.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-availability.test.ts`.
+Expected Result: Health is polled every 5 s; unhealthy gives one `stt_unavailable` alert and `voice_unavailable` notices to voice holders, healthy again one `stt_recovered` info alert; `voice_availability` is re-sent on every runtime `ready`.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0178: The participant page offers voice only with LiveKit, and the console shows each seat's voice state
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0412
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/voice-handlers.test.ts src/components/__tests__`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-roster.test.ts`.
+Expected Result: The voice choice appears after consent to a notice that names voice and only when the web server has LiveKit; the facilitator roster and readiness carry each seat's voice state; no peers frame carries voice or speaking.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0179: Microphone check, join with voice, mute and teardown
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0413
+Type: Accessibility
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/lib/__tests__ src/components/__tests__`; then `pnpm exec playwright test voice-lobby axe --trace off`.
+Expected Result: No microphone is opened on page load; permission is asked only after the opt-in and a click; the mic check shows a level; mute stops publishing; the state is in words and an icon; every final stream event leaves the room; keyboard operable; Axe reports no violation.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0180: A voice notice reaches only that player's page
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0414
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/stream-hub.test.ts src/components/__tests__`.
+Expected Result: `voice_notice` is forwarded as a named event to that player's stream only, announced in the polite status region; an unknown code is dropped.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0181: The console shows who speaks and the fixed voice alert sentences
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0415
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__ src/components/__tests__`.
+Expected Result: The console's speaking indicator follows the facilitator roster; the voice alerts pass through in their fixed words (an allowlist pinned against the runtime's `VOICE_ALERT_SENTENCES`); neither reaches a player frame.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0182: Notice v3 carries the owner-approved wording and keeps its draft marker
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0416
+Type: Regression
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/engine/__tests__/consent-notice-v3.test.ts`.
+Expected Result: The notice's first line is still the draft marker and its phrase checks pass; the owner approval of 2026-11-08 and the release-gate items (remove the marker, add a SHA-256 pin, legal and HR sign-off) are recorded in docs/memory/backlog-and-decisions.md.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1b plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
