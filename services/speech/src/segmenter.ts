@@ -4,7 +4,8 @@
  *
  * A frame is speech when its RMS is at or above `thresholdDbfs`. A segment opens at the first speech frame with up to `leadInMs` of the
  * frames before it, and closes after `hangoverMs` of continuous non-speech (`reason: "silence"`; its audio ends with those hangover frames).
- * A segment with less than `minSpeechMs` of speech frames is not emitted (`dropped` reports its last speech time instead). When an open
+ * A segment with less than `minSpeechMs` of speech frames is not emitted (`dropped` reports its last speech time instead), except the rest of
+ * a forced split (`continued`: the same speech, cut only for length), which is kept with any speech at all (F4, review fix wave). When an open
  * segment reaches `maxSegmentMs` on a speech frame it is split after the quietest frame of its last `splitSearchMs` (ties: the latest
  * frame), `reason: "split"`, and the rest continues as the next segment (no frame is ever emitted twice). A segment that reaches the
  * maximum inside its hangover is not split: it closes at the hangover's end (at most `hangoverMs` longer). Hangover and maximum are
@@ -73,6 +74,8 @@ export class Segmenter {
   private open: Frame[] | null = null;
   private trailing = 0;
   private lastSpeechIndex = -1;
+  /** The open segment is the rest of a forced split (F4): the minimum-speech drop does not apply to it. */
+  private continued = false;
 
   constructor(private readonly s: SegmenterSettings) {
     if (!inRange(s.hangoverMs, HANGOVER_RANGE)) throw new RangeError("the hangover must be a whole number of milliseconds from 300 to 600");
@@ -104,6 +107,7 @@ export class Segmenter {
       this.open = [...this.lead, f];
       this.lead = [];
       this.trailing = 0;
+      this.continued = false;
       this.lastSpeechIndex = f.index;
       out.started = true;
       this.maybeSplit(out);
@@ -129,6 +133,7 @@ export class Segmenter {
     this.open = null;
     this.lead = [];
     this.trailing = 0;
+    this.continued = false;
   }
 
   private maybeSplit(out: PushResult): void {
@@ -141,6 +146,7 @@ export class Segmenter {
     const e = this.emit(head, "split");
     if (e) out.segments.push(e);
     this.open = rest;
+    this.continued = true;
     if (rest.some((x) => x.speech)) {
       let t = 0;
       for (let i = rest.length - 1; i >= 0 && !rest[i]!.speech; i--) t++;
@@ -153,14 +159,15 @@ export class Segmenter {
     this.open = null;
     this.trailing = 0;
     const e = this.emit(seg, reason);
+    this.continued = false;
     if (e) out.segments.push(e);
     else if (this.lastSpeechIndex >= 0) out.dropped = { lastSpeechMs: (this.lastSpeechIndex + 1) * this.s.frameMs };
   }
 
-  /** The segment of `frames`, or null when it holds too little speech. */
+  /** The segment of `frames`, or null when it holds too little speech (no speech at all, for the rest of a split). */
   private emit(frames: Frame[], reason: SegmentOut["reason"]): SegmentOut | null {
     const speech = frames.filter((x) => x.speech);
-    if (frames.length === 0 || speech.length < this.minSpeechFrames) return null;
+    if (frames.length === 0 || speech.length < (this.continued ? 1 : this.minSpeechFrames)) return null;
     const pcm = new Int16Array(frames.length * this.frameSamples);
     frames.forEach((x, i) => pcm.set(x.pcm, i * this.frameSamples));
     const ms = this.s.frameMs;

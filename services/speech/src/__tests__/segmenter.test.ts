@@ -86,6 +86,31 @@ describe("Segmenter (US-0070, spec 7.1)", () => {
     for (const s of segs) expect(s.pcm.length).toBe(16 * (s.endMs - s.startMs));
   });
 
+  // F4 (review fix wave): the rest of a forced split is the same speech, not a new blip: it is kept however short it is.
+  it("a 2540 ms tone gives two segments that hold every speech frame (the 40 ms after the split is not dropped)", () => {
+    const { segs } = run(concat(tone(2540, LOUD), silence(1000)));
+    expect(segs.map((s) => [s.startMs, s.reason, s.speechMs])).toEqual([[0, "split", 2500], [2500, "silence", 40]]);
+    expect(segs.reduce((n, s) => n + s.speechMs, 0)).toBe(2540);
+  });
+
+  it("a split's short rest is kept by flush too", () => {
+    const { segs } = run(tone(2540, LOUD), {}, { flush: true });
+    expect(segs.map((s) => [s.reason, s.speechMs])).toEqual([["split", 2500], ["flush", 40]]);
+  });
+
+  it("a genuinely short isolated blip after a split segment is still dropped (continued does not carry over)", () => {
+    const seg = new Segmenter(DEFAULT_SEGMENTER);
+    const out: SegmentOut[] = [];
+    let drops = 0;
+    for (const f of frames(concat(tone(2540, LOUD), silence(1000), tone(240, LOUD), silence(1000)))) {
+      const r = seg.push(f);
+      out.push(...r.segments);
+      if (r.dropped) drops++;
+    }
+    expect(out.map((s) => s.speechMs)).toEqual([2500, 40]);
+    expect(drops).toBe(1);
+  });
+
   it("flush emits the open segment", () => {
     const { segs, seg } = run(concat(silence(200), tone(800, LOUD)), {}, { flush: true });
     expect(segs.map((s) => [s.startMs, s.endMs, s.lastSpeechMs, s.reason])).toEqual([[0, 1000, 1000, "flush"]]);
