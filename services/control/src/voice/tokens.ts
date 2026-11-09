@@ -12,6 +12,8 @@ export const SEATS_WAIT_MS = 1000;
  * change, so a removed browser that reconnects with its still-valid token (TTL 600 s) is removed again within one period. Not a setting.
  */
 export const SWEEP_INTERVAL_MS = 20_000;
+/** Batch 3 review F7: a failed sweep (LiveKit briefly unreachable) is run once more this much later; a failed retry is not retried. */
+export const SWEEP_RETRY_MS = 2_000;
 
 export type VoiceTokenCode = "voice_refused" | "voice_off" | "voice_unavailable";
 /** A token (or a worker join) is refused. The message is fixed: never a room, an identity or a participant id. */
@@ -27,7 +29,8 @@ export type TokenSeats = {
 };
 
 type Waiter = { participantId: string; settle: (r: { ok: true } | { ok: false; code: VoiceTokenCode }) => void };
-type Sweep = { running: boolean; pending: boolean };
+/** `retrying`: the next run is the delayed retry of a failed sweep; `retry` cancels a pending retry timer. */
+type Sweep = { running: boolean; pending: boolean; retrying: boolean; retry?: () => void };
 type Session = {
   key: Buffer;
   /** roleId -> the seat's room ("v" + 32 hex), created on the first token or worker join for that seat. */
@@ -65,7 +68,8 @@ const errorName = (err: unknown): string => (err instanceof Error && isSafeId(er
  *    removed browser that reconnects with its still-valid token is removed again by the periodic sweep (every SWEEP_INTERVAL_MS while
  *    the session has rooms and a runtime's seats; batch 3 review F3) or by the next seat change, whichever comes first. Sweeps are
  *    serialised per room and coalesced (one in flight, one pending). `endSession` deletes every seat room.
- * Admin failures are logged by error name only and never thrown. Nothing here logs a room, an identity, a participant id or a token.
+ * Admin failures are logged by error name only and never thrown; a failed sweep is retried once after SWEEP_RETRY_MS (F7).
+ * Nothing here logs a room, an identity, a participant id or a token.
  */
 export class VoiceTokens {
   private readonly sessions = new Map<string, Session>();
@@ -181,6 +185,7 @@ export class VoiceTokens {
     if (!s) return;
     this.sessions.delete(sessionId);
     this.disarm(s);
+    for (const st of s.sweeps.values()) { const cancel = st.retry; delete st.retry; cancel?.(); }
     for (const w of [...s.waiters.values()]) w.settle({ ok: false, code: "voice_unavailable" });
     for (const room of s.rooms.values()) {
       this.o.admin.deleteRoom(room).catch((err: unknown) => this.o.log(`session ${sessionId} voice room delete failed (${errorName(err)})`));
@@ -231,19 +236,37 @@ export class VoiceTokens {
     const room = s.rooms.get(roleId);
     if (room === undefined) return;
     let st = s.sweeps.get(room);
-    if (!st) { st = { running: false, pending: false }; s.sweeps.set(room, st); }
+    if (!st) { st = { running: false, pending: false, retrying: false }; s.sweeps.set(room, st); }
     if (st.running) { st.pending = true; return; }
     st.running = true;
     const state = st;
     const run = async (): Promise<void> => {
       do {
         state.pending = false;
+        const isRetry = state.retrying;
+        state.retrying = false;
         try { await this.sweepOnce(sessionId, s, roleId, room); }
-        catch (err) { this.o.log(`session ${sessionId} voice participant sweep failed (${errorName(err)})`); }
+        catch (err) {
+          this.o.log(`session ${sessionId} voice participant sweep failed (${errorName(err)})`);
+          if (!isRetry) this.retryLater(sessionId, s, roleId, state);
+        }
       } while (state.pending && this.sessions.get(sessionId) === s);
       state.running = false;
     };
     void run();
+  }
+
+  /** Batch 3 review F7: admin failures no longer fail open until the next change: one delayed retry (one pending per room). */
+  private retryLater(sessionId: string, s: Session, roleId: string, state: Sweep): void {
+    if (state.retry || this.sessions.get(sessionId) !== s) return;
+    const cancel = this.o.setTimer(() => {
+      if (state.retry !== cancel) return;
+      delete state.retry;
+      if (this.sessions.get(sessionId) !== s) return;
+      state.retrying = true;
+      this.sweep(sessionId, s, roleId);
+    }, SWEEP_RETRY_MS);
+    state.retry = cancel;
   }
 
   private async sweepOnce(sessionId: string, s: Session, roleId: string, room: string): Promise<void> {

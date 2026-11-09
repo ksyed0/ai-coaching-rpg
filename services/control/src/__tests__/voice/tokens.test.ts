@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { LiveKitAdminError, parseParticipantIdentity, type RoomAdmin } from "@acr/adapters/livekit";
 import { isVoiceRoomName } from "@acr/speech/protocol";
 import type { LiveKitConfig } from "../../voice/livekit-config.js";
-import { SEATS_WAIT_MS, SWEEP_INTERVAL_MS, VoiceTokenRefused, VoiceTokens, type TokenSeats } from "../../voice/tokens.js";
+import { SEATS_WAIT_MS, SWEEP_INTERVAL_MS, SWEEP_RETRY_MS, VoiceTokenRefused, VoiceTokens, type TokenSeats } from "../../voice/tokens.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 5, K9, R6, R7): one LiveKit room per seat, seat generations, the token rules and identity removal.
 const S1 = "a".repeat(32);
@@ -540,5 +540,58 @@ describe("VoiceTokens: the periodic sweep (US-0071, A1b batch 3 review F3)", () 
     h.admin.held.shift()!.resolve();
     await settle();
     expect(h.admin.calls.filter((c) => c.startsWith("list"))).toHaveLength(2);
+  });
+});
+
+describe("VoiceTokens: a failed sweep is retried once (US-0071, A1b batch 3 review F7)", () => {
+  const retries = (h: ReturnType<typeof harness>) => h.timers.filter((t) => t.ms === SWEEP_RETRY_MS && !t.cancelled);
+  async function seated() {
+    const h = harness();
+    h.tokens.openSession(S1);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p1")]));
+    await h.tokens.issue(S1, "tech_lead", "p1");
+    const room = h.tokens.roomOf(S1, "tech_lead");
+    h.admin.join(room, h.minted[0]!.identity);
+    await settle();
+    h.admin.calls = [];
+    return { h, room, p1: h.minted[0]!.identity };
+  }
+
+  it("a sweep that fails (LiveKit briefly down) is retried once after SWEEP_RETRY_MS and then removes the identity", async () => {
+    const { h, room } = await seated();
+    h.admin.failAll = true;
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p2")]));
+    await settle();
+    expect(retries(h)).toHaveLength(1);
+    h.admin.failAll = false;
+    h.fire(SWEEP_RETRY_MS);
+    await settle();
+    expect(h.admin.in(room)).toEqual([]);
+    expect(retries(h)).toEqual([]);
+  });
+
+  it("a retry that fails again schedules no further retry (the periodic sweep covers it); endSession cancels a pending retry", async () => {
+    const { h } = await seated();
+    h.admin.failAll = true;
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p2")]));
+    await settle();
+    h.fire(SWEEP_RETRY_MS);
+    await settle();
+    expect(retries(h)).toEqual([]);
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p3")]));
+    await settle();
+    expect(retries(h)).toHaveLength(1);
+    h.tokens.endSession(S1);
+    expect(retries(h)).toEqual([]);
+  });
+
+  it("several failed sweeps of one room keep one pending retry", async () => {
+    const { h } = await seated();
+    h.admin.failAll = true;
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p2")]));
+    await settle();
+    h.tokens.seatsChanged(S1, seats([holder("tech_lead", "p3")]));
+    await settle();
+    expect(retries(h)).toHaveLength(1);
   });
 });
