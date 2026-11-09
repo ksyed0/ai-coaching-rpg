@@ -106,6 +106,11 @@ describe("deploy/compose/voice.yml (US-0072, A1c Task 5)", () => {
     expect(c).toContain("- ${VOICE_TLS_CERT_FILE:?}:/certs/cert.pem:ro");
     expect(c).toContain("- ${VOICE_TLS_KEY_FILE:?}:/certs/key.pem:ro");
     expect(c).toContain("- ${VOICE_STATE_DIR:?}/caddy-data:/data");
+    // Batch 2 review B F9: the image declares /config a volume; a bind mount in the state directory means `down --remove-orphans`
+    // leaves no anonymous volume behind (Task 7 creates caddy-config/ and caddy-data/ 0700 with the other folders).
+    expect(c).toContain("- ${VOICE_STATE_DIR:?}/caddy-config:/config");
+    const mounts = c.filter((l) => l.startsWith("- ") && l.includes(":/") && !l.startsWith('- "'));
+    expect(mounts.map((l) => l.slice(l.lastIndexOf(":/") + 1).split(":")[0])).toEqual(["/etc/caddy/Caddyfile", "/certs/cert.pem", "/certs/key.pem", "/data", "/config"]);
     expect(c).toContain('- "${VOICE_MEDIA_BIND:?}:${VOICE_HTTPS_PORT:?}:${VOICE_HTTPS_PORT:?}"');
     expect(c).toContain('- "${VOICE_MEDIA_BIND:?}:${VOICE_LIVEKIT_TLS_PORT:?}:${VOICE_LIVEKIT_TLS_PORT:?}"');
     expect(c).toContain('extra_hosts: ["host.docker.internal:host-gateway"]');
