@@ -113,8 +113,11 @@ describe("US-0071: LiveKit, health and slot messages", () => {
     const valid: unknown[] = [
       join, { ...join, url: "wss://pilot.example/" }, { ...join, token: "t" }, { ...join, token: "t".repeat(4096) },
       { type: "stt_slot_grant", slot },
+      { type: "livekit_join_refused", roleId: "tech_lead" }, // batch 3 review F1: control's explicit refusal of a worker join
     ];
     const invalid: unknown[] = [
+      { type: "livekit_join_refused" }, { type: "livekit_join_refused", roleId: "a.b" }, { type: "livekit_join_refused", roleId: "facilitator" },
+      { type: "livekit_join_refused", roleId: "tech_lead", reason: "paused" },
       { ...join, url: "http://127.0.0.1:7880" }, { ...join, url: "https://pilot.example/" }, { ...join, url: "not a url" },
       { ...join, url: `wss://pilot.example/${"a".repeat(512)}` }, { ...join, url: "wss://user:pw@pilot.example/" },
       { ...join, token: "" }, { ...join, token: "t".repeat(4097) },
@@ -152,6 +155,7 @@ describe("US-0071: LiveKit, health and slot messages", () => {
   it("the new messages go one way only", () => {
     expect(WorkerMessageSchema.safeParse(join).success).toBe(false);
     expect(WorkerMessageSchema.safeParse({ type: "stt_slot_grant", slot }).success).toBe(false);
+    expect(WorkerMessageSchema.safeParse({ type: "livekit_join_refused", roleId: "tech_lead" }).success).toBe(false);
     expect(ControlToWorkerSchema.safeParse({ type: "livekit_token_request", roleId: "tech_lead" }).success).toBe(false);
     expect(ControlToWorkerSchema.safeParse({ type: "stt_slot_request", slot }).success).toBe(false);
   });

@@ -8,7 +8,7 @@ import type { AudioIngest } from "../ingest/audio-ingest.js";
 import type { ControlToWorker, WorkerMessage } from "../protocol.js";
 import { DEFAULT_SEGMENTER } from "../segmenter.js";
 import { LIVEKIT_JOIN_WAIT_MS, startWorker } from "../worker.js";
-import { LiveKitIngest } from "../ingest/livekit-ingest.js";
+import { JOIN_ATTEMPTS, JOIN_RETRY_MS, LiveKitIngest } from "../ingest/livekit-ingest.js";
 import { FakeRoomPort, mic, type FakeConn } from "./fake-room.js";
 import { concat, silence, tone } from "./signals.js";
 
@@ -204,11 +204,12 @@ describe("startWorker with a LiveKit ingest (US-0071, A1b Task 7)", () => {
     const port = new FakeRoomPort();
     const status: string[] = [];
     const clock = { t: 9_000_000 };
+    const setTimer = (fn: () => void, ms: number) => { const t: Timer = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
     const w = startWorker({
       cfg: lkCfg, send: (m) => { sent.push(m); return true; }, now: () => clock.t,
       stt: (roleId) => new FakeSpeechToText({ script: (_s, n) => ({ text: `${roleId} line ${n + 1}`, durationMs: 50 }) }),
-      setTimer: (fn, ms) => { const t: Timer = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
-      ...(o.ingest ? { ingest: o.ingest } : { makeIngest: ({ join }) => new LiveKitIngest({ room: port, join, onStatus: (s) => status.push(s) }) }),
+      setTimer,
+      ...(o.ingest ? { ingest: o.ingest } : { makeIngest: ({ join }) => new LiveKitIngest({ room: port, join, onStatus: (s) => status.push(s), setTimer }) }),
     });
     const fire = (ms: number) => { for (const t of timers.filter((x) => x.ms === ms && !x.cancelled)) { t.cancelled = true; t.fn(); } };
     return { w, sent, timers, port, status, clock, fire };
@@ -242,15 +243,52 @@ describe("startWorker with a LiveKit ingest (US-0071, A1b Task 7)", () => {
     await h.w.stop();
   });
 
-  it("a token request without an answer within LIVEKIT_JOIN_WAIT_MS fails the join (the ingest reports failed)", async () => {
+  it(`a token request without an answer within LIVEKIT_JOIN_WAIT_MS, ${JOIN_ATTEMPTS} times in a row, fails the join (the ingest reports failed)`, async () => {
+    const h = lk();
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }]));
+    for (let i = 1; i <= JOIN_ATTEMPTS; i++) {
+      await settle();
+      expect(h.timers.filter((t) => t.ms === LIVEKIT_JOIN_WAIT_MS && !t.cancelled)).toHaveLength(1);
+      h.fire(LIVEKIT_JOIN_WAIT_MS);
+      await settle();
+      if (i < JOIN_ATTEMPTS) { expect(h.status).toEqual([]); h.fire(JOIN_RETRY_MS); }
+    }
+    expect(h.status).toEqual(["failed"]);
+    expect(h.port.opened).toEqual([]);
+    await h.w.stop();
+  });
+
+  it("livekit_join_refused answers the pending join at once (batch 3 review F1): no failure, the seat is asked for again after the backoff", async () => {
     const h = lk();
     h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }]));
     await settle();
-    expect(h.timers.filter((t) => t.ms === LIVEKIT_JOIN_WAIT_MS && !t.cancelled)).toHaveLength(1);
+    h.w.onControl({ type: "livekit_join_refused", roleId: "pm" }); // nobody asked for pm: ignored
+    h.w.onControl({ type: "livekit_join_refused", roleId: "tech_lead" });
+    await settle();
+    expect(h.status).toEqual([]);
+    expect(h.timers.filter((t) => t.ms === LIVEKIT_JOIN_WAIT_MS && !t.cancelled)).toEqual([]); // the wait is over
+    expect(h.sent.filter((m) => m.type === "livekit_token_request")).toHaveLength(1);
+    h.fire(JOIN_RETRY_MS);
+    await settle();
+    expect(h.sent.filter((m) => m.type === "livekit_token_request")).toEqual([
+      { type: "livekit_token_request", roleId: "tech_lead" }, { type: "livekit_token_request", roleId: "tech_lead" },
+    ]);
+    h.w.onControl({ type: "livekit_join", roleId: "tech_lead", url: "ws://127.0.0.1:7880", token: "tok-2", room: `v${"0".repeat(32)}` });
+    await settle();
+    expect(h.status).toEqual(["connected"]);
+    await h.w.stop();
+  });
+
+  it("a join timeout while the seat records is retried too (the ingest tells a timeout from a failed open)", async () => {
+    const h = lk();
+    h.w.onControl(st([{ roleId: "tech_lead", participantId: "p1", recording: true, generation: G1 }]));
+    await settle();
     h.fire(LIVEKIT_JOIN_WAIT_MS);
     await settle();
-    expect(h.status).toEqual(["failed"]);
-    expect(h.port.opened).toEqual([]);
+    expect(h.status).toEqual([]);
+    h.fire(JOIN_RETRY_MS);
+    await settle();
+    expect(h.sent.filter((m) => m.type === "livekit_token_request")).toHaveLength(2);
     await h.w.stop();
   });
 

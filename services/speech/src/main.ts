@@ -72,7 +72,7 @@ async function main(): Promise<void> {
       void (worker?.stop() ?? Promise.resolve()).catch(() => undefined).finally(() => process.exit(EXIT_LIVEKIT_LOST));
     };
     makeIngest = ({ join }) => new LiveKitIngest({
-      room: port, join,
+      room: port, join, setTimer: realSetTimer,
       onStatus: (state) => { send({ type: "livekit_status", state }); if (state !== "connected") lost(); },
     });
   }

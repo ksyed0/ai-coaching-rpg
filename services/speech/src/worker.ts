@@ -3,7 +3,7 @@ import { ActivityReporter } from "./activity.js";
 import type { WorkerConfig } from "./config.js";
 import type { AudioIngest } from "./ingest/audio-ingest.js";
 import { FileIngest } from "./ingest/file-ingest.js";
-import type { LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
+import { LiveKitJoinRefused, LiveKitJoinTimeout, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
 import type { ControlToWorker, WorkerMessage } from "./protocol.js";
 import { Segmenter } from "./segmenter.js";
 import { STT_DEADLINE_MS, TrackPipeline, newSegmentId } from "./track-pipeline.js";
@@ -51,7 +51,7 @@ export type RunningWorker = {
  * US-0071 (A1b Task 7): every `voice_state` gives the ingest its allowed seats (`allowedOf`) in the SAME synchronous step as the gate
  * update, so no frame can pass between the two; frames carry their seat generation and the pipeline drops any that is not the gate's.
  * A LiveKit ingest is built by `makeIngest` with `join`: a `livekit_token_request` to control, answered by the matching `livekit_join`
- * (or rejected after LIVEKIT_JOIN_WAIT_MS).
+ * (or rejected at once by `livekit_join_refused`, or after LIVEKIT_JOIN_WAIT_MS).
  */
 export function startWorker(o: {
   cfg: WorkerConfig; send: (m: WorkerMessage) => boolean; now: () => number;
@@ -70,11 +70,12 @@ export function startWorker(o: {
   const pipelines = new Map<string, TrackPipeline>();
   const setTimer = o.setTimer ?? realSetTimer;
   /** One pending `livekit_token_request` per role. */
-  const joins = new Map<string, { resolve: (j: LiveKitJoinInfo) => void; cancel: () => void }>();
+  const joins = new Map<string, { resolve: (j: LiveKitJoinInfo) => void; reject: (e: Error) => void; cancel: () => void }>();
+  // Batch 3 review F1: a refusal and a timeout reject with their own types, so the ingest retries them (a failed open stays fatal).
   const join = (roleId: string): Promise<LiveKitJoinInfo> => new Promise((resolve, reject) => {
     if (joins.has(roleId) || ending) { reject(new Error("a token request for this seat is already waiting")); return; }
-    const cancel = setTimer(() => { if (joins.get(roleId)?.cancel === cancel) { joins.delete(roleId); reject(new Error("no LiveKit token in time")); } }, LIVEKIT_JOIN_WAIT_MS);
-    joins.set(roleId, { resolve, cancel });
+    const cancel = setTimer(() => { if (joins.get(roleId)?.cancel === cancel) { joins.delete(roleId); reject(new LiveKitJoinTimeout()); } }, LIVEKIT_JOIN_WAIT_MS);
+    joins.set(roleId, { resolve, reject, cancel });
     send({ type: "livekit_token_request", roleId });
   });
   const ingest: AudioIngest = o.ingest ?? (o.makeIngest ? o.makeIngest({ join })
@@ -127,6 +128,14 @@ export function startWorker(o: {
           joins.delete(m.roleId);
           j.cancel();
           j.resolve({ url: m.url, token: m.token, room: m.room });
+          return;
+        }
+        if (m.type === "livekit_join_refused") {
+          const j = joins.get(m.roleId);
+          if (!j) return; // nobody is waiting (answered, timed out, or never asked)
+          joins.delete(m.roleId);
+          j.cancel();
+          j.reject(new LiveKitJoinRefused());
           return;
         }
         if (m.type !== "voice_state" || ending) return;

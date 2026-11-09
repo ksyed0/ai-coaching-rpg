@@ -1,6 +1,6 @@
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ControlToWorker } from "@acr/speech/protocol";
+import { ControlToWorkerSchema, type ControlToWorker } from "@acr/speech/protocol";
 import type { ControlConfig } from "../../config.js";
 import type { ParentMessage } from "../../protocol.js";
 import { createHash } from "node:crypto";
@@ -349,14 +349,26 @@ describe("VoiceHost and LiveKit (US-0071, A1b Task 5)", () => {
     expect((joins[0] as { token: string }).token).not.toBe((joins[1] as { token: string }).token);
   });
 
-  it("a token request for a seat that does not record is logged by name and not answered", async () => {
+  it("a token request for a seat that does not record is logged by name and answered livekit_join_refused (batch 3 review F1)", async () => {
     const { v } = withLiveKit();
     const w = live(v);
     v.fromRuntime(ID, seats({ holders: [{ ...holders[0]!, recording: false }] }));
     w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
     await settle();
     expect(w.sent.filter((m) => m.type === "livekit_join")).toEqual([]);
+    expect(w.sent.filter((m) => m.type === "livekit_join_refused")).toEqual([{ type: "livekit_join_refused", roleId: "tech_lead" }]);
+    for (const m of w.sent) expect(ControlToWorkerSchema.safeParse(m).success).toBe(true);
     expect(logs.at(-1)).toBe(`session ${ID} speech room token refused (VoiceTokenRefused)`);
+  });
+
+  it("a refused join for a worker that exited meanwhile is answered to nobody", async () => {
+    const { v } = withLiveKit();
+    const w = live(v);
+    v.fromRuntime(ID, seats({ paused: true }));
+    w.emit({ type: "livekit_token_request", roleId: "tech_lead" });
+    w.exit(1);
+    await settle();
+    expect(w.sent.filter((m) => m.type === "livekit_join_refused")).toEqual([]);
   });
 
   it("a join minted for a worker that exited meanwhile is not sent to its successor", async () => {

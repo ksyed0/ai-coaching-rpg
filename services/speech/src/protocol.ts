@@ -85,7 +85,7 @@ const LiveKitUrl = z.string().max(MAX_LIVEKIT_URL_CHARS).refine((v) => {
 
 /**
  * Asks control for a fresh token to the seat's room: sent whenever the ingest is about to connect that room (its first connect and every
- * reconnect, never cached). Control answers with `livekit_join`, or not at all (the worker's own wait times out).
+ * reconnect, never cached). Control answers with `livekit_join` or `livekit_join_refused` (the worker's own wait covers a lost answer).
  */
 const LiveKitTokenRequest = z.strictObject({ type: z.literal("livekit_token_request"), roleId: RoleId });
 /** The worker's room connection changed. Control logs a fixed sentence only (no role, room or identity) and changes nothing else. */
@@ -120,7 +120,12 @@ const VoiceLineResult = z
 const LiveKitJoin = z.strictObject({
   type: z.literal("livekit_join"), roleId: RoleId, url: LiveKitUrl, token: z.string().min(1).max(MAX_LIVEKIT_TOKEN_CHARS), room: RoomName,
 });
+/**
+ * US-0071 (A1b batch 3 review F1): control will not give a worker token for the seat now (paused, not recording, no seats yet, voice off,
+ * or a minting failure). The worker's join fails at once, and the ingest joins again after a short backoff while the seat still records.
+ */
+const LiveKitJoinRefused = z.strictObject({ type: z.literal("livekit_join_refused"), roleId: RoleId });
 /** US-0071: control grants a requested speech-to-text slot. */
 const SttSlotGrant = z.strictObject({ type: z.literal("stt_slot_grant"), slot: SlotIdSchema });
-export const ControlToWorkerSchema = z.discriminatedUnion("type", [VoiceState, VoiceLineResult, LiveKitJoin, SttSlotGrant]);
+export const ControlToWorkerSchema = z.discriminatedUnion("type", [VoiceState, VoiceLineResult, LiveKitJoin, LiveKitJoinRefused, SttSlotGrant]);
 export type ControlToWorker = z.infer<typeof ControlToWorkerSchema>;

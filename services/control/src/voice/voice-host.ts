@@ -233,14 +233,19 @@ export class VoiceHost {
         if (m.status === "stt_failed") this.alert(sessionId, "stt_failed");
         return;
       case "livekit_token_request": {
-        // US-0071 (A1b Task 5): a fresh worker token for that seat's room, every time (never cached). A refusal is logged by name and
-        // not answered: the worker's own wait times out. Without LiveKit the request is ignored.
+        // US-0071 (A1b Task 5): a fresh worker token for that seat's room, every time (never cached). A refusal (or a minting failure) is
+        // logged by name and answered `livekit_join_refused` (batch 3 review F1: the worker retries after a backoff instead of timing out
+        // into a restart). Without LiveKit the request is ignored.
         const tokens = this.o.tokens;
         if (!tokens || s.ended) return;
         const roleId = m.roleId;
+        const current = (): boolean => s.worker === w && !w.exited;
         tokens.workerJoin(sessionId, roleId).then(
-          (j) => { if (s.worker === w && !w.exited) this.toWorker(s, { type: "livekit_join", roleId, url: j.url, token: j.token, room: j.room }); },
-          (err: unknown) => this.o.log(`session ${sessionId} speech room token refused (${errName(err)})`),
+          (j) => { if (current()) this.toWorker(s, { type: "livekit_join", roleId, url: j.url, token: j.token, room: j.room }); },
+          (err: unknown) => {
+            this.o.log(`session ${sessionId} speech room token refused (${errName(err)})`);
+            if (current()) this.toWorker(s, { type: "livekit_join_refused", roleId });
+          },
         );
         return;
       }

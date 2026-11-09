@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { LIVEKIT_INGEST_FAILED, LiveKitIngest } from "../ingest/livekit-ingest.js";
+import {
+  JOIN_ATTEMPTS, JOIN_RETRY_MS, LIVEKIT_INGEST_FAILED, LiveKitIngest, LiveKitJoinRefused, LiveKitJoinTimeout, type LiveKitJoinInfo,
+} from "../ingest/livekit-ingest.js";
 import { FakeRoomPort, chunk, mic, type FakeConn } from "./fake-room.js";
 
 // US-0071 (EPIC-0003 voice A1b, Task 7, Review Focus 1 and 2): the LiveKit ingest subscribes only to the current recording holder's
@@ -14,21 +16,35 @@ const B2 = `bob.g${G2}`;
 type Frame = { roleId: string; generation: string | undefined; first: number; length: number };
 const settle = async (): Promise<void> => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
-function harness(o: { joinFails?: (roleId: string) => boolean } = {}) {
+type Timer = { fn: () => void; ms: number; cancelled: boolean };
+type PendingJoin = { roleId: string; resolve: () => void; reject: (e: Error) => void };
+
+function harness(o: { joinFails?: (roleId: string) => boolean; manualJoins?: boolean } = {}) {
   const port = new FakeRoomPort();
   const joins: string[] = [];
   const status: string[] = [];
   const frames: Frame[] = [];
+  const timers: Timer[] = [];
+  /** With `manualJoins`, every join waits here until the test answers it (as control and the worker's wait would). */
+  const pending: PendingJoin[] = [];
   let n = 0;
+  const info = (roleId: string): LiveKitJoinInfo => ({ url: "ws://127.0.0.1:7880", token: `tok-${roleId}-${++n}`, room: `v${"0".repeat(32)}` });
   const ingest = new LiveKitIngest({
     room: port,
     join: async (roleId) => {
       joins.push(roleId);
+      if (o.manualJoins) {
+        await new Promise<void>((resolve, reject) => pending.push({ roleId, resolve, reject }));
+        return info(roleId);
+      }
       if (o.joinFails?.(roleId)) throw new Error("timeout");
-      return { url: "ws://127.0.0.1:7880", token: `tok-${roleId}-${++n}`, room: `v${"0".repeat(32)}` };
+      return info(roleId);
     },
     onStatus: (s) => status.push(s),
+    setTimer: (fn, ms) => { const t: Timer = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
   });
+  const fire = (ms: number): void => { for (const t of timers.filter((x) => x.ms === ms && !x.cancelled)) { t.cancelled = true; t.fn(); } };
+  const live = (ms: number): Timer[] => timers.filter((t) => t.ms === ms && !t.cancelled);
   let settled: "pending" | "resolved" | "rejected" = "pending";
   let rejection: unknown;
   const start = (): Promise<void> => {
@@ -38,7 +54,7 @@ function harness(o: { joinFails?: (roleId: string) => boolean } = {}) {
   };
   /** The connection opened for the n-th join (in join order). */
   const conn = (i = 0): FakeConn => port.conns[i] as FakeConn;
-  return { ingest, port, joins, status, frames, start, conn, state: () => settled, rejection: () => rejection };
+  return { ingest, port, joins, status, frames, start, conn, timers, fire, live, pending, state: () => settled, rejection: () => rejection };
 }
 
 describe("LiveKitIngest: what is subscribed (US-0071, A1b Task 7, Review Focus 1)", () => {
@@ -376,5 +392,118 @@ describe("LiveKitIngest: connections (US-0071, A1b Task 7)", () => {
     await h.ingest.stop(); // the join is still in flight
     await settle();
     expect(h.port.conns[0]?.disconnected ?? true).toBe(true);
+  });
+});
+
+describe("LiveKitIngest: a join control refused or did not answer (US-0071, A1b batch 3 review F1)", () => {
+  it("allowed, pause, resume while the join is pending, then the join is refused: it joins again after the backoff and nothing fails", async () => {
+    const h = harness({ manualJoins: true });
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.ingest.setAllowed(new Map()); // pause: control would now refuse the worker's join
+    h.ingest.setAllowed(new Map([["alice", G1]])); // resume before the answer
+    await settle();
+    expect(h.joins).toEqual(["alice"]); // one join in flight, not two
+    h.pending.shift()!.reject(new LiveKitJoinRefused());
+    await settle();
+    expect(h.status).toEqual([]);
+    expect(h.state()).toBe("pending");
+    expect(h.live(JOIN_RETRY_MS)).toHaveLength(1);
+    h.ingest.setAllowed(new Map([["alice", G1]])); // a seat report meanwhile does not jump the backoff
+    await settle();
+    expect(h.joins).toEqual(["alice"]);
+    h.fire(JOIN_RETRY_MS);
+    await settle();
+    expect(h.joins).toEqual(["alice", "alice"]);
+    h.pending.shift()!.resolve();
+    await settle();
+    expect(h.status).toEqual(["connected"]);
+    h.conn(0).publish(mic(A1, "TR_a"));
+    h.conn(0).push("TR_a", chunk(4));
+    await settle();
+    expect(h.frames.map((f) => f.first)).toEqual([4]);
+  });
+
+  it("a runtime restart during the join (allowed, then nobody, then the new runtime's seats) and a join timeout: joins again, nothing fails", async () => {
+    const h = harness({ manualJoins: true });
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.ingest.setAllowed(new Map()); // detach: control tells the worker nobody records
+    h.ingest.setAllowed(new Map([["alice", G1]])); // the new runtime reports the same holder
+    h.pending.shift()!.reject(new LiveKitJoinTimeout()); // control refused while there were no seats and the answer was lost
+    await settle();
+    expect(h.status).toEqual([]);
+    h.fire(JOIN_RETRY_MS);
+    await settle();
+    h.pending.shift()!.resolve();
+    await settle();
+    expect(h.status).toEqual(["connected"]);
+    expect(h.state()).toBe("pending");
+  });
+
+  it(`a join refused ${JOIN_ATTEMPTS} times in a row while allowed reports failed`, async () => {
+    const h = harness({ manualJoins: true });
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    for (let i = 1; i <= JOIN_ATTEMPTS; i++) {
+      await settle();
+      expect(h.joins).toHaveLength(i);
+      h.pending.shift()!.reject(new LiveKitJoinRefused());
+      await settle();
+      if (i < JOIN_ATTEMPTS) { expect(h.status).toEqual([]); h.fire(JOIN_RETRY_MS); }
+    }
+    expect(h.status).toEqual(["failed"]);
+    expect(h.state()).toBe("rejected");
+    expect((h.rejection() as Error).message).toBe(LIVEKIT_INGEST_FAILED);
+  });
+
+  it("a refusal for a role that is not allowed now is quiet and sets no retry; allowing it again joins at once", async () => {
+    const h = harness({ manualJoins: true });
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.ingest.setAllowed(new Map());
+    h.pending.shift()!.reject(new LiveKitJoinRefused());
+    await settle();
+    expect(h.status).toEqual([]);
+    expect(h.live(JOIN_RETRY_MS)).toEqual([]);
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    expect(h.joins).toEqual(["alice", "alice"]);
+  });
+
+  it("a pending retry does nothing once the role is no longer allowed, and stop cancels it", async () => {
+    const h = harness({ manualJoins: true });
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.pending.shift()!.reject(new LiveKitJoinRefused());
+    await settle();
+    h.ingest.setAllowed(new Map());
+    h.fire(JOIN_RETRY_MS);
+    await settle();
+    expect(h.joins).toEqual(["alice"]);
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.pending.shift()!.reject(new LiveKitJoinRefused());
+    await settle();
+    expect(h.live(JOIN_RETRY_MS)).toHaveLength(1);
+    await h.ingest.stop();
+    expect(h.live(JOIN_RETRY_MS)).toEqual([]);
+  });
+
+  it("a real room.open failure after a granted join still reports failed at once (no retry)", async () => {
+    const h = harness({ manualJoins: true });
+    h.port.failNext = new Error("no server");
+    h.start();
+    h.ingest.setAllowed(new Map([["alice", G1]]));
+    await settle();
+    h.pending.shift()!.resolve();
+    await settle();
+    expect(h.status).toEqual(["failed"]);
+    expect(h.state()).toBe("rejected");
+    expect(h.live(JOIN_RETRY_MS)).toEqual([]);
   });
 });
