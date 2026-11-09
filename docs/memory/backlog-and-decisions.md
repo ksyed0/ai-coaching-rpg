@@ -102,11 +102,11 @@ Deferred from the US-0036 reviews (carried into US-0037/US-0038/US-0039, see the
   - `VoiceTurnTracker.closedTurnEnds` is still unbounded per session (A1a, unchanged).
   - The `VoiceHost` keeps per-session entries (`failures`, `roles`, `told`, ...) until the session's worker has stopped after the end; nothing else trims them.
   - `STT_MODEL` is validated but not read beyond that (A1c).
-  - **Case 8 ordering:** at the session end control starts `deleteRoom` and then sends `ended`; the worker got `ended` first in 2 of 2 live runs, but it is a race. Proposed hardening: send `ended` to the worker before `deleteRoom`.
+  - **Case 8 ordering (fixed in the final fix wave):** control now sends the worker `ended` first and then starts `deleteRoom` (`VoiceHost.end`, test `the worker gets ended before deleteRoom`); the live check was observed in the old order 3 of 3 times, so the new order is covered by a unit test with fakes, not re-run live.
   - **A LiveKit outage of about 16 s turns voice off for the rest of the session** (exit 3 counts toward the restart budget: 500 + 1000 + 2000 + 4000 + 8000 ms, then the sixth exit). Proposed for A1c: do not count exit-3 LiveKit losses toward the budget, or retry them slowly.
   - **File ingest replays its WAV files after a restart** (stand-in only; V-07 removes the files and hides it).
-  - The speaking indicator re-broadcasts the whole facilitator roster on every speaking-set change (not coalesced).
-  - `livekit-room.ts` and `livekit-room-browser.ts` are excluded from coverage and covered only by the opt-in live checks.
+  - The speaking indicator is coalesced to at most one facilitator roster frame per 250 ms (`SPEAKING_BROADCAST_MS`, trailing edge, final state always sent); facilitators see speaking state with up to 250 ms delay. Mute, opt-out, release, pause and end are sent at once.
+  - Coverage exclusions: only the native glue `services/speech/src/ingest/livekit-room-native.ts` (rtc-node) and the thin browser wrapper `apps/web/src/lib/livekit-room-browser.ts` are excluded; `livekit-room.ts` (RtcConn) is measured (100% lines). The browser wrapper's 'disableMicrophone unpublishes' rule is proven in CI only against the fake BrowserRoom, and for real only by the opt-in live run.
   - **Unproven:** a real page on real hardware outside headless Chromium, Safari, Firefox and mobile browsers (TC-0188), UDP media, a real LAN and a pilot `wss://` server with TLS, a real whisper-server (`/health` while a model loads, cold calls against the 35 s lease, the 4-to-8 talker contention).
 - **Next:** the PR for A1b (final review results are recorded in the PR), then A1c (operations: `pnpm voice:up`, real LiveKit keys, whisper-server hardening, the restart-budget follow-up), A2 (audio retention and deletion), A3 (facilitator voice tools); all three are proposals, filed from the registry when each plan starts.
 
