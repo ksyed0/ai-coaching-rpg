@@ -60,7 +60,9 @@ services:
       # /config a volume): both bound into the private state directory, so `down --remove-orphans` leaves no anonymous volume.
       - ${VOICE_STATE_DIR:?}/caddy-data:/data
       - ${VOICE_STATE_DIR:?}/caddy-config:/config
-    # Docker Desktop and OrbStack provide host.docker.internal already; the mapping makes it work on Linux too.
+    # Docker Desktop and OrbStack provide host.docker.internal and forward it to the host's loopback, where the web app listens (as
+    # known; Task 15's owner run checks it). Linux is NOT supported in A1c: there host-gateway is the bridge address, and the web app
+    # binds 127.0.0.1 only, so Caddy in a container cannot reach it; Linux needs another setup (for example a native Caddy).
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on: [livekit]
     restart: on-failure:5
