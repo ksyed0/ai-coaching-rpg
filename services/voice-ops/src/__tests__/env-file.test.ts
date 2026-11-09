@@ -1,3 +1,4 @@
+import { execFile, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, chownSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, appendFileSync } from "node:fs";
 import os from "node:os";
@@ -31,8 +32,8 @@ function counterRandom(): (n: number) => Buffer {
   return (n) => Buffer.alloc(n, k++);
 }
 const NOW = () => Date.UTC(2026, 10, 9, 12, 0, 0);
-/** git ls-files --error-unmatch answers "not tracked" (exit 1), as for the repository's real .env. */
-const untracked: GitRun = async () => ({ code: 1, stdout: "", stderr: "" });
+/** `git ls-files -z -- ':(icase).env'` answers "not tracked" (exit 0, no output), as for the repository's real .env. */
+const untracked: GitRun = async () => ({ code: 0, stdout: "", stderr: "" });
 const freePortStub = (port = 24680) => vi.fn(async () => port);
 
 function newDir(): string { return mkdtempSync(path.join(root, "d-")); }
@@ -264,12 +265,13 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     expect((await ensure(file, { env: { PATH: "/usr/bin", LIVEKIT_HOST: "http://127.0.0.1:7880" } })).added).toHaveLength(3);
   });
 
-  it("a .env tracked by git is refused; the check runs git -C <dir> ls-files --error-unmatch -- .env", async () => {
+  it("a .env tracked by git is refused; the check runs git -C <dir> ls-files -z -- ':(icase).env' without any GIT_* variable", async () => {
     const file = envFile("A=1\n");
     const before = readFileSync(file);
-    const run = vi.fn<GitRun>(async () => ({ code: 0, stdout: ".env\n", stderr: "" }));
-    expect((await refusal(ensure(file, { run }))).code).toBe("tracked");
-    expect(run).toHaveBeenCalledWith("git", ["-C", path.dirname(file), "ls-files", "--error-unmatch", "--", ".env"], { timeoutMs: 30_000 });
+    const run = vi.fn<GitRun>(async () => ({ code: 0, stdout: ".ENV\0", stderr: "" }));
+    const env = { PATH: "/usr/bin:/bin", HOME: "/home/placeholder", GIT_DIR: "/elsewhere/.git", GIT_WORK_TREE: "/elsewhere", GIT_INDEX_FILE: "/x" };
+    expect((await refusal(ensure(file, { run, env }))).code).toBe("tracked");
+    expect(run).toHaveBeenCalledWith("git", ["-C", path.dirname(file), "ls-files", "-z", "--", ":(icase).env"], { env: { PATH: "/usr/bin:/bin", HOME: "/home/placeholder" }, timeoutMs: 30_000 });
     expect(readFileSync(file).equals(before)).toBe(true);
   });
 
@@ -277,12 +279,45 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
     for (const run of [
       (async () => { throw Object.assign(new Error("spawn git ENOENT"), { code: "ENOENT" }); }) as GitRun,
       (async () => ({ code: 128, stdout: "", stderr: "fatal: not a git repository" })) as GitRun,
-      (async () => ({ code: null, stdout: "", stderr: "" })) as GitRun,
+      (async () => ({ code: 1, stdout: ".env\0", stderr: "" })) as GitRun, // only exit 0 answers the question
       untracked,
     ]) {
       const file = envFile("A=1\n");
       expect((await ensure(file, { run })).added).toHaveLength(3);
     }
+  });
+
+  it("git that does not answer in time (killed: code null) is refused, the file unchanged (review A F4)", async () => {
+    const file = envFile("A=1\n");
+    const before = readFileSync(file);
+    const err = await refusal(ensure(file, { run: async () => ({ code: null, stdout: "", stderr: "" }) }));
+    expect(err.code).toBe("git_timeout");
+    expect(err.message).toBe("git did not answer in time whether .env is tracked: check the repository with git status, then pnpm voice:up");
+    expect(readFileSync(file).equals(before)).toBe(true);
+  });
+
+  // Review A F4, with the real git: a tracked `.ENV` is the same file as `.env` on a case-insensitive file system (macOS), and an
+  // inherited GIT_DIR must not send the question to another repository.
+  it("real git: an index entry .ENV counts as tracked, also with GIT_DIR inherited; an untracked .env is not", async () => {
+    const realGit: GitRun = (cmd, args, o) => new Promise((resolve, reject) => {
+      execFile(cmd, [...args], { env: o?.env, timeout: o?.timeoutMs }, (err, stdout, stderr) => {
+        if (err && typeof err.code === "string") { reject(err); return; }
+        resolve({ code: err ? (typeof err.code === "number" ? err.code : null) : 0, stdout: String(stdout), stderr: String(stderr) });
+      });
+    });
+    const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, GIT_DIR: path.join(root, "no-such-repo", ".git"), GIT_WORK_TREE: root };
+    const gitEnv = { PATH: env.PATH, HOME: root };
+    const plain = envFile("A=1\n");
+    execFileSync("git", ["init", "-q", path.dirname(plain)], { env: gitEnv });
+    expect((await ensure(plain, { run: realGit, env })).added).toHaveLength(3);
+    const tracked = envFile("A=1\n");
+    const dir = path.dirname(tracked);
+    execFileSync("git", ["init", "-q", dir], { env: gitEnv });
+    const blob = execFileSync("git", ["-C", dir, "hash-object", "-w", ".env"], { env: gitEnv }).toString().trim();
+    execFileSync("git", ["-C", dir, "update-index", "--add", "--cacheinfo", `100644,${blob},.ENV`], { env: gitEnv });
+    const before = readFileSync(tracked);
+    expect((await refusal(ensure(tracked, { run: realGit, env }))).code).toBe("tracked");
+    expect(readFileSync(tracked).equals(before)).toBe(true);
   });
 
   it("a file replaced between the read and the rename is left alone", async () => {

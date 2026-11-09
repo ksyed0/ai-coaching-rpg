@@ -30,7 +30,7 @@ export type ManagedName = (typeof MANAGED_NAMES)[number];
 
 export type EnvFileErrorCode =
   | "missing" | "symlink" | "not_regular" | "not_owner" | "too_open" | "unreadable" | "too_large" | "unwritable" | "dev_keys" | "half_pair" | "empty_assignment"
-  | "bad_keys" | "bad_stt_url" | "changed" | "env_override" | "tracked";
+  | "bad_keys" | "bad_stt_url" | "changed" | "env_override" | "tracked" | "git_timeout";
 
 const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => string> = {
   missing: () => ".env not found: run ./run.sh once first (it creates .env with a facilitator token), then pnpm voice:up",
@@ -49,6 +49,7 @@ const SENTENCES: Record<EnvFileErrorCode, (name: ManagedName | undefined) => str
   changed: () => ".env changed while voice:up was writing it: run pnpm voice:up again",
   env_override: (name) => `unset ${name ?? "the managed names"} in this shell: voice:up and control must read it from .env`,
   tracked: () => "remove .env from git (git rm --cached .env) before voice:up writes secrets into it",
+  git_timeout: () => "git did not answer in time whether .env is tracked: check the repository with git status, then pnpm voice:up",
 };
 
 /** A refused `.env`. The message is a fixed sentence for the code, naming at most one managed variable; never a value or a path. */
@@ -229,10 +230,21 @@ export function sttRequestPath(sttUrl: URL): string {
   return p;
 }
 
-/** Exit 0 from `git ls-files --error-unmatch -- .env` = tracked. git missing, not a repository or any other answer: not known tracked. */
-async function trackedByGit(run: GitRun, dir: string): Promise<boolean> {
-  try { return (await run("git", ["-C", dir, "ls-files", "--error-unmatch", "--", ".env"], { timeoutMs: 30_000 })).code === 0; }
+/**
+ * Whether git tracks `.env` (review A F4). `git -C <dir> ls-files -z -- ':(icase).env'`: exit 0 with any output = tracked; the pathspec
+ * ignores case, because on a case-insensitive file system (macOS) a tracked `.ENV` IS this file (on Linux it is another file, and the
+ * refusal is merely cautious). git runs with every `GIT_*` variable removed from `env`, so an inherited GIT_DIR or GIT_WORK_TREE cannot
+ * point the question at another repository. A run that was killed (`code` null: the timeout) is refused; git missing (a throw), not a
+ * repository (128) or any other exit skips the check.
+ */
+async function trackedByGit(run: GitRun, dir: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const gitEnv: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env)) if (!k.startsWith("GIT_")) gitEnv[k] = v;
+  let r: Awaited<ReturnType<GitRun>>;
+  try { r = await run("git", ["-C", dir, "ls-files", "-z", "--", ":(icase).env"], { env: gitEnv, timeoutMs: 30_000 }); }
   catch { return false; }
+  if (r.code === null) throw new EnvFileError("git_timeout");
+  return r.code === 0 && r.stdout !== "";
 }
 
 /**
@@ -244,7 +256,7 @@ export async function ensureVoiceSecrets(o: {
   file: string; random: (n: number) => Buffer; freePort: () => Promise<number>; now: () => number; env: NodeJS.ProcessEnv; run: GitRun;
 }): Promise<{ added: string[] }> {
   for (const name of MANAGED_NAMES) if (o.env[name] !== undefined) throw new EnvFileError("env_override", name);
-  if (await trackedByGit(o.run, path.dirname(o.file))) throw new EnvFileError("tracked");
+  if (await trackedByGit(o.run, path.dirname(o.file), o.env)) throw new EnvFileError("tracked");
   const r = readPrivateEnv(o.file);
   const problem = managedProblem(r.text, r.values);
   if (problem) throw new EnvFileError(problem.code, problem.name);
