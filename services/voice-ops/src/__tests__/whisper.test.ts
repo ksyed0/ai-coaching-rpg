@@ -3,7 +3,8 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { realRun, realSpawnDetached, type Run, type SetTimer, type SpawnDetached } from "../run.js";
 import { openStateDir } from "../state.js";
@@ -18,6 +19,7 @@ import {
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 const STUB = fileURLToPath(new URL("./fixtures/whisper-server-stub.mjs", import.meta.url));
+const PACKAGE_DIR = fileURLToPath(new URL("../..", import.meta.url)); // services/voice-ops: where `--import tsx` resolves
 const REQUEST_PATH = "/0123456789abcdef0123456789abcdef"; // fabricated, not a real request path
 
 let root: string;
@@ -360,22 +362,40 @@ describe("whisperHealth and whisperWarm against a loopback server (US-0072, A1c 
     } finally { await s.close(); }
   });
 
-  it("whisperHealth and whisperWarm never go through an environment proxy", async () => {
-    // A proxy that would see the request: if either probe used fetch or the global agent with NODE_USE_ENV_PROXY, it would get it.
+  // Batch 2 review B F2: Node configures the env proxy (NODE_USE_ENV_PROXY + HTTP_PROXY) at START-UP, so setting the variables inside
+  // this process proves nothing. A child Node started with both runs the real probes (through tsx, as the CLI does); the proxy must see
+  // neither. The child's own default-agent request is the self-check that the env proxy is live on this Node (22.21 and later).
+  it("whisperHealth and whisperWarm never go through an environment proxy (a child Node started with the proxy on)", async () => {
     const proxy = await server((req, res) => { req.resume(); res.writeHead(502); res.end(); });
     const target = await server((req, res) => { req.resume(); req.on("end", () => { res.writeHead(200); res.end('{"status":"ok"}'); }); });
-    const saved = { HTTP_PROXY: process.env.HTTP_PROXY, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY, NO_PROXY: process.env.NO_PROXY };
-    process.env.HTTP_PROXY = `http://127.0.0.1:${proxy.port}`;
-    process.env.NODE_USE_ENV_PROXY = "1";
-    delete process.env.NO_PROXY;
+    const whisperFile = pathToFileURL(fileURLToPath(new URL("../whisper.ts", import.meta.url))).href;
+    const dir = newDir();
+    const script = path.join(dir, "probe.mts");
+    const url = `http://127.0.0.1:${target.port}${REQUEST_PATH}`;
+    writeFileSync(script, `
+      import http from "node:http";
+      const { whisperHealth, whisperWarm } = await import(${JSON.stringify(whisperFile)});
+      const health = await whisperHealth(new URL(${JSON.stringify(url)}));
+      let warmed = true;
+      try { await whisperWarm(new URL(${JSON.stringify(url)})); } catch { warmed = false; }
+      await new Promise((r) => { const q = http.get(${JSON.stringify(`http://127.0.0.1:${target.port}/selfcheck`)}, (res) => { res.resume(); res.on("end", r); }); q.on("error", r); });
+      process.stdout.write(JSON.stringify({ health, warmed }));
+      process.exit(0);`);
+    const proxyUrl = `http://127.0.0.1:${proxy.port}`;
+    const env = { PATH: process.env.PATH ?? "", HOME: dir, NODE_USE_ENV_PROXY: "1", HTTP_PROXY: proxyUrl, http_proxy: proxyUrl, NO_PROXY: "", no_proxy: "" };
     try {
-      expect(await whisperHealth(sttUrl(target.port))).toBe("ok");
-      await whisperWarm(sttUrl(target.port));
-      expect(proxy.seen).toEqual([]);
-    } finally {
-      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-      await proxy.close(); await target.close();
-    }
+      const out = await new Promise<string>((resolve, reject) => {
+        execFile(process.execPath, ["--import", "tsx", script], { env, cwd: PACKAGE_DIR, timeout: 60_000 }, (err, stdout, stderr) => {
+          if (err) reject(new Error(`child failed: ${String(stderr).slice(0, 500)}`)); else resolve(String(stdout));
+        });
+      });
+      expect(JSON.parse(out)).toEqual({ health: "ok", warmed: true });
+      expect(target.seen).toContain(`GET ${REQUEST_PATH}/health`);
+      expect(target.seen).toContain(`POST ${REQUEST_PATH}/inference`);
+      expect(proxy.seen.filter((u) => u.includes(REQUEST_PATH.slice(1)))).toEqual([]);
+      const [major, minor] = process.versions.node.split(".").map(Number) as [number, number];
+      if (major > 22 || (major === 22 && minor >= 21)) expect(proxy.seen.some((u) => u.includes("selfcheck"))).toBe(true); // the env proxy was live
+    } finally { await proxy.close(); await target.close(); }
   });
 });
 
