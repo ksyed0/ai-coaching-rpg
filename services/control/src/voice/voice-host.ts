@@ -5,6 +5,7 @@ import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
 import { buildSpeechEnv } from "./speech-env.js";
+import { STT_GLOBAL_IN_FLIGHT, SttSlots, sttLeaseMs } from "./stt-slots.js";
 import { VoiceTokenRefused, type VoiceTokens } from "./tokens.js";
 
 /** The runtime must answer a voice line within this; otherwise the worker is told `refused: "failed"`. */
@@ -73,9 +74,15 @@ export class VoiceHost {
   }) {
     // A generation reaches the worker only for a LiveKit ingest: a file-ingest worker would drop every frame (none of its frames has one).
     this.livekitIngest = o.tokens !== undefined && o.parentEnv.SPEECH_INGEST === "livekit";
+    // US-0071 (A1b Task 6): ONE speech-to-text budget for every session of this service; a lease that runs out kills that worker.
+    this.slots = new SttSlots({
+      max: STT_GLOBAL_IN_FLIGHT, leaseMs: sttLeaseMs(o.parentEnv), setTimer: o.setTimer, log: o.log,
+      onExpired: (owner) => { try { this.leaseExpired(owner); } catch (err) { this.failed(owner, err); } },
+    });
   }
 
   private readonly livekitIngest: boolean;
+  private readonly slots: SttSlots;
 
   private session(id: string): Session {
     let s = this.sessions.get(id);
@@ -252,10 +259,21 @@ export class VoiceHost {
       case "livekit_status":
         this.o.log(`session ${sessionId} speech room ${m.state}`); // a fixed sentence: never a role, a room or an identity
         return;
-      // US-0071 (A1b): accepted and ignored until their tasks land (slots: Task 6; health: Task 9).
-      case "stt_health":
-      case "stt_slot_request":
+      case "stt_slot_request": {
+        // US-0071 (A1b Task 6): one global budget. The grant goes only to this worker while it is the session's live one; a worker that
+        // has gone meanwhile had its slots released at its exit (releaseAll), so a grant for it never happens.
+        const slot = m.slot;
+        this.slots.request(sessionId, slot, () => {
+          if (s.worker === w && !w.exited) this.toWorker(s, { type: "stt_slot_grant", slot });
+          else queueMicrotask(() => this.slots.release(sessionId, slot));
+        });
+        return;
+      }
       case "stt_slot_release":
+        this.slots.release(sessionId, m.slot);
+        return;
+      // US-0071 (A1b): accepted and ignored until its task lands (health: Task 9).
+      case "stt_health":
         return;
     }
   }
@@ -265,6 +283,7 @@ export class VoiceHost {
     const s = this.sessions.get(sessionId);
     if (!s || s.worker !== w) return;
     delete s.worker;
+    this.slots.releaseAll(sessionId); // US-0071 (Task 6): a dead worker's slots go back at once, its waiters are dropped
     for (const cancel of s.pending.values()) cancel(); // the worker is gone: nobody to answer
     s.pending.clear();
     if (s.ended) { this.drop(sessionId, s); return; } // F9b: the session is over and its worker has stopped
@@ -277,7 +296,19 @@ export class VoiceHost {
   /** F9b: forgets an ended session whose worker has stopped (or that never had one). */
   private drop(sessionId: string, s: Session): void {
     for (const cancel of s.pending.values()) cancel();
+    this.slots.releaseAll(sessionId);
     if (this.sessions.get(sessionId) === s) this.sessions.delete(sessionId);
+  }
+
+  /**
+   * US-0071 (A1b Task 6): a speech-to-text slot of this session outlived its lease (STT_COLD_TIMEOUT_MS + 5 s: no healthy call takes
+   * that long), so its worker is stuck: it is killed (forced after graceMs) and its unexpected exit takes the restart path (Task 8).
+   */
+  private leaseExpired(sessionId: string): void {
+    const w = this.sessions.get(sessionId)?.worker;
+    if (!w || w.exited) return;
+    try { w.handle.kill(); } catch { /* already gone */ }
+    this.o.setTimer(() => { if (!w.exited) { try { w.handle.forceKill(); } catch { /* already gone */ } } }, this.o.config.graceMs);
   }
 
   private pushState(sessionId: string, s: Session): void {

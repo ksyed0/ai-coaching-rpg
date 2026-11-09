@@ -51,13 +51,12 @@ const live = (v: VoiceHost) => { v.attach(ID, { voice: true, roles: ["tech_lead"
 beforeEach(() => { timers = []; workers = []; toRuntime = []; logs = []; turns = []; runtimeUp = true; });
 
 describe("VoiceHost and the US-0071 worker messages (A1b Task 2, characterisation; Task 5 for LiveKit)", () => {
-  it("without LiveKit, livekit_token_request, stt_health and the slot messages are ignored; livekit_status is a fixed log line", () => {
+  it("without LiveKit, livekit_token_request and stt_health are ignored; livekit_status is a fixed log line", () => {
     const v = make();
     const w = live(v);
     const sentBefore = w.sent.length; const logsBefore = logs.length;
     for (const m of [
       { type: "livekit_token_request", roleId: "tech_lead" }, { type: "livekit_status", state: "connected" }, { type: "stt_health", ok: false },
-      { type: "stt_slot_request", slot: SEG }, { type: "stt_slot_release", slot: SEG },
     ]) w.emit(m);
     expect(w.sent.slice(sentBefore)).toEqual([]);
     expect(toRuntime).toEqual([]);
@@ -299,6 +298,64 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     expect(w.forced).toBe(1);
     w.exit(0);
     expect(toRuntime.filter((x) => x.m.type === "voice_alert")).toEqual([]);
+  });
+});
+
+describe("VoiceHost and the global speech-to-text budget (US-0071, A1b Task 6)", () => {
+  const ID2 = "b".repeat(32);
+  const LEASE = 35_000; // STT_COLD_TIMEOUT_MS (default 30 s) + 5 s
+  const ask = (w: FakeWorker, slot: string) => w.emit({ type: "stt_slot_request", slot });
+  const grants = (w: FakeWorker) => w.sent.filter((m) => m.type === "stt_slot_grant");
+  const two = (v: VoiceHost) => {
+    const a = live(v);
+    v.attach(ID2, { voice: true, roles: ["tech_lead"] });
+    const b = workers.at(-1)!;
+    ready(b);
+    return { a, b };
+  };
+
+  it("with two voice sessions at most 2 transcriptions run at once across both", () => {
+    const v = make();
+    const { a, b } = two(v);
+    ask(a, "1111111111111111"); ask(a, "2222222222222222");
+    ask(b, "3333333333333333"); ask(b, "4444444444444444");
+    expect(grants(a)).toEqual([{ type: "stt_slot_grant", slot: "1111111111111111" }, { type: "stt_slot_grant", slot: "2222222222222222" }]);
+    expect(grants(b)).toEqual([]);
+    a.emit({ type: "stt_slot_release", slot: "1111111111111111" });
+    expect(grants(b)).toEqual([{ type: "stt_slot_grant", slot: "3333333333333333" }]);
+    for (const m of [...a.sent, ...b.sent]) expect(ControlToWorkerSchema.safeParse(m).success).toBe(true);
+  });
+
+  it("a worker exit releases its slots: the other session's waiter is granted at once", () => {
+    const v = make();
+    const { a, b } = two(v);
+    ask(a, "1111111111111111"); ask(a, "2222222222222222"); ask(b, "3333333333333333");
+    a.exit(1);
+    expect(grants(b)).toEqual([{ type: "stt_slot_grant", slot: "3333333333333333" }]);
+    expect(timers.filter((t) => t.ms === LEASE && !t.cancelled)).toHaveLength(1);
+  });
+
+  it("an expired lease kills that session's worker only (kill, then forceKill after graceMs), and grants the next waiter", () => {
+    const v = make();
+    const { a, b } = two(v);
+    ask(a, "1111111111111111"); ask(a, "2222222222222222"); ask(b, "3333333333333333");
+    const lease = timers.find((t) => t.ms === LEASE && !t.cancelled)!;
+    lease.cancelled = true; lease.fn();
+    expect(a.killed).toBe(1);
+    expect(b.killed).toBe(0);
+    expect(grants(b)).toEqual([{ type: "stt_slot_grant", slot: "3333333333333333" }]);
+    expect(logs).toContain(`session ${ID} speech slot lease expired (timeout)`);
+    fire(700);
+    expect(a.forced).toBe(1);
+    expect(b.forced).toBe(0);
+  });
+
+  it("a request from a worker that is no longer the session's is ignored", () => {
+    const v = make();
+    const a = live(v);
+    a.exit(1);
+    ask(a, "1111111111111111");
+    expect(grants(a)).toEqual([]);
   });
 });
 

@@ -6,6 +6,7 @@ import { ControlToWorkerSchema, WorkerMessageSchema, type WorkerMessage } from "
 import type { AudioIngest } from "./ingest/audio-ingest.js";
 import { LiveKitIngest, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
 import type { RoomPort } from "./ingest/room-port.js";
+import { SlotSpeechToText, newSlotId } from "./slot-stt.js";
 import { startWorker, type RunningWorker } from "./worker.js";
 
 /** After the parent's IPC channel closes: exit this long later whatever happens (a hung stop must not leave an orphan). */
@@ -47,9 +48,19 @@ async function main(): Promise<void> {
   const parsed = parseWorkerConfig(process.env);
   if (!parsed.ok) { for (const e of parsed.errors) console.error(`error: ${e}`); process.exit(2); }
   const { cfg } = parsed;
+  const send = (m: WorkerMessage): boolean => {
+    if (!process.connected || !WorkerMessageSchema.safeParse(m).success) return false;
+    try { return process.send!(m, () => {}) !== false; } catch { return false; }
+  };
   let stt: SpeechToText | ((roleId: string) => SpeechToText);
+  let slots: SlotSpeechToText | undefined;
   if (cfg.stt.kind === "whisper") {
-    stt = new LimitedSpeechToText(new WhisperHttpSpeechToText({ url: cfg.stt.url }), {
+    // US-0071 (A1b Task 6): every Whisper call runs inside one of control's global slots; the limiter keeps its own cap and deadlines
+    // (the slot wait counts against the segment's deadline). The fake takes no slot.
+    slots = new SlotSpeechToText(new WhisperHttpSpeechToText({ url: cfg.stt.url }), {
+      request: (slot) => { send({ type: "stt_slot_request", slot }); }, release: (slot) => { send({ type: "stt_slot_release", slot }); }, newSlot: newSlotId,
+    });
+    stt = new LimitedSpeechToText(slots, {
       now: Date.now, sleep: realSleep, setTimer: realSetTimer, coldTimeoutMs: cfg.stt.coldTimeoutMs, idleColdMs: cfg.stt.idleColdMs,
       onQueueAlert: () => console.error("warning: the speech-to-text queue is long; transcription is falling behind"),
     });
@@ -57,10 +68,6 @@ async function main(): Promise<void> {
     try { const fake = loadFakeScript(cfg.stt.scriptFile); stt = (roleId) => fake.sttFor(roleId); }
     catch (err) { console.error(`error: ${err instanceof Error ? err.message : "STT_FAKE_SCRIPT is not readable"}`); process.exit(2); }
   }
-  const send = (m: WorkerMessage): boolean => {
-    if (!process.connected || !WorkerMessageSchema.safeParse(m).success) return false;
-    try { return process.send!(m, () => {}) !== false; } catch { return false; }
-  };
   let makeIngest: ((deps: { join: (roleId: string) => Promise<LiveKitJoinInfo> }) => AudioIngest) | undefined;
   let worker: RunningWorker | undefined;
   if (cfg.ingest.kind === "livekit") {
@@ -76,7 +83,7 @@ async function main(): Promise<void> {
       onStatus: (state) => { send({ type: "livekit_status", state }); if (state !== "connected") lost(); },
     });
   }
-  worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}) });
+  worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}), ...(slots ? { onSlotGrant: slots.granted.bind(slots) } : {}) });
   const running = worker;
   process.on("message", (raw: unknown) => {
     const m = ControlToWorkerSchema.safeParse(raw);

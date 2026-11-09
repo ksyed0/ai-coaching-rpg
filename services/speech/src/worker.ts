@@ -61,6 +61,8 @@ export function startWorker(o: {
   /** US-0071: builds the LiveKit ingest (main.ts, with the real room); `join` asks control for a fresh token to a seat's room. */
   makeIngest?: (deps: { join: (roleId: string) => Promise<LiveKitJoinInfo> }) => AudioIngest;
   setTimer?: SetTimer;
+  /** US-0071 (A1b Task 6): control granted a speech-to-text slot (main.ts hands it to the SlotSpeechToText). */
+  onSlotGrant?: (slot: string) => void;
 }): RunningWorker {
   const log = o.log ?? (() => {});
   const send = (m: WorkerMessage): void => { try { o.send(m); } catch { /* a closed channel: the parent is gone */ } };
@@ -130,6 +132,7 @@ export function startWorker(o: {
           j.resolve({ url: m.url, token: m.token, room: m.room });
           return;
         }
+        if (m.type === "stt_slot_grant") { o.onSlotGrant?.(m.slot); return; }
         if (m.type === "livekit_join_refused") {
           const j = joins.get(m.roleId);
           if (!j) return; // nobody is waiting (answered, timed out, or never asked)

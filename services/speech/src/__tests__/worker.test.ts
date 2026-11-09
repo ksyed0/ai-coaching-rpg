@@ -57,6 +57,25 @@ describe("startWorker and the US-0071 control messages (A1b Task 2, characterisa
   });
 });
 
+describe("startWorker and the global speech-to-text slots (US-0071, A1b Task 6)", () => {
+  it("stt_slot_grant is handed to the slot client, and to nothing else", async () => {
+    const grants: string[] = [];
+    const ingest = { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
+    const sent: WorkerMessage[] = [];
+    const w = startWorker({
+      cfg: cfgFor(["tech_lead"]), send: (m) => { sent.push(m); return true; }, now: () => 1, ingest,
+      stt: new FakeSpeechToText({ script: () => ({ text: "x", durationMs: 1 }) }), onSlotGrant: (slot) => grants.push(slot),
+    });
+    await vi.waitFor(() => expect(sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
+    const before = sent.length;
+    w.onControl({ type: "stt_slot_grant", slot: "0123456789abcdef" });
+    expect(grants).toEqual(["0123456789abcdef"]);
+    expect(sent.slice(before)).toEqual([]);
+    expect(ingest.start).not.toHaveBeenCalled();
+    await w.stop();
+  });
+});
+
 describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
   it("worker_ready is sent after warm-up", async () => {
     let release!: () => void;
