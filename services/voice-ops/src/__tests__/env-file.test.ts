@@ -389,8 +389,8 @@ describe("ensureVoiceSecrets (US-0072, A1c Task 2)", () => {
       try { for (let i = 0; i < 1_000_000 && fstatSync(fd).ctimeMs === r.id.ctimeMs; i++) fchmodSync(fd, 0o600); now = fstatSync(fd); } finally { closeSync(fd); }
       expect([now.ctimeMs !== r.id.ctimeMs, now.mtimeMs, now.size, now.ino]).toEqual([true, r.id.mtimeMs, r.id.size, r.id.ino]);
       expect(() => appendBlock(file, r.bytes, "X=1\n", r.id)).toThrow(expect.objectContaining({ code: "changed" }));
-      // Read through a fresh descriptor (PR #135, js/file-system-race).
-      { const fd2 = openSync(file, "r"); try { expect(readFileSync(fd2, "utf8")).toBe("A=1\n"); } finally { closeSync(fd2); } }
+      // Read back through the product reader, not a second path-based call in the test (PR #135, js/file-system-race).
+      expect(readPrivateEnv(file).text).toBe("A=1\n");
       expect(leftovers(path.dirname(file))).toEqual([]);
     }
     // Review A F8: a hard link added after the read (the rename would leave the other name with the old bytes).
