@@ -171,3 +171,40 @@ describe("parent channel", () => {
     expect(ok({ ...ready, aiRoles: "tech_lead" })).toBe(false);
   });
 });
+
+describe("parent channel and voice (US-0070)", () => {
+  it("an older runtime drops a parent message it does not know without throwing or answering (F3)", () => {
+    const f = fakeProc();
+    const got: unknown[] = [];
+    openParentChannel(f.proc)!.onMessage((m) => got.push(m));
+    expect(() => f.emit("message", { type: "voice_future", segmentId: "abc", text: "hello" })).not.toThrow();
+    expect(got).toEqual([]);
+    expect(f.raw.send as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it("the voice parent messages are delivered when well formed", () => {
+    const f = fakeProc();
+    const got: unknown[] = [];
+    openParentChannel(f.proc)!.onMessage((m) => got.push(m));
+    const msgs = [
+      { type: "voice_line", segmentId: "0123456789abcdef", roleId: "tech_lead", participantId: "p-1", text: "We ship in May." },
+      { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 500 },
+      { type: "voice_notice", roleId: "tech_lead", participantId: "p-1", code: "empty" },
+      { type: "voice_alert", code: "worker_down" },
+    ];
+    for (const m of msgs) f.emit("message", m);
+    expect(got).toEqual(msgs);
+  });
+
+  it("every voice ChildMessage variant round-trips", () => {
+    const variants: ChildMessage[] = [
+      { type: "ready", port: 4000, status: "new", modelLabel: "Mock", voice: true },
+      { type: "voice_line_ack", segmentId: "abc", seq: 7 },
+      { type: "voice_line_refused", segmentId: "abc", code: "not_holder" },
+      { type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "cfo", participantId: "p", recording: true }] },
+      { type: "voice_turn", open: true },
+      { type: "voice_choice", roleId: "cfo", participantId: "p", choice: "text_only", at: 5 },
+    ];
+    for (const v of variants) expect(ChildMessageSchema.parse(JSON.parse(JSON.stringify(v)))).toEqual(v);
+  });
+});

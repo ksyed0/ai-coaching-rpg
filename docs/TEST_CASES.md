@@ -2499,3 +2499,142 @@ Actual Result: As expected, 2026-11-08: step 1, 2 files, 5 and 17 tests (1 new i
 Status: [x] Pass
 Defect Raised: None
 Notes: Fail quiet by design (the row guards nothing), the opposite of the link guard's fail closed (docs/THREAT_MODEL.md, "AI roles in the credential path"). Mutation check: dropping the duplicate check in control's `wellMadeAiRoles` fails the malformed-answer test.
+
+## US-0070: voice pipeline on file ingest (EPIC-0003 voice A1a)
+
+TC-0162: A voice line from the recording holder is recorded with channel voice and answered with its seq
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0396
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no speech server.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-line.test.ts src/__tests__/main.voice-line.test.ts` (a host over a real engine on a temp log; `bootstrap` with a fake parent channel).
+  2. From the repository root: `pnpm demo --voice` (checks V-01 and V-08).
+Expected Result: The holder who chose voice gets an `utterance` with `channel: "voice"` whose `seq` equals the answered `seq` ("a holder who chose voice is recorded with channel voice and the returned seq equals the event's seq"); the utterance reaches players exactly like a typed line and no player frame carries `segmentId` or `participantId`; control gets exactly one answer per `voice_line` (`voice_line_ack`, `voice_line_refused` with the code, or `failed`); V-08: `session.started.logFormat` equals the value of a session without voice.
+Actual Result: As expected, 2026-11-08 (macOS, run during Task 21): step 1, 2 files, 14 and 7 tests passed; step 2, 8 of 8 checks passed (V-08: format 2, a session without voice: 2).
+Status: [x] Pass
+Defect Raised: None
+Notes: No new event type and no new field: a voice line is the existing `utterance` with `channel: "voice"` (packages/events/src/events.ts). The link between a line and its segment exists only in control and the worker, never in the log. Review fix wave (2026-11-08, macOS): F6, `TURN_END_MS` is read only with `VOICE_ENABLED=1` and `VOICE_ENABLED=true` stays refused: `voice-config.test.ts` "TURN_END_MS is not read while voice is off: any value, valid or not, leaves a text-only session startable" and "VOICE_ENABLED is still strict while TURN_END_MS is bad", `main.voice-config.test.ts` "F6: a text-only managed session starts whatever TURN_END_MS says" (both files passed).
+
+TC-0163: The runtime refuses voice lines it must not record and appends nothing
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0397
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-line.test.ts` (the refusal table).
+Expected Result: Each case is answered with its fixed code and the log length is unchanged: `voice_off` (voice disabled), `not_started`, `unknown_role` (an unknown id, an inherited member name, an AI character's id), `ai_role` (a player role an AI plays), `not_holder` (another participant id, an unheld seat, and the old participant's line after a reissue between segment and line), `not_recording` (no choice, a holder who chose text, a choice made by another participant), `paused` (recorded again after resume), `not_in_scene` (a role outside the current scene), `ended`; any other engine failure is `failed`; a line waits for a start in flight.
+Actual Result: As expected, 2026-11-08 (macOS): 1 file, 14 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: The codes are `VOICE_REFUSALS` in both parent-channel copies (services/runtime/src/host/parent-channel.ts, services/control/src/protocol.ts), compared by services/control/src/__tests__/protocol.drift.test.ts (5 tests passed, same run). The second gate of the privacy invariant: the worker's gate (TC-0164) is the first.
+
+TC-0164: A seat that is not a recording holder produces no segment, no STT request and no message
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0398
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/track-pipeline.test.ts src/__tests__/voice-gate.test.ts src/__tests__/worker.test.ts` (file-fed, synthetic signals, `FakeSpeechToText`).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/voice/voice.real.test.ts` (a real forked runtime and a real forked speech worker with the fake script).
+  3. From the repository root: `pnpm demo --voice` (check V-04: the text-only seat's role is absent from the fake's `calls.jsonl`).
+Expected Result: "unconsented track produces nothing (no voice_state, a text-only holder, an unheld role, an AI role absent from holders)": zero STT calls and zero messages; an opt-out or pause mid-segment discards the open segment with no STT call; nothing is ingested before the first `voice_state`; the real-process run logs only the voice seat's lines and never transcribes the text-only seat's file; V-04 passes.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 17, 5 and 7 tests passed; step 2, 1 test passed; step 3, V-04 "0 calls for the text-only seat, 9 in all".
+Status: [x] Pass
+Defect Raised: None
+Notes: The worker's gate is the first half of the privacy invariant; the runtime refusal table (TC-0163) is the second. The implementers reported the real-process tests (`main.process.test.ts`, `voice.real.test.ts`, `voice-demo.test.ts`, `voice-file.test.ts`) also passing in the node:22 Linux container as root and with `--user node`; that run was not repeated in Task 21. Review fix wave (2026-11-08, macOS): F5, `track-pipeline.test.ts` "an opt-out with two segments queued behind the in-flight cap makes no further inner call" (the in-flight call is aborted too) and "a pipeline stopped once still transcribes what it segments afterwards"; F2, `worker.test.ts` "the end of a file closes its open segment: the line goes out and the speech edge closes" and "a file that ends inside a blip too short to keep still closes the speech edge (no line)". Speech: 12 files, 136 tests passed.
+
+TC-0165: One speaker's lines are logged in segment order; a failed or empty segment gives no line
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0399
+Type: Edge Case
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/track-pipeline.test.ts`.
+  2. From `packages/adapters`: `pnpm exec vitest run src/speech` (the limiter: deadlines, retries, the in-flight cap, cold start).
+  3. From `services/control`: `pnpm exec vitest run src/__tests__/voice/voice-host.test.ts`.
+  4. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-notice.test.ts`.
+Expected Result: "out-of-order answers are delivered in segment order" and "a failed segment takes its place in the order"; an empty answer gives `segment_failed` `empty` and no line; a Refused or Timeout gives `segment_failed` `stt_failed`, never a placeholder line; in control, `stt_failed` becomes the speaker's `voice_notice` and one facilitator alert, and `empty` gives neither (owner decision, `NOTICE_EMPTY_SEGMENTS = false`); in the runtime, a notice goes only to the seat's current holder, at most one per role and code per 10 s, is never logged and never reaches another player or the facilitator; a refused line (`paused`, `not_in_scene`, `ended`, `not_recording`) gives a notice and no alert; an alert is one fixed sentence at most once per 30 s, never before the start or after the end.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 17 tests; step 2, 7 files, 74 passed and 1 skipped (`whisper.live.test.ts`, opt-in with `STT_LIVE=1`); step 3, 18 tests; step 4, 8 tests.
+Status: [x] Pass
+Defect Raised: None
+Notes: AC-0399 was reworded on 2026-11-08 to the owner's decision (spec section 16, open question 1): no notice for an empty segment. The `voice_unavailable` notice code exists in `VOICE_NOTICE_CODES` (services/runtime/src/host/voice.ts) but nothing sends it in A1a. The web app drops the `voice_notice` frame (A1b wires it), so in A1a only a direct runtime WebSocket client sees it. Review fix wave (2026-11-08, macOS): F4, `segmenter.test.ts` "a 2540 ms tone gives two segments that hold every speech frame", "a split's short rest is kept by flush too", "a split's rest with no speech at all ... is still dropped" and "a genuinely short isolated blip after a split segment is still dropped"; F9a, `normalise.test.ts` "a cut that exposes a currency word after an amount drops it" and "is idempotent over every cut position near a currency phrase"; F10, `voice-notice.test.ts` "an alert raised before the start is delivered at the start, exactly once", "pre-start alerts are deduped by code and bounded, the latest raised last" and "no pre-start alert is kept while voice is off": an alert is no longer dropped before the start, it is kept (one per code, at most 8) and logged when the session starts.
+
+TC-0166: One NPC round, one Game Master unit and one bot reply per voice turn
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0400
+Type: Functional
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-turn.test.ts src/agents/__tests__/game-master.voice.test.ts` (a manual `SetTimer`; no real time).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/bots/bot.voice-turn.test.ts`.
+  3. From the repository root: `pnpm demo --voice` (checks V-03 and V-05).
+Expected Result: The timer arms for `max(0, TURN_END_MS - silentMs)` only when every recording track is silent; "two voice lines then a false edge run ONE round after the timer"; "the round waits for a voice line still being recorded (C3)"; a text line cancels a pending timer and runs a round at once; pause and end clear the timer with no round; a running round is not interrupted; the Game Master counts a closed voice turn as one unit, judges nothing while a turn is open, and restores with the same units; bots defer human lines while a turn is open and reply once after it closes; V-03 one answer per turn, V-05 evaluations at most the per-turn count.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 25 and 16 tests; step 2, 11 tests; step 3, V-03 "3 answers for 3 turns of 3 segments (9 segments)", V-05 "1 evaluations (at most 2 by turn; counting segments would allow 4)".
+Status: [x] Pass
+Defect Raised: None
+Notes: The turn boundaries (`closedTurnEnds`) are in memory only: after a restart, consecutive voice lines count as one unit per run. The list is never trimmed during a session (open item in docs/memory/backlog-and-decisions.md). Review fix wave (2026-11-08, macOS): F1, `voice-turn.test.ts` "a turn whose only segment was dropped (no line at all) runs no round", "a turn whose only line was refused runs no round (not_holder, and an engine refusal)" and "after an answered turn, an empty turn runs no second round; the next turn with a line runs exactly one"; F2, "the worker going down mid-speech closes the turn at once ...", "... with no line recorded closes the turn and runs no round", "the backstop: a speaking track with no news for VOICE_ACTIVITY_STALE_MS is forgotten and the turn closes", the tracker cases for `staleMs`, `touch` and `dropAll`, and `voice_alert worker_down` closing an open turn in "voice_turn open/close is sent in order" (35 tests); F3, `bot.voice-turn.test.ts` "a runtime restart during an open voice turn releases the hold (and drops the deferred line)" (12 tests).
+
+TC-0167: Voice choice is per participant, never inherited, and opt-out stops recording at once
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0401
+Type: Functional
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/engine/__tests__/voice-file.test.ts src/host/__tests__/voice-choice.test.ts src/host/__tests__/ws-voice.test.ts src/engine/__tests__/session-store.voice.test.ts`.
+Expected Result: Opt-in by the holder records voice; it is refused `voice_off`, `forbidden` (AI seat), `not_joined`, `consent_version` and `voice_notice_required` (consent to v2); after a reissue the old entry is deleted and the next participant does not record; after a rebind the new holder is `text_only`; after a restart the record applies to the same participant only; a record bound to another log identity or a malformed one is ignored and removed; R14 consent seeding never creates a voice entry; an opt-out stops recording in memory even when the file write fails, and with the write and the removal both failing the seat stays off for the process with one facilitator alert; the file is 0600, bound to `{sessionId, logIdentity}`, at most 64 KiB, and a symlink is refused; a player's `voice_opt_in` is answered to that socket only and `joined.voice` carries only the joining player's own state.
+Actual Result: As expected, 2026-11-08 (macOS): 4 files, 18, 24, 6 and 3 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: The implementers reported `voice-file.test.ts` passing in the node:22 Linux container as root and with `--user node`; not repeated in Task 21. Review fix wave (2026-11-08, macOS): F8, `ws-voice.test.ts` "a voice opt-in whose file write fails answers failed and logs no path (the error name at most)", and `voice-choice.test.ts` now expects the fixed code `failed` for an opt-in whose write fails.
+
+TC-0168: Every speech-to-text adapter passes one contract suite; the Whisper client only sends to loopback
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0402
+Type: Functional
+Preconditions: As TC-0162. A real whisper-server is NOT needed (the Whisper client is tested against a stand-in HTTP server on 127.0.0.1:0).
+Steps:
+  1. From `packages/adapters`: `pnpm exec vitest run src/speech`.
+Expected Result: `speechToTextContract` passes for the fake (`fake.contract.test.ts`), the Whisper HTTP client (`whisper.contract.test.ts`) and the limiter over the fake (`limited.test.ts`); `parseSttUrl` accepts `http://127.0.0.1:<port>` and `http://[::1]:<port>/<path>` and refuses `localhost`, `0.0.0.0`, a LAN address, `https`, a query, a fragment, user info, no port and a missing value; a 5xx is Unavailable, a 4xx, HTML or a body over 256 KiB is Refused; error messages never hold a URL.
+Actual Result: As expected, 2026-11-08 (macOS): 7 files, 74 passed, 1 skipped (`whisper.live.test.ts`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Not run: the opt-in live check against a real whisper-server (`STT_LIVE=1 STT_URL=http://127.0.0.1:<port> pnpm exec vitest run src/speech/__tests__/whisper.live.test.ts`); it needs a human to start whisper-server and is what resolves F1 (whether `verbose_json` carries `no_speech_prob` and `avg_logprob`). Until then the noise gate may run on blank text and energy only. The client sends `redirect: "manual"` and treats any non-2xx answer below 500 as Refused, so a redirect is never followed; no test pins the 3xx case specifically. Review fix wave (2026-11-08, macOS): F9d, `whisper-http.test.ts` "refuses an explicit :80 (the URL parser normalises the default port away, so it reads as no port)": kept on purpose and pinned (adapters `src/speech`: 6 files passed, 1 skipped; 75 passed, 1 skipped).
+
+TC-0169: A worker crash leaves the session running and alerts the facilitator
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0403
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice`.
+  2. From the repository root: `pnpm demo --voice` (check V-07: the worker is killed with SIGKILL through the test hook).
+Expected Result: When the speech worker exits mid-session the runtime keeps running, typed lines are still recorded and the facilitator gets one `worker_down` alert; pending lines are forgotten; no worker is started again for that session (A1a has no restart); a runtime restart keeps the worker and pushes the new seats, with nobody recording in between; at the end the worker gets `ended` and is stopped after the grace time without an alert.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 4 files (`speech-env`, `supervisor.voice`, `voice-host`, `voice.real`), 4, 8, 18 and 1 tests passed; step 2, V-07 "session running, 1 worker_down alert(s)".
+Status: [x] Pass
+Defect Raised: None
+Notes: Restart with bounded backoff is A1b. After a voice worker loss the session stays text only until it is restarted from a new control-service process (the `workerLost` flag lives in the VoiceHost's memory). Review fix wave (2026-11-08, macOS): F2, V-07 now kills the worker MID-speech (a long last burst has opened a voice turn) and passes only when the turn closes ("voice turn closed"); with both the worker-down call and the backstop disabled V-07 fails. F9b, `voice-host.test.ts` "an ended session's entry is removed after its worker stops, and late runtime messages do not recreate it" and "an ended session that never had a worker leaves no entry"; F9c, `supervisor.voice.test.ts` "after the hand-over, a later voice_seats is parsed by the live handler only". Control voice, bot voice-turn and demo files: 50 tests passed.
+
+TC-0170: `pnpm demo --voice` runs the voice pipeline offline and passes V-01 to V-08
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0404
+Type: Functional
+Preconditions: As TC-0162; no network, no model key, no speech server.
+Steps:
+  1. From the repository root: `pnpm demo --voice`.
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/demo/voice-demo.test.ts`; from `services/runtime`: `pnpm exec vitest run src/demo/__tests__/voice-flag.test.ts`.
+  3. On the pull request: the CI Demo Run job's `pnpm demo --voice` step.
+Expected Result: Checks V-01 to V-08 pass with file ingest and the fake speech-to-text adapter and the command exits 0; `--voice` runs on its own (only `--no-color`).
+Actual Result: Steps 1 and 2 as expected, 2026-11-08 (macOS): 8 of 8 checks passed, exit 0, about 25 s wall time; `voice-demo.test.ts` 1 test, `voice-flag.test.ts` 18 tests passed. Step 3 not run yet: CI runs on pull requests into `develop` and `main` only, and no PR is open.
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Status moves to Pass when the PR's Demo Run job is green (AC-0404 says "in CI"). The other demo counts are unchanged on this branch (29 for `--fast`, 42 for `--fast --security --resume`, 14 for `--showcase --fast`; run in Task 21). Review fix wave (2026-11-08, macOS): F7, the demo has no fixed sleep: "nothing more happens" is `waitQuiet` (the log unchanged across 12 consecutive 250 ms observations, at most 240), `voice-client.test.ts` (3 tests, injected step, no real time); V-04 now allows the extra (empty) calls of the long last burst, still none for the text-only seat. `pnpm demo --voice` 8 of 8; `voice-demo.test.ts` passed.

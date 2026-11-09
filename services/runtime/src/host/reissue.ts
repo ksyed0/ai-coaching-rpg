@@ -46,6 +46,7 @@ export class RemoveRefusedError extends Error {
  *  3. Kick the role's socket (CLOSE_REISSUED, or CLOSE_REMOVED for a remove), which frees the seat synchronously; then, even if the kick threw (reported, not rethrown: the caller must
  *     still receive the new code), swap the new codes in (the file already has them, so memory must follow). Nothing in 2 and 3 awaits, so no join can run between the revoke and
  *     the swap: the credential is gone and persisted before the socket is kicked and before the new code can open anything.
+ *  3a. (US-0070) Between 2 and 3 the role's voice choice is deleted (host.forgetVoice): a new holder never inherits it.
  *  4. After the start only, append the facilitator-only alert (naming who reissued, never the code). Its failure is reported, not
  *     thrown: the code has already changed and the caller must still receive it. Before the start nothing may be appended: the
  *     engine refuses to start a log that already has events.
@@ -79,6 +80,9 @@ export async function reissueRole(d: ReissueDeps, roleId: string, by?: string, r
     try { d.writeCodes(old); } catch (restoreErr) { d.report?.("restoring the join codes file after a failed reissue", restoreErr); }
     throw err;
   }
+  // US-0070: the seat goes to someone new, so the role's voice choice is deleted (never inherited). Before the kick, so the old holder's
+  // track stops recording at once; never throws (a failed write is reported by name and the next holder's id differs anyway).
+  d.host.forgetVoice(roleId);
   // The credential is already revoked and the new codes are in the file: the reissue happened. A kick that throws is reported and the
   // caller still gets the new code (throwing here would lose it, with the old one already dead).
   try { d.server.kickRole(d.sessionId, roleId, reason === "removed" ? CLOSE_REMOVED : CLOSE_REISSUED); }

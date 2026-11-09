@@ -23,6 +23,27 @@
 | Web app (`apps/web`, read by `next start`/`next dev`, NOT from the root `.env`): `RUNTIME_URL`, `PUBLIC_ORIGIN`, `COOKIE_KEYS` | required | `COOKIE_KEYS=id:base64key,...` newest first, 32-byte keys |
 | `COOKIE_MAX_AGE_HOURS`, `WEB_MAX_STREAMS`, `WEB_MAX_STREAMS_PER_SESSION`, `WEB_MAX_STREAMS_PER_ADDRESS` | 12, 200, 64, 16 | the runtime behind the web app needs `TRUST_PROXY=1`, loopback bind |
 
+## Voice input, slice A1a (EPIC-0003, US-0070; off by default)
+Speech-to-text sits behind `SpeechToText` (`packages/adapters/src/speech`: `transcribe`, `health`, `warmUp`). Implementations: `WhisperHttpSpeechToText` (whisper.cpp `whisper-server`, POST `<STT_URL>/inference`, `response_format=verbose_json`, `temperature=0.0`, 16 kHz mono 16-bit WAV, body read capped at 256 KiB, `redirect: "manual"`, health `GET <STT_URL>/health` with a 2 s abort) and `FakeSpeechToText` (scripted; the demo and tests). `LimitedSpeechToText` wraps the Whisper client in the worker: at most **2** calls in flight **per worker** (one worker per voice session, so not yet the global cap the owner agreed; moving it to control is an A1b task), FIFO queue (nothing dropped; an item past its deadline fails without a call; a warning line at 16 queued), every call aborted at its deadline (segment deadline **5 s**, `STT_DEADLINE_MS`), transient errors retried at most **2** times after **150** then **300** ms and never past the deadline, a refusal never retried. **Cold start** (owner preference 2026-11-08): while no answer has come since the start, after `STT_IDLE_COLD_MS` without a call, or while another cold call is pending, a call's deadline is `max(segment deadline, now + STT_COLD_TIMEOUT_MS)`; warm-up runs under the cold deadline. Errors (named for the taxonomy): `SpeechUnavailableError` (network, 5xx; transient), `SpeechTimeoutError` (deadline or abort; transient), `SpeechRefusedError` (4xx, a non-2xx below 500, an unreadable or oversized answer; not transient); messages are fixed sentences and keep no cause. Every implementation passes `speechToTextContract`. Not verified: a real whisper-server's JSON (F1, the opt-in `STT_LIVE=1` test), its speed under a generating local model, and real voices.
+
+| Variable | Default | Range and notes |
+| --- | --- | --- |
+| `VOICE_ENABLED` (runtime) | 0 | exactly 0 or 1 (`true` is refused); with 1 the runtime needs `CONTROL_MANAGED=1` and `CONSENT_NOTICE_VERSION` v3 or later (v3 is a DRAFT, not for participants); in `CHILD_ENV_ALLOWLIST` |
+| `TURN_END_MS` (runtime) | 800 | 300 to 3000 ms after the last speech frame before the NPC round, Game Master and AI players react; read only with `VOICE_ENABLED=1` (a stray value never stops a text-only session); in `CHILD_ENV_ALLOWLIST` |
+| `VOICE_HANGOVER_MS` (worker) | 500 | 300 to 600 |
+| `VOICE_MAX_SEGMENT_MS` (worker) | 2500 | 2000 to 6000; forced split at the quietest frame of the last 1 s |
+| `STT_PROVIDER` (worker) | `whisper` | `whisper` or `fake` |
+| `STT_URL` (worker) | none (required for `whisper`) | `http://127.0.0.1:<port>[/<path>]` or `http://[::1]:<port>[/<path>]` only |
+| `STT_COLD_TIMEOUT_MS` (worker) | 30000 | 1000 to 300000 |
+| `STT_IDLE_COLD_MS` (worker) | 600000 | 1000 to 86400000 |
+| `STT_MODEL` (worker) | unset | allowlisted but NOT read in A1a (planned label plus model file, A1c) |
+| `STT_FAKE_SCRIPT` (worker) | none (required for `fake`) | absolute path of `{"<roleId>": ["line", ...]}`; calls logged to `<file>.calls.jsonl` (role and number only) |
+| `SPEECH_INGEST` (worker) | `file` | `file` only in A1a |
+| `SPEECH_INGEST_DIR` (worker) | none (required) | absolute directory of `<roleId>.wav` (16 kHz mono 16-bit, at most 100 MiB) |
+| `SPEECH_INGEST_ROLES` (worker) | set by control | the session's player roles; never copied from the parent environment |
+
+The worker's environment is exactly `SPEECH_ENV_ALLOWLIST` (`services/control/src/voice/speech-env.ts`): `PATH`, `VOICE_HANGOVER_MS`, `VOICE_MAX_SEGMENT_MS`, `STT_URL`, `STT_MODEL`, `STT_PROVIDER`, `STT_FAKE_SCRIPT`, `STT_COLD_TIMEOUT_MS`, `STT_IDLE_COLD_MS`, `SPEECH_INGEST`, `SPEECH_INGEST_DIR`, the `NODE_` prefix, plus `SPEECH_INGEST_ROLES`; never `HOME`, `LAUNCHER_TOKEN`, `FACILITATOR_SECRET`, a provider key or `LIVEKIT_*`. `CHILD_ENV_ALLOWLIST` (runtime) gained only `VOICE_ENABLED` and `TURN_END_MS`; the worker settings never reach a runtime. Fixed in code, not settings: the segmenter's -45 dBFS threshold, 20 ms frames, 200 ms lead-in, 300 ms minimum speech; the noise gate's -50 dBFS, no-speech 0.6, log-probability -1.0, short segment 400 ms; control's 10 s line timeout (`VOICE_LINE_TIMEOUT_MS`) and 256 pending lines (`MAX_PENDING_LINES`); the runtime's 10 s per role and code between speaker notices and 30 s per code between alerts, at most 8 alerts kept before the start (one per code), and the 12 s no-news backstop of a speaking track (`VOICE_ACTIVITY_STALE_MS`).
+
 ## The local endpoint (owner's Mac: Apple M5 Pro, 64 GB)
 Osaurus at `http://127.0.0.1:1337/v1`. Models served on 2026-10-06: `foundation`, `gemma-4-31b-it-qat-mxfp4`, `nemotron-3-nano-omni-30b-a3b-jangtq4`, `qwen3.8-27b-mxfp8`, `raptor-v0.5-8b-a1b-jang_6m`.
 - **gemma-4-31b-it-qat-mxfp4: use this.** About 18 GB. Full showcase about 400 to 650 s, with the evaluator about 1100 to 1300 s. In role, specific, progresses a negotiation, 0 fallbacks, copies the Game Master nonce every time.

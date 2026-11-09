@@ -15,6 +15,7 @@ import { consentFileName, readConsentFile, removeConsentFile, sweepConsentTemps,
 import { AiRolesRecordError, AiRoleSet } from "./ai-roles.js";
 import { aiRolesFileName, readAiRolesFile, removeAiRolesFile, sweepAiRolesTemps, writeAiRolesFile } from "./ai-roles-file.js";
 import type { Seats } from "./seats.js";
+import { removeVoiceFile, voiceFileIO } from "./voice-file.js";
 
 export type StartMode = "resume" | "fresh";
 
@@ -166,7 +167,7 @@ export async function openSession(o: {
   const removeSeats = () => {
     if (!o.consentNotice) return;
     holdLockForRemoval();
-    try { removeAiRolesFile(o.dataDir, o.sessionId); removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); }
+    try { removeAiRolesFile(o.dataDir, o.sessionId); removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); removeVoiceFile(o.dataDir, o.sessionId); }
     catch (err) { throw new SessionStoreError("io", `cannot remove the previous seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
   };
   /**
@@ -235,7 +236,7 @@ export async function openSession(o: {
       // The old consent goes first: a crash after the credentials write then leaves no consent file (replaced next start), never
       // stale consent (possibly bound elsewhere, which would refuse every later start) beside new credentials.
       holdLockForRemoval();
-      try { removeAiRolesFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); }
+      try { removeAiRolesFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); removeVoiceFile(o.dataDir, o.sessionId); }
       catch (err) { throw new SessionStoreError("io", `cannot remove the previous seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       try { writeCredentialsFile(o.dataDir, o.sessionId, credentials, holdLockNow); writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
       catch (err) { throw new SessionStoreError("io", `cannot write the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
@@ -249,6 +250,8 @@ export async function openSession(o: {
     }
     const seats: Seats = {
       credentials, consent, aiRoles,
+      // US-0070: the voice record is bound to these credentials' log identity (a record for another log is ignored by the host).
+      voiceFile: voiceFileIO(o.dataDir, { sessionId: o.sessionId, logIdentity: credentials.logIdentity }, holdLockNow),
       // Throws (SessionLockError) when the lock was lost: the files may be another server's now.
       persist: () => {
         writeCredentialsFile(o.dataDir, o.sessionId, seats.credentials, holdLockNow); writeConsentFile(o.dataDir, bind, seats.consent, holdLockNow);
@@ -305,7 +308,7 @@ export async function openSession(o: {
       discardIssuedCodes: () => {
         if (!rest.joinCodes?.issued && !seatsCreated) return true;
         try { holdLockNow(); } catch { return false; } // lost: the files may be another server's now, never touch them
-        if (seatsCreated) { try { removeAiRolesFile(o.dataDir, o.sessionId); removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); } catch { /* best effort, see above */ } }
+        if (seatsCreated) { try { removeAiRolesFile(o.dataDir, o.sessionId); removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); removeVoiceFile(o.dataDir, o.sessionId); } catch { /* best effort, see above */ } }
         if (!rest.joinCodes?.issued) return true;
         try { removeJoinCodesFile(o.dataDir, o.sessionId); return true; } catch { return false; }
       },

@@ -216,6 +216,8 @@ Rules for each (AGENTS.md §19 and §12): exact version in `package.json` (no `^
 | `TURN_END_MS` | `800` | 300 to 3000 (plan's bound; spec gives the default only) | runtime | `CHILD_ENV_ALLOWLIST.names` |
 | `VOICE_MAX_SEGMENT_MS` | `2500` | 2000 to 6000 | worker | speech env allowlist |
 | `STT_URL` | none (required when `VOICE_ENABLED=1`) | `http://127.0.0.1:<port>[/<path>]` or `http://[::1]:...`; any other host refused | worker | speech env allowlist |
+| `STT_COLD_TIMEOUT_MS` | 30000 | deadline for the first speech-to-text call after the worker starts or after `STT_IDLE_COLD_MS` idle (a local model may need to load); other calls keep the segment deadline | worker | speech env allowlist |
+| `STT_IDLE_COLD_MS` | 600000 | idle time after which the next call counts as cold (local models unload on their own, Osaurus after 15 minutes) | worker | speech env allowlist |
 | `STT_MODEL` | `small.en` | a label (1 to 64, `isSafeId` plus `.`, see Open Question 6) | worker (label), `voice:up` (A1c) | speech env allowlist |
 | `STT_PROVIDER`, `STT_FAKE_SCRIPT`, `SPEECH_INGEST`, `SPEECH_INGEST_DIR` | `whisper`, none, `file` (A1a; `livekit` from A1b), none | `whisper` or `fake`; an absolute JSON file; `file` or `livekit`; an absolute directory. The fake and file values exist for the offline demo and tests, like the mock model provider | worker | speech env allowlist (control adds `SPEECH_INGEST_ROLES` itself) |
 | `AUDIO_MAX_RETENTION_DAYS` | `30` | 1 to 30 | control (sweep) | n/a (A2) |
@@ -281,6 +283,16 @@ Constants (not settings; changed only by code review): `VAD_FRAME_MS` 20, `VAD_T
 9. **GPU cap scope** (Risk 7): per worker (plan) or one cap across all sessions (needs a shared limiter in control)?
 10. **Lock for the audio store (F8):** export `SessionLock` as `@acr/runtime/files` (a sixth allowed subpath) or copy the pattern into `services/speech`? Decided in the A2 plan; the owner may prefer one now.
 11. **Legal and HR sign-off** on notice v3 (release gate) and **a domain and certificate** (US-0048) are prerequisites outside this epic's code.
+
+---
+
+## Deviations recorded during A1a (US-0070 review fix wave, 2026-11-08)
+
+- **GPU cap scope (Open Question 9):** the owner chose ONE cap across all sessions; A1a ships it **per worker**: one `LimitedSpeechToText` (`maxInFlight` 2) inside each session's speech worker, so N voice sessions can have 2N calls in flight on one GPU. Moving the cap into control (one shared budget the workers ask for) is an **A1b task**.
+- **`STT_MODEL` (Open Question 6):** allowlisted for the worker but not read in A1a (the label and model file arrive with `voice:up`, A1c).
+- **`voice_unavailable` notice code:** defined in `VOICE_NOTICE_CODES` but nothing sends it in A1a (A1b's Whisper health polling should).
+- **`closedTurnEnds`:** the runtime keeps the last seq of every closed voice turn for the whole session (a few bytes per turn, unbounded); not capped because the Game Master's count needs every boundary of the current scene.
+- **Fixed in the review wave (no longer deviations):** a turn that recorded no line runs no NPC round; a worker that dies mid-speech closes the turn (`voice_alert worker_down`, plus a 12 s no-news backstop); alerts raised before the start reach the facilitator at the start; control forgets an ended voice session.
 
 ---
 

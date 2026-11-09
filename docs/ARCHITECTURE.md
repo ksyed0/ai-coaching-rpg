@@ -86,6 +86,8 @@ flowchart TB
 | `evaluator` | Post-session scoring against rubrics, evidence quoting, confidence rating, calibration runs | Python | container | container |
 | `assets` | Level and avatar upload validation, manifest parsing, draco compression, thumbnails | TypeScript (Node) | container | container |
 
+> **Deviation (EPIC-0003 voice part A, spec `docs/superpowers/specs/2026-11-08-voice-part-a-design.md` section 4; built from slice A1a, US-0070):** speech does NOT run inside `runtime`. Voice-activity detection, segmentation and speech-to-text run in a separate per-session **speech worker** (`services/speech`), a child process of the control service with no network listener; it talks to the control service over IPC, and the control service passes finished lines to the runtime over the existing parent channel. The runtime stays the single writer of the session log, and a native fault in the speech code (LiveKit in A1b) costs voice, not the session. This is closer to the `speech` box of the diagram in section 2 than to the `runtime` row above. Speech-to-text is local-first behind an adapter (`packages/adapters/src/speech`, default a whisper.cpp server on loopback).
+
 ### Infrastructure
 
 | Component | Role | Stage A (laptop) | Stage B (pilot) | Stage C (enterprise) |
@@ -369,6 +371,8 @@ The transcript is a projection of `session_events`, never a separately edited do
 {tenant}/assets/levels/{hash}/level.glb | manifest.json | thumb.png
 {tenant}/assets/avatars/{hash}/avatar.glb
 ```
+
+> **Deviation (EPIC-0003 voice part A, spec section 4; planned for slice A2, not built in A1a):** voice audio is NOT written to object storage through the storage adapter and LiveKit egress. Part A keeps 16 kHz mono WAV files as local files on the host, under `<audio root>/<logIdentity>/<role>/` (directories 0700, files 0600), with a per-role index and a separate audio audit log, deleted by the facilitator or after `AUDIO_MAX_RETENTION_DAYS` (default 30). A1a writes no audio at all.
 
 ### Retention
 

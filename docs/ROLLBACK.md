@@ -469,3 +469,30 @@ Rollback trigger: any trigger of the BUG-0025, BUG-0029, BUG-0030 section, or th
 - **Going back to 0.2.0 is safe.** There is no schema change, no new file, no new setting and no data migration; every review log stays readable. An older web app shows "try again" for a link at its cap (nothing is written). Rolling control back restores the per-role cap of 50 and the narrower resend dedupe; responses written meanwhile stay valid.
 - **The other fixes are web-app or test only** (Report panel read ordering and retry, the export menu, the self-rating form draft, shared report sentences, test hygiene) and need no data step to roll back.
 - **Smoke test after a deploy or a rollback:** a released report opens through its link; a response is sent and shows; the console opens an ended session's Report panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads the review.
+
+## US-0070: voice pipeline on file ingest (EPIC-0003 voice slice A1a)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0070-voice-pipeline)
+Date: not deployed
+Rollback trigger: a text-only session behaves differently from the build before (start, lines, AI characters, Game Master, AI players, restart or end), a voice setting stops a session that should start, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, `LOG_FORMAT`, any event or the consent file.** A voice line is the existing `utterance` with `channel: "voice"`; demo check V-08 pins that a voice session's `session.started.logFormat` equals a session's without voice. Every log and consent record stays readable by an earlier build.
+- **New, ignorable files.** `<SESSION_DATA_DIR>/<sessionId>.voice.json` (the voice record, 0600, only written while `VOICE_ENABLED=1`) and `<CONTROL_LOG_DIR>/<sessionId>.speech.log` (the speech worker's output, fixed lines only). An earlier build ignores both; they can be deleted by hand. `consent/notice-v3.md` is a DRAFT notice that nothing uses unless `CONSENT_NOTICE_VERSION=v3` is set.
+- **New settings, all off or inert by default:** `VOICE_ENABLED` (0) and `TURN_END_MS` (800) reach control-managed runtimes; `VOICE_HANGOVER_MS`, `VOICE_MAX_SEGMENT_MS`, `STT_*`, `SPEECH_INGEST`, `SPEECH_INGEST_DIR` reach only the speech worker (`.env.example`, "voice input"). `TURN_END_MS` is read only with `VOICE_ENABLED=1`, so a stray value never stops a text-only session; `VOICE_ENABLED` itself must be exactly 0 or 1 (anything else, `true` included, refuses the start).
+- **New package `services/speech`** (the worker, forked by control only when a runtime reports `ready.voice`). No new third-party dependency.
+
+### Rolling back
+
+- **Turn voice off first: `VOICE_ENABLED=0`** (or unset) in the control service's environment, then restart the affected sessions. With voice off the runtime never reads or writes the voice record, sends no voice message, and control forks no worker; the text path is the one of the build before.
+- **Deploy order:** the control service and the runtime ship from one checkout, so there is no skew between them. The web app is not touched in A1a, so no web deploy is needed in either direction.
+- **Rolling back the code:** stop the control service (its speech workers exit when their IPC channel closes; a worker that hangs is force-killed after `CONTROL_GRACE_MS`), deploy the earlier build, start it. An earlier runtime drops an unknown parent message without answering (pinned by `parent-channel.test.ts`), and an earlier control service never sends one.
+- **Keep `CONSENT_NOTICE_VERSION` unset or `v2`** on any build: v3 is a draft, and a rolled-back build with v3 set would show participants the draft text.
+- **Smoke test after a rollback:** `pnpm demo --fast` (29 checks) and `pnpm demo --fast --security --resume` (42) pass; a console session starts, takes typed lines and ends.
+
+### Rolling forward again
+
+Redeploy; voice stays off until `VOICE_ENABLED=1` is set, which in A1a only the offline demo does. `pnpm demo --voice` (V-01 to V-08, about 25 s, offline, no secrets) is the check, and it runs in the CI Demo Run job.

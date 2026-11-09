@@ -11,6 +11,7 @@ import { ChildMessageSchema, ParentMessageSchema, RoleIdSchema, type ChildMessag
 import { loadScenario } from "@acr/script";
 import { isAllowedScenario, scenarioDir } from "./scenarios.js";
 import type { SessionList } from "./session-list.js";
+import type { VoiceFromRuntime } from "./voice/voice-host.js";
 
 export type ControlErrorCode =
   | "capacity" | "unknown_scenario" | "start_failed" | "timeout" | "bad_request" | "not_found" | "conflict" | "unavailable"
@@ -40,7 +41,12 @@ export type SessionInfo = { sessionId: string; scenarioId: string; status: Sessi
 export type CreateResult = { sessionId: string; status: "running"; port: number; modelLabel: string; codes: { roleId: string; code: string }[] };
 
 type Codes = { roleId: string; code: string }[];
-type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiRolesReset?: string[]; includeInGroup?: false; includeInGroupReset?: false; aiCalls?: number };
+type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiRolesReset?: string[]; includeInGroup?: false; includeInGroupReset?: false; aiCalls?: number; voice?: true };
+/**
+ * What a child said right after `ready`, before goLive installed its handler (awaitReady sees it; nothing else does): BUG-0016's `ended`,
+ * and US-0070's first `voice_seats` (the runtime sends it in the same turn as `ready`, so without this it was lost).
+ */
+type Early = { ended: boolean; voiceSeats?: Extract<ChildMessage, { type: "voice_seats" }>; /** F9c: goLive took it: the early listener stops. */ handedOver?: true };
 type ExitState = { done: boolean; promise?: Promise<void> };
 type Proc = { child: ChildHandle; exit: ExitState };
 type Live = {
@@ -76,6 +82,16 @@ const START_FAILED = "the session could not be started";
 
 /** What the BotHost is built with: the supervisor's own reissue and alert, handed over once through the `bots` factory. */
 export type BotDeps = { reissue: (id: string, roleId: string) => Promise<string>; alert: (sessionId: string, roleId: string, message: string) => void };
+/** US-0070: what the VoiceHost is built with: a validated send to a session's running child, and the bots (for voice turns). */
+export type VoiceDeps = { toRuntime: (sessionId: string, m: ParentMessage) => boolean; bots?: { voiceTurn(sessionId: string, open: boolean): void } };
+/** The VoiceHost as the supervisor uses it (services/control/src/voice/voice-host.ts). */
+export type VoiceLink = {
+  attach(sessionId: string, ready: { voice?: true; roles: string[] }): void;
+  fromRuntime(sessionId: string, m: VoiceFromRuntime): void;
+  detach(sessionId: string): void;
+  end(sessionId: string): void;
+  shutdown(): Promise<void>;
+};
 const BOTS_CLOSE_TIMEOUT_MS = 3_000;
 
 export class Supervisor {
@@ -103,6 +119,7 @@ export class Supervisor {
   private readonly uncertain = new Map<string, string[]>();
   private closed = false;
   private readonly bots?: BotHost;
+  private readonly voice?: VoiceLink;
 
   constructor(private readonly o: {
     config: ControlConfig; list: SessionList; scenarios: () => Promise<{ id: string; title: string }[]>; spawn: SpawnFn;
@@ -112,6 +129,8 @@ export class Supervisor {
     parentEnv?: NodeJS.ProcessEnv;
     /** US-0060: the live AI players. Optional: without it no bot is ever started. */
     bots?: (deps: BotDeps) => BotHost;
+    /** US-0070: the speech workers. Optional: without it no worker is ever started (a runtime's voice messages are then ignored). */
+    voice?: (deps: VoiceDeps) => VoiceLink;
   }) {
     this.parentEnv = o.parentEnv ?? process.env;
     this.now = o.now ?? Date.now;
@@ -121,6 +140,8 @@ export class Supervisor {
     this.newSessionId = o.newSessionId ?? (() => randomBytes(16).toString("hex"));
     this.newToken = o.newToken ?? (() => randomBytes(32).toString("hex"));
     this.bots = o.bots?.({ reissue: (id, roleId) => this.reissueAiRole(id, roleId), alert: (id, roleId, message) => this.botAlert(id, roleId, message) });
+    const bots = this.bots;
+    this.voice = o.voice?.({ toRuntime: (id, m) => this.toRuntime(id, m), ...(bots ? { bots: { voiceTurn: (id: string, open: boolean) => bots.voiceTurn(id, open) } } : {}) });
   }
 
   /** Sessions that hold a slot: everything not ended, plus creates still starting. */
@@ -151,12 +172,12 @@ export class Supervisor {
       child = spawned;
       exit = this.trackExit(sessionId, spawned);
 
-      const endedSeen = { v: false };
-      const ready = await this.awaitReady(spawned, true, timer, endedSeen);
+      const early: Early = { ended: false };
+      const ready = await this.awaitReady(spawned, true, timer, early);
       timer.cancel?.();
       this.o.list.upsert({ sessionId, scenarioId, status: "running" });
       listed = true;
-      this.goLive(sessionId, scenarioId, spawned, exit, token, ready, endedSeen.v);
+      this.goLive(sessionId, scenarioId, spawned, exit, token, ready, early);
       this.logFn(`session ${sessionId} created`);
       return { sessionId, status: "running", port: ready.port, modelLabel: ready.modelLabel, codes: ready.codes!.filter((c) => !(ready.aiRoles ?? []).includes(c.roleId)) };
     } catch (err) {
@@ -187,7 +208,7 @@ export class Supervisor {
    * kept in this closure only: a child that dies, times out or never says ready discards them. With `requireCodes` (a brand-new
    * session, or a whole-session reissue) a ready without codes is a failed start; otherwise (restart/resume) it is normal.
    */
-  private awaitReady(child: ChildHandle, requireCodes: boolean, timer: { cancel?: () => void }, endedSeen: { v: boolean }): Promise<ReadyInfo> {
+  private awaitReady(child: ChildHandle, requireCodes: boolean, timer: { cancel?: () => void }, early: Early): Promise<ReadyInfo> {
     return new Promise((resolve, reject) => {
       let codes: Codes | undefined;
       let settled = false;
@@ -196,11 +217,16 @@ export class Supervisor {
       child.onExit(() => fail(new ControlError("start_failed", START_FAILED)));
       child.onMessage((raw) => {
         // BUG-0016: a child may send `ended` right after `ready` (a resume repaired to ended); the live handler is installed only after
-        // this promise's continuation runs, so the message is recorded here and applied by goLive. After ready nothing else matters
-        // here, so every other message is dropped without being parsed.
+        // this promise's continuation runs, so the message is recorded here and applied by goLive. US-0070: the same holds for the first
+        // `voice_seats` (the latest one is kept). After ready nothing else matters here, so every other message is dropped unparsed.
         if (settled) {
-          if (typeof raw !== "object" || raw === null || (raw as { type?: unknown }).type !== "ended") return;
-          if (ChildMessageSchema.safeParse(raw).success) endedSeen.v = true;
+          if (early.handedOver) return; // F9c: goLive's handler has every later message; nothing is parsed here again
+          const type = typeof raw === "object" && raw !== null ? (raw as { type?: unknown }).type : undefined;
+          if (type !== "ended" && type !== "voice_seats") return;
+          const late = ChildMessageSchema.safeParse(raw);
+          if (!late.success) return;
+          if (late.data.type === "ended") early.ended = true;
+          else if (late.data.type === "voice_seats") early.voiceSeats = late.data;
           return;
         }
         const parsed = ChildMessageSchema.safeParse(raw);
@@ -212,7 +238,7 @@ export class Supervisor {
           if (requireCodes && got === undefined) { fail(new ControlError("start_failed", START_FAILED)); return; }
           settled = true;
           codes = undefined;
-          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiRolesReset ? { aiRolesReset: m.aiRolesReset } : {}), ...(m.includeInGroup === false ? { includeInGroup: false as const } : {}), ...(m.includeInGroupReset === false ? { includeInGroupReset: false as const } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}) });
+          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiRolesReset ? { aiRolesReset: m.aiRolesReset } : {}), ...(m.includeInGroup === false ? { includeInGroup: false as const } : {}), ...(m.includeInGroupReset === false ? { includeInGroupReset: false as const } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}), ...(m.voice === true ? { voice: true as const } : {}) });
         }
       });
     });
@@ -323,7 +349,11 @@ export class Supervisor {
   }
 
   /** Registers a started child as the session's live process and installs its handlers. */
-  private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: ReadyInfo, endedEarly = false): void {
+  private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: ReadyInfo, early: Early = { ended: false }): void {
+    const endedEarly = early.ended;
+    const earlySeats = early.voiceSeats;
+    early.handedOver = true;
+    delete early.voiceSeats;
     this.live.get(id)?.graceCancel?.();
     if (ready.codes) this.roleOrder.set(id, ready.codes.map((c) => c.roleId));
     this.uncertain.delete(id); // a ready's aiRoles is the truth again
@@ -335,10 +365,13 @@ export class Supervisor {
       if (m.type === "ended") this.onEnded(id, child, exit);
       else if (m.type === "reissued" || m.type === "reissue_failed") this.onReissueReply(child, m);
       else if (m.type === "ai_roles_set" || m.type === "ai_roles_failed") this.onAiRolesReply(id, child, m);
+      else if (m.type === "voice_seats" || m.type === "voice_turn" || m.type === "voice_choice" || m.type === "voice_line_ack" || m.type === "voice_line_refused") this.onVoiceMessage(id, child, m);
     });
     child.onExit(() => this.onChildExit(id, child));
     // A child already gone or ended gets no attach (it would join a dead port or an ended runtime); the end/detach below stops any bots.
     if (!exit.done && !endedEarly) this.attachBots(id, ready);
+    if (earlySeats) this.onVoiceMessage(id, child, earlySeats);
+    if (!exit.done && !endedEarly && ready.voice === true) this.attachVoice(id, scenarioId, child);
     if (exit.done) this.onChildExit(id, child);
     else if (endedEarly) this.onEnded(id, child, exit);
   }
@@ -356,6 +389,41 @@ export class Supervisor {
     const codes = (ready.codes ?? []).filter((c) => aiRoles.includes(c.roleId));
     try { bots.attach(id, { port: ready.port, aiRoles, aiCalls: ready.aiCalls, ...(codes.length > 0 ? { codes } : {}) }).catch(failed); }
     catch (err) { failed(err); }
+  }
+
+  /** US-0070: a runtime's voice message. `voice_turn` reaches the bots even without a VoiceHost; the rest goes to the VoiceHost. Never throws. */
+  private onVoiceMessage(id: string, child: ChildHandle, m: VoiceFromRuntime): void {
+    const l = this.live.get(id);
+    if (!l || l.child !== child) return;
+    try {
+      if (this.voice) this.voice.fromRuntime(id, m);
+      else if (m.type === "voice_turn") this.bots?.voiceTurn(id, m.open);
+    } catch (err) { this.logFn(`session ${id} voice message failed (${err instanceof Error ? err.name : "error"})`); }
+  }
+
+  /** US-0070: starts (or keeps) the session's speech worker once the player roles are known; only while this child is still the live one. */
+  private attachVoice(id: string, scenarioId: string, child: ChildHandle): void {
+    const voice = this.voice;
+    if (!voice || this.closed) return;
+    const failed = (err: unknown): void => this.logFn(`session ${id} voice attach failed (${err instanceof Error ? err.name : "error"})`);
+    void this.playerOrder(id, scenarioId).then((roles) => {
+      const l = this.live.get(id);
+      if (this.closed || !l || l.child !== child || l.status !== "running") return;
+      voice.attach(id, { voice: true, roles });
+    }).catch(failed);
+  }
+
+  private voiceCall(id: string, what: "end" | "detach"): void {
+    try { this.voice?.[what](id); } catch (err) { this.logFn(`session ${id} voice ${what} failed (${err instanceof Error ? err.name : "error"})`); }
+  }
+
+  /** US-0070: a parent message to the session's running child (validated first); false when it is not running or the send failed. */
+  private toRuntime(id: string, m: ParentMessage): boolean {
+    const l = this.live.get(id);
+    if (!l || l.status !== "running" || !l.child) return false;
+    const parsed = ParentMessageSchema.safeParse(m);
+    if (!parsed.success) return false;
+    try { return l.child.send(parsed.data); } catch { return false; }
   }
 
   /** Fire-and-forget calls into the BotHost for the session's end and the child's exit; never throws, never awaited. */
@@ -387,6 +455,7 @@ export class Supervisor {
     this.persist(id, l.scenarioId, "ended");
     this.logFn(`session ${id} ended`);
     this.botsCall(id, "end");
+    this.voiceCall(id, "end");
     l.graceCancel = this.setTimer(() => { l.graceCancel = undefined; void this.stopChild(child, exit); }, this.o.config.graceMs);
   }
 
@@ -408,6 +477,7 @@ export class Supervisor {
     this.botsCall(id, "detach"); // not end: codes and budget stay, so a restart rejoins with the same codes on the new port
     l.graceCancel?.(); l.graceCancel = undefined;
     delete l.child; delete l.token; delete l.port; delete l.modelLabel;
+    this.voiceCall(id, "detach"); // after the child is forgotten: toRuntime refuses from now on (the worker is kept, C6)
     if (l.status !== "ended") {
       l.status = "stopped";
       // During shutdown() the exits are expected: the list keeps "running", so a service restart resumes the lobby either way.
@@ -657,11 +727,11 @@ export class Supervisor {
       const spawned = this.o.spawn({ env, logFile: path.join(this.o.config.logDir, `${id}.log`) });
       child = spawned;
       exit = this.trackExit(id, spawned);
-      const endedSeen = { v: false };
-      const ready = await this.awaitReady(spawned, requireCodes, timer, endedSeen);
+      const early: Early = { ended: false };
+      const ready = await this.awaitReady(spawned, requireCodes, timer, early);
       timer.cancel?.();
       this.persist(id, scenarioId, "running");
-      this.goLive(id, scenarioId, spawned, exit, token, ready, endedSeen.v);
+      this.goLive(id, scenarioId, spawned, exit, token, ready, early);
       this.logFn(`session ${id} started`);
       return ready;
     } catch (err) {
@@ -835,6 +905,8 @@ export class Supervisor {
       cancel();
     }
     for (const l of this.live.values()) { l.graceCancel?.(); l.graceCancel = undefined; }
+    // US-0070: the speech workers stop alongside the runtimes (bounded by graceMs inside the VoiceHost); awaited before returning.
+    const voiceDone = this.voice ? this.voice.shutdown().catch((err: unknown) => this.logFn(`voice shutdown failed (${err instanceof Error ? err.name : "error"})`)) : Promise.resolve();
     for (const [rid, p] of this.pendingReissues) {
       this.pendingReissues.delete(rid);
       p.cancel();
@@ -848,9 +920,11 @@ export class Supervisor {
     const procs = [...this.procs.values()].filter((p) => !p.exit.done);
     for (const p of procs) { try { p.child.disconnect(); } catch { /* already gone */ } }
     const allGone = (): Promise<boolean> => this.waitAll(procs, this.o.config.graceMs);
-    if (await allGone()) return;
-    for (const p of procs) if (!p.exit.done) { try { p.child.forceKill(); } catch { /* already gone */ } }
-    if (!(await allGone())) this.logFn("some sessions did not exit at shutdown");
+    if (!(await allGone())) {
+      for (const p of procs) if (!p.exit.done) { try { p.child.forceKill(); } catch { /* already gone */ } }
+      if (!(await allGone())) this.logFn("some sessions did not exit at shutdown");
+    }
+    await voiceDone;
   }
 
   /** True when every process has exited within `ms` (one shared deadline). */

@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { CHILD_ENV_ALLOWLIST } from "../../child-env.js";
+import { SPEECH_ENV_ALLOWLIST, buildSpeechEnv } from "../../voice/speech-env.js";
+
+const parent: NodeJS.ProcessEnv = {
+  PATH: "/usr/bin", NODE_OPTIONS: "--max-old-space-size=512", VOICE_HANGOVER_MS: "450", VOICE_MAX_SEGMENT_MS: "3000",
+  STT_URL: "http://127.0.0.1:9123/abc", STT_MODEL: "small.en", STT_PROVIDER: "whisper", STT_FAKE_SCRIPT: "/x/s.json", SPEECH_INGEST: "file",
+  SPEECH_INGEST_DIR: "/x/in", STT_COLD_TIMEOUT_MS: "20000", STT_IDLE_COLD_MS: "60000",
+  // never copied:
+  LIVEKIT_API_SECRET: "s1", LIVEKIT_API_KEY: "k1", ANTHROPIC_API_KEY: "sk-ant", OPENROUTER_API_KEY: "or", LOCAL_API_KEY: "l", LAUNCHER_TOKEN: "lt",
+  FACILITATOR_SECRET: "fs", HOME: "/home/x", VOICE_ENABLED: "1", TURN_END_MS: "800", CONSENT_NOTICE_VERSION: "v3", SPEECH_INGEST_ROLES: "evil", MODEL_PROVIDER: "mock",
+};
+
+describe("the speech worker's environment (US-0070)", () => {
+  it("copies only the allowlisted names and NODE_*", () => {
+    const env = buildSpeechEnv(parent, ["tech_lead", "pm"]);
+    expect(Object.keys(env).sort()).toEqual([
+      "NODE_OPTIONS", "PATH", "SPEECH_INGEST", "SPEECH_INGEST_DIR", "SPEECH_INGEST_ROLES", "STT_COLD_TIMEOUT_MS", "STT_FAKE_SCRIPT", "STT_IDLE_COLD_MS",
+      "STT_MODEL", "STT_PROVIDER", "STT_URL", "VOICE_HANGOVER_MS", "VOICE_MAX_SEGMENT_MS",
+    ]);
+  });
+
+  it("LIVEKIT_*, provider keys, LAUNCHER_TOKEN, FACILITATOR_SECRET and HOME are never copied", () => {
+    const env = buildSpeechEnv(parent, []);
+    for (const k of ["LIVEKIT_API_SECRET", "LIVEKIT_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "LOCAL_API_KEY", "LAUNCHER_TOKEN", "FACILITATOR_SECRET", "HOME", "VOICE_ENABLED", "MODEL_PROVIDER"]) {
+      expect(env, k).not.toHaveProperty(k);
+    }
+    expect(JSON.stringify(env)).not.toMatch(/sk-ant|"s1"|"lt"|"fs"/);
+  });
+
+  it("SPEECH_INGEST_ROLES is set from the roles, never from the parent", () => {
+    expect(buildSpeechEnv(parent, ["tech_lead", "pm"]).SPEECH_INGEST_ROLES).toBe("tech_lead,pm");
+    expect(buildSpeechEnv(parent, []).SPEECH_INGEST_ROLES).toBe("");
+  });
+
+  it("the worker's settings never reach a runtime, and the runtime's voice settings never reach the worker", () => {
+    for (const n of SPEECH_ENV_ALLOWLIST.names) if (n !== "PATH") expect(CHILD_ENV_ALLOWLIST.names as readonly string[], n).not.toContain(n);
+    expect(SPEECH_ENV_ALLOWLIST.names as readonly string[]).not.toContain("VOICE_ENABLED");
+    expect(SPEECH_ENV_ALLOWLIST.prefixes).toEqual(["NODE_"]);
+  });
+});

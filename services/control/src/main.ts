@@ -18,7 +18,9 @@ import { createReportService } from "./reports.js";
 import { listScenarios, scenarioDir } from "./scenarios.js";
 import { SessionList } from "./session-list.js";
 import { forkSpawn } from "./spawn.js";
-import { Supervisor, type SpawnFn } from "./supervisor.js";
+import { Supervisor, type SetTimer, type SpawnFn } from "./supervisor.js";
+import { speechSpawn } from "./voice/speech-spawn.js";
+import { VoiceHost, type SpeechSpawnFn } from "./voice/voice-host.js";
 
 /** The service listens on loopback only: the BFF is the single caller. */
 export const CONTROL_HOST = "127.0.0.1";
@@ -29,6 +31,8 @@ const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 const MARGIN_MS = 10_000;
 /** The BFF waits 120 s for a create, restart or whole-session reissue; the longest of those here must stay below this (with margin). */
 export const BFF_SAFE_OPERATION_MS = 110_000;
+
+const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
 
 export type RunningControl = {
   port: number;
@@ -45,7 +49,11 @@ export type RunningControl = {
  */
 export async function startControl(
   env: NodeJS.ProcessEnv,
-  opts: { log?: (m: string) => void; spawn?: SpawnFn; port?: number; /** Tests: a stand-in for the evaluate child. */ evalSpawn?: EvalSpawnFn } = {},
+  opts: {
+    log?: (m: string) => void; spawn?: SpawnFn; port?: number; /** Tests: a stand-in for the evaluate child. */ evalSpawn?: EvalSpawnFn;
+    /** Tests and the voice demo: a stand-in for the speech worker fork, and a way to reach the VoiceHost (V-07 kills a worker by pid). */
+    speechSpawn?: SpeechSpawnFn; onVoiceHost?: (v: VoiceHost) => void;
+  } = {},
 ): Promise<RunningControl> {
   const config = loadControlConfig(env);
   const log = opts.log ?? (() => {});
@@ -66,6 +74,12 @@ export async function startControl(
   const supervisor = new Supervisor({
     config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
+    // US-0070: one speech worker per session whose runtime reports voice (VOICE_ENABLED=1 accepted at its bootstrap); none otherwise.
+    voice: (deps) => {
+      const v = new VoiceHost({ spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps });
+      opts.onVoiceHost?.(v);
+      return v;
+    },
   });
   await supervisor.resumeAll();
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.

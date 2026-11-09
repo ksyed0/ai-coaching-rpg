@@ -12,9 +12,10 @@ const noop = (): void => {};
  * process's environment: `buildChildEnv` is the allowlist), stdout and stderr appended to `logFile` (mode 0600, in a 0700 directory)
  * and one two-way IPC channel. The parent's copy of the log descriptor is closed as soon as the fork is done.
  *
- * `command` exists for tests (a fixture child, a bad `execPath`); the service always uses the default.
+ * `command` exists for tests (a fixture child, a bad `execPath`); the service always uses the default. `cwd` exists for the speech worker
+ * (US-0070, voice/speech-spawn.ts), which is forked the same way from its own package.
  */
-export function forkSpawn(command: ReturnType<typeof runtimeCommand> = runtimeCommand()): SpawnFn {
+export function forkSpawn(command: ReturnType<typeof runtimeCommand> = runtimeCommand(), cwd: string = runtimeCwd()): SpawnFn {
   return ({ env, logFile }) => {
     mkdirSync(path.dirname(logFile), { recursive: true, mode: 0o700 });
     // O_NOFOLLOW: a symlink planted at the log path is refused (ELOOP), never written through.
@@ -23,7 +24,7 @@ export function forkSpawn(command: ReturnType<typeof runtimeCommand> = runtimeCo
     try {
       fchmodSync(fd, 0o600); // the mode argument only applies to a new file
       child = fork(command.entry, [], {
-        execPath: command.execPath, execArgv: command.execArgv, cwd: runtimeCwd(), env, stdio: ["ignore", fd, fd, "ipc"],
+        execPath: command.execPath, execArgv: command.execArgv, cwd, env, stdio: ["ignore", fd, fd, "ipc"],
       });
     } finally {
       closeSync(fd); // the child holds its own copy

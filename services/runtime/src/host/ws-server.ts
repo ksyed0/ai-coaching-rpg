@@ -173,6 +173,15 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   /** US-0055: every joined connection that is still open, so a change can be told to the whole room. */
   type Live = { sessionId: string; h: SessionHost; facilitator: boolean; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
   const live = new Set<Live>();
+  // US-0070 (AC-0399): a speaker's voice notice goes to the socket that holds that role now, and to nobody else (never logged).
+  const unsubscribeNotice = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).onVoiceNotice?.((roleId, code) => {
+    const held = holders.get(`${sessionId}:${roleId}`);
+    if (!held) return;
+    for (const c of live) {
+      if (c.h !== h || c.facilitator || c.ws !== held.ws || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
+      c.send({ type: "voice_notice", code });
+    }
+  }) ?? (() => undefined));
   /**
    * Sends each live connection of the session the roster for its own audience (the facilitator's has consent and connection, a player's
    * only who is ready), or just `only`. A closing socket gets nothing. The server log gets role ids and states, never a name.
@@ -375,6 +384,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
               ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
+              // US-0070: only this seat's own voice state, only while voice is on (a text-only session's joined is unchanged).
+              ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -422,6 +433,14 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           host.giveConsent(who, participantId, m.noticeVersion);
           // A repeat from a player who already agreed changes nothing, so it is neither logged nor broadcast.
           if (!had) { rosterChanged(who, "consented"); broadcastRoster(liveEntry!.sessionId, host); }
+          return;
+        }
+        if (m.type === "voice_opt_in" || m.type === "voice_opt_out") {
+          // US-0070: refusals (voice_off, forbidden, not_joined, consent_version, voice_notice_required) come back as HostError below.
+          if (isFacilitator || !participantId) return fail("forbidden", "only a player may choose voice");
+          if (m.type === "voice_opt_in") host.optInVoice(who, participantId, m.noticeVersion);
+          else host.optOutVoice(who, participantId);
+          send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only" }); // to this socket only
           return;
         }
         if (m.type === "start") {
@@ -507,6 +526,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     close: () => new Promise<void>((resolve) => {
       for (const u of unsubscribeFatal) u();
       for (const u of unsubscribeEnd) u();
+      for (const u of unsubscribeNotice) u();
       clearInterval(heartbeat);
       for (const c of wss.clients) c.terminate();
       wss.close();
