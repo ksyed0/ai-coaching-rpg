@@ -1,7 +1,13 @@
 # US-0072 (EPIC-0003 voice A1c): the TLS proxy of deploy/compose/voice.yml (profile `lan`). One hostname and one owner-supplied
 # certificate, two sites: the web app on VOICE_HTTPS_PORT and LiveKit signalling on VOICE_LIVEKIT_TLS_PORT.
 #
-# - No log directive anywhere: the LiveKit token travels in the signalling URL's query, so an access log would record it.
+# - No access log (no `log` directive in a site): the LiveKit token travels in the signalling URL's query, so an access log would
+#   record it. Caddy's DEFAULT logger still writes handler errors (http.log.error, with a `request` object whose `uri` holds the
+#   query; Cookie and Authorization are redacted there, the query is not): during a LiveKit outage every reconnect to
+#   /rtc?access_token=<JWT> is a 502. So the global `log default` below deletes the parameters livekit-client 2.23.0 puts in the
+#   signalling URL that carry the token or the participant's join data (access_token, join_request, sid) from every logged request
+#   URI, and logs at ERROR only (no INFO entries at all). UNVERIFIED until the owner run of Task 15, which must check that the Caddy
+#   container log holds no token during a forced 502 (LiveKit stopped while a participant reconnects).
 # - No trusted_proxies and no header directive for X-Forwarded-For: Caddy then REPLACES that header with the client's own address,
 #   which the web app's throttles rely on (docs/THREAT_MODEL.md, "Client address, TRUST_PROXY and the per-role throttles").
 # - The LiveKit site forwards only /rtc* (signalling and validation) and drops the Cookie header: the __Host-scenecoach cookie is sent
@@ -12,6 +18,20 @@
 	auto_https disable_redirects
 	servers {
 		protocols h1 h2
+	}
+	log default {
+		output stderr
+		format filter {
+			wrap json
+			fields {
+				request>uri query {
+					delete access_token
+					delete join_request
+					delete sid
+				}
+			}
+		}
+		level ERROR
 	}
 }
 

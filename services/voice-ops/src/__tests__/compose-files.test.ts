@@ -108,10 +108,12 @@ describe("deploy/compose/voice.yml (US-0072, A1c Task 5)", () => {
 });
 
 describe("deploy/compose/livekit.yaml (US-0072, A1c Task 5)", () => {
-  it("logs at warn, has no keys and no development flag, and the fixed ports", () => {
+  // Batch 2 review B F1: LiveKit's warn lines very probably carry room and participant identity as context fields (not verified), so
+  // it logs at error (a level LiveKit's sample configuration lists: debug, info, warn, error); error lines may still name them (residual).
+  it("logs at error, has no keys and no development flag, and the fixed ports", () => {
     const lines = code(livekitYaml).map((l) => l.trimEnd());
     expect(lines).toEqual([
-      "port: 7880", "rtc:", "  tcp_port: 7881", "  udp_port: 7882", "  use_external_ip: false", "logging:", "  level: warn",
+      "port: 7880", "rtc:", "  tcp_port: 7881", "  udp_port: 7882", "  use_external_ip: false", "logging:", "  level: error",
     ]);
     for (const banned of ["keys", "key_file", "development", "turn", "redis", "webhook"]) expect(lines.join("\n"), banned).not.toContain(banned);
   });
@@ -119,13 +121,39 @@ describe("deploy/compose/livekit.yaml (US-0072, A1c Task 5)", () => {
 
 describe("deploy/compose/Caddyfile (US-0072, A1c Task 5)", () => {
   const lines = code(caddyfile).map((l) => l.trim());
+  /** The global options block: from the first line "{" to its closing "}" (the first line that is "}" at column 0). */
+  const rawCode = code(caddyfile);
+  const globalEnd = rawCode.indexOf("}");
+  const globalBlock = rawCode.slice(0, globalEnd + 1).map((l) => l.trim());
+  const sites = rawCode.slice(globalEnd + 1).map((l) => l.trim());
+
   it("caddyfile serves h1 and h2 only, with admin off and no redirect server", () => {
-    expect(lines.slice(0, 7)).toEqual(["{", "admin off", "auto_https disable_redirects", "servers {", "protocols h1 h2", "}", "}"]);
+    expect(globalBlock.slice(0, 6)).toEqual(["{", "admin off", "auto_https disable_redirects", "servers {", "protocols h1 h2", "}"]);
     expect(lines.filter((l) => l.startsWith("protocols"))).toEqual(["protocols h1 h2"]);
   });
 
-  it("caddyfile has no log directive (LiveKit tokens travel in the query)", () => {
-    for (const l of lines) expect(l.split(" ")[0], l).not.toMatch(/^(log|access_log|skip_log|log_skip|log_append|debug)$/);
+  // Batch 2 review B F1: Caddy's DEFAULT logger (stderr, INFO) writes every handler error to http.log.error with a `request` object
+  // whose `uri` carries the query string; during a LiveKit outage each reconnect to /rtc?access_token=<JWT> is a 502 and would write
+  // the token into the container log. The default logger deletes the token-bearing parameters livekit-client 2.23.0 sends
+  // (`access_token`, and `join_request` / `sid`, which carry the participant's join data) from every logged request URI, and logs at
+  // ERROR only. The filter is UNVERIFIED until Task 15's owner run (Caddy is never run here).
+  it("caddyfile's default logger deletes the LiveKit token from every logged URI and logs errors only", () => {
+    expect(globalBlock.slice(6)).toEqual([
+      "log default {",
+      "output stderr",
+      "format filter {", "wrap json", "fields {",
+      "request>uri query {", "delete access_token", "delete join_request", "delete sid", "}",
+      "}", "}",
+      "level ERROR",
+      "}",
+      "}",
+    ]);
+  });
+
+  it("caddyfile has no access log or other log directive in a site (LiveKit tokens travel in the query)", () => {
+    for (const l of sites) expect(l.split(" ")[0], l).not.toMatch(/^(log|access_log|skip_log|log_skip|log_append|log_name|debug)$/);
+    expect(lines.filter((l) => l.split(" ")[0] === "log")).toEqual(["log default {"]);
+    expect(lines.join("\n")).not.toContain("log_credentials");
   });
 
   it("caddyfile pins the X-Forwarded-For rules: no trusted_proxies, no X-Forwarded-* header directive", () => {
