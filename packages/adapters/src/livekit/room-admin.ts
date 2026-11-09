@@ -2,8 +2,8 @@ import { RoomServiceClient } from "livekit-server-sdk";
 
 /**
  * US-0071 (EPIC-0003 voice A1b, Task 4): the three LiveKit server calls control needs, behind a port so tests use a fake. Control removes
- * stale identities from a seat room, sweeps a room's participants, and deletes a session's rooms at its end. A "not found" answer (no such
- * room or participant) is success: the state control wanted already holds. Any other failure is a LiveKitAdminError with a fixed
+ * stale identities from a seat room, sweeps a room's participants, and deletes a session's rooms at its end. A twirp `not_found` answer (no
+ * such room or participant; never a bare HTTP 404) is success: the state control wanted already holds. Any other failure is a LiveKitAdminError with a fixed
  * message; the original error is kept as `cause` for the caller, never in the message (it may name the room or the identity).
  */
 export interface RoomAdmin {
@@ -27,11 +27,13 @@ export class LiveKitAdminError extends Error {
   }
 }
 
-/** A twirp "not found" (status 404 or code not_found). */
+/**
+ * A twirp "not found": the code `not_found` only. A bare HTTP 404 is NOT one: the SDK's toTwirpError gives status 404 and no code for any
+ * 404 whose body is not twirp JSON (another server on that port), and treating it as success would make every removal a silent no-op.
+ */
 function isNotFound(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
-  const e = err as { status?: unknown; code?: unknown };
-  return e.status === 404 || e.code === "not_found";
+  return (err as { code?: unknown }).code === "not_found";
 }
 
 /** The server API address: `http:` to 127.0.0.1 or [::1] with no user info and no path (the pilot laptop; LIVEKIT_HOST in control). */

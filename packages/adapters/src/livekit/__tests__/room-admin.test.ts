@@ -46,6 +46,22 @@ describe("createRoomAdmin (US-0071)", () => {
     await expect(admin.deleteRoom(ROOM)).resolves.toBeUndefined();
   });
 
+  it("only the twirp code not_found is not-found: a bare 404 (a non-LiveKit server) rejects", async () => {
+    // The SDK's toTwirpError gives status 404 and no code for any 404 whose body is not twirp JSON (another server on the port).
+    const bare404 = Object.assign(new Error("Not Found"), { status: 404 });
+    const f = fake({ fail: bare404 });
+    const admin = createRoomAdmin({ host: HOST, apiKey: "k", apiSecret: "s".repeat(32), client: f.client });
+    await expect(admin.removeParticipant(ROOM, IDENTITY)).rejects.toBeInstanceOf(LiveKitAdminError);
+    await expect(admin.listParticipants(ROOM)).rejects.toBeInstanceOf(LiveKitAdminError);
+    await expect(admin.deleteRoom(ROOM)).rejects.toBeInstanceOf(LiveKitAdminError);
+    // The code alone, with no status, is still not-found.
+    const codeOnly = Object.assign(new Error("x"), { code: "not_found" });
+    const g = createRoomAdmin({ host: HOST, apiKey: "k", apiSecret: "s".repeat(32), client: fake({ fail: codeOnly }).client });
+    await expect(g.removeParticipant(ROOM, IDENTITY)).resolves.toBeUndefined();
+    await expect(g.listParticipants(ROOM)).resolves.toEqual([]);
+    await expect(g.deleteRoom(ROOM)).resolves.toBeUndefined();
+  });
+
   it("another failure rejects LiveKitAdminError whose message has no room or identity", async () => {
     const boom = Object.assign(new Error(`connect ECONNREFUSED for ${ROOM} ${IDENTITY}`), { status: 500 });
     const f = fake({ fail: boom });
