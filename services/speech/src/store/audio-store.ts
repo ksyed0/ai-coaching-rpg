@@ -4,7 +4,7 @@ import path from "node:path";
 import { fsyncDirSync, type SessionLock } from "@acr/runtime/files";
 import { decide, type SegmentOutcome } from "./consent-rule.js";
 import { DiskGuard } from "./disk-guard.js";
-import { appendIndexLine, type IndexEntry } from "./index-file.js";
+import { appendIndexLine, writeFully, type IndexEntry } from "./index-file.js";
 import { ensureRoleDir, ensureSessionDir, segmentFile } from "./paths.js";
 import { wavBytes } from "./wav.js";
 
@@ -164,12 +164,7 @@ export class AudioStore {
   }
 
   private writeAll(fd: number, buf: Buffer): void {
-    let off = 0;
-    while (off < buf.length) {
-      const n = this.fs.writeSync(fd, buf, off, buf.length - off);
-      if (!Number.isInteger(n) || n <= 0) throw new Error("short write");
-      off += n;
-    }
+    writeFully(fd, buf, (f, b, o, l) => this.fs.writeSync(f, b, o, l));
   }
 
   private stop(reason: StopReason): void {

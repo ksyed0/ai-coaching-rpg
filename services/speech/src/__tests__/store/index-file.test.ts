@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { appendFileSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { appendIndexLine, readIndex, type IndexEntry } from "../../store/index-file.js";
+import { appendIndexLine, readIndex, writeFully, type IndexEntry } from "../../store/index-file.js";
 
 /** US-0073 (voice A2a, Task 4): the per-role `index.jsonl`; append-only, owner-only, tolerant of a torn last line. */
 let root: string;
@@ -12,6 +12,21 @@ afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 const entry = (n: number, extra: Partial<IndexEntry> = {}): IndexEntry => ({ v: 1, kind: "segment", segment: `s${n}`, participantId: "p1", startMs: n * 10, endMs: n * 10 + 5, status: "transcribed", ...extra });
 
 describe("index file", () => {
+  it("test_a_short_write_is_continued_until_the_whole_line_is_written", () => {
+    appendIndexLine(file, entry(1));
+    appendFileSync(file, '{"v":1,"kind":"segm'); // a torn line, so the prefix newline is written too
+    const sizes: number[] = [];
+    const short = (fd: number, buf: Buffer, off: number, len: number): number => { const n = writeSync(fd, buf, off, Math.min(len, 7)); sizes.push(n); return n; };
+    const big = entry(2, { raw: "a fairly long consented line of raw text" });
+    appendIndexLine(file, big, short);
+    expect(sizes.length).toBeGreaterThan(3); // really written in pieces
+    expect(readIndex(file)).toEqual([entry(1), big]);
+    expect(readFileSync(file, "utf8").endsWith("\n")).toBe(true);
+  });
+  it("test_a_write_that_makes_no_progress_throws_a_code_only_error", () => {
+    expect(() => appendIndexLine(file, entry(1), () => 0)).toThrow(/^could not write the audio index \(short_write\)$/);
+    expect(() => writeFully(1, Buffer.from("x"), () => -1)).toThrow("short write");
+  });
   it("test_append_then_read_round_trips", () => {
     const a = entry(1, { seq: 3, raw: "hello", timings: { vadEndMs: 4, sttMs: 9 } });
     const b = entry(2, { status: "refused:paused" });

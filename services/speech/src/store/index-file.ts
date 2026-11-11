@@ -29,11 +29,26 @@ function isEntry(x: unknown): x is IndexEntry {
   return true;
 }
 
+export type WriteFn = (fd: number, buf: Buffer, offset: number, length: number) => number;
+
 /**
- * Appends one line (O_APPEND, 0600, never through a link). A torn last line (no final newline, after a crash) is terminated first so
+ * Writes every byte of `buf`, continuing after a short write; a write that makes no progress throws "short write" (code `short_write`).
+ * Shared by the index append and the WAV / marker writes of `audio-store.ts`.
+ */
+export function writeFully(fd: number, buf: Buffer, write: WriteFn): void {
+  let off = 0;
+  while (off < buf.length) {
+    const n = write(fd, buf, off, buf.length - off);
+    if (!Number.isInteger(n) || n <= 0) throw Object.assign(new Error("short write"), { code: "short_write" });
+    off += n;
+  }
+}
+
+/**
+ * Appends one line (O_APPEND, 0600, never through a link), all of it: a short write is continued (`write` is a test seam). A torn last line (no final newline, after a crash) is terminated first so
  * the new line starts on its own. Errors carry the errno code only, never the path.
  */
-export function appendIndexLine(file: string, entry: IndexEntry): void {
+export function appendIndexLine(file: string, entry: IndexEntry, write: WriteFn = writeSync): void {
   let fd: number;
   try { fd = openSync(file, fc.O_RDWR | fc.O_APPEND | fc.O_CREAT | fc.O_NOFOLLOW, 0o600); }
   catch (err) { throw new Error(`could not open the audio index (${(err as NodeJS.ErrnoException).code ?? "error"})`); }
@@ -46,7 +61,7 @@ export function appendIndexLine(file: string, entry: IndexEntry): void {
       readSync(fd, last, 0, 1, st.size - 1);
       if (last[0] !== 0x0a) prefix = "\n";
     }
-    writeSync(fd, Buffer.from(`${prefix}${JSON.stringify(entry)}\n`, "utf8"));
+    writeFully(fd, Buffer.from(`${prefix}${JSON.stringify(entry)}\n`, "utf8"), write);
   } catch (err) {
     if (err instanceof Error && !(err as NodeJS.ErrnoException).code) throw err;
     throw new Error(`could not write the audio index (${(err as NodeJS.ErrnoException).code ?? "error"})`);

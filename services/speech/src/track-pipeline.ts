@@ -11,13 +11,13 @@ import type { VoiceGate } from "./voice-gate.js";
 /** STT_DEADLINE_MS: how long a segment's text stays useful (the limiter enforces it; a cold model gets its own longer deadline). */
 export const STT_DEADLINE_MS = 5000;
 
-/** A server-made segment id: 16 hex characters (a file-safe id, unique across restarts by chance alone). */
 /** US-0073: one delivered segment's audio and its outcome; `raw` is the normalised text for `text` only. */
 export type SegmentAudio = {
   roleId: string; participantId: string; segmentId: string; startMs: number; endMs: number; pcm: Int16Array;
   outcome: "text" | "empty" | "stt_failed"; raw?: string;
 };
 
+/** A server-made segment id: 16 hex characters (a file-safe id, unique across restarts by chance alone). */
 export function newSegmentId(): string { return randomBytes(8).toString("hex"); }
 
 const SEGMENT_FRAME_MS = DEFAULT_SEGMENTER.frameMs;
