@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync } from "node:fs";
+import { closeSync, constants as fc, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync } from "node:fs";
 import path from "node:path";
 import { isFileSafeId } from "@acr/events";
 import { assertInside, ensurePrivateDir } from "@acr/runtime/files";
@@ -42,7 +42,13 @@ export function segmentFile(audioDir: string, identity: string, roleId: string, 
 
 const ownUid = (): number | null => (typeof process.getuid === "function" ? process.getuid() : null);
 
-/** Throws unless `dir` is a real directory (not a link) owned by this user. */
+/** Test seam: the one call that repairs a folder's mode (an owner-only repair cannot be made to fail for real). */
+export const storeFsHooks = { fchmod: fchmodSync };
+
+/**
+ * Throws unless `dir` is a real directory (not a link) owned by this user, then drops group and other permissions through an
+ * O_DIRECTORY|O_NOFOLLOW descriptor and refuses a folder that is still group/other-writable.
+ */
 function requireRealOwnDir(dir: string): void {
   let st;
   try { st = lstatSync(dir); } catch { throw new StorePathError("folder missing after creation"); }
@@ -50,6 +56,17 @@ function requireRealOwnDir(dir: string): void {
   if (!st.isDirectory()) throw new StorePathError("folder is not a directory");
   const uid = ownUid();
   if (uid !== null && st.uid !== uid) throw new StorePathError("folder is owned by another user");
+  let fd: number;
+  try { fd = openSync(dir, fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW); } catch { throw new StorePathError("folder could not be opened safely"); }
+  try {
+    const open = fstatSync(fd);
+    if (open.ino !== st.ino || open.dev !== st.dev || !open.isDirectory()) throw new StorePathError("folder changed while checking");
+    let mode = open.mode;
+    if ((mode & 0o077) !== 0) {
+      try { storeFsHooks.fchmod(fd, mode & 0o700); mode = fstatSync(fd).mode; } catch { /* judged below */ }
+    }
+    if ((mode & 0o022) !== 0) throw new StorePathError("folder is writable by others and could not be repaired");
+  } finally { closeSync(fd); }
 }
 
 /**

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { vi } from "vitest";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { StorePathError, ensureRoleDir, roleDir, segmentFile, sessionDir } from "../../store/paths.js";
+import { StorePathError, ensureRoleDir, storeFsHooks, roleDir, segmentFile, sessionDir } from "../../store/paths.js";
 
 /** US-0073 (voice A2a, Task 4): path building validates every id and stays inside the audio directory; folders are private and never links. */
 const ID = "0123456789abcdef0123456789abcdef";
@@ -79,10 +80,34 @@ describe("ensureRoleDir", () => {
       expect((e as Error).message).not.toContain(root);
     }
   });
-  it("test_refuses_a_file_where_a_folder_belongs", () => {
+  it("test_refuses_a_dangling_symlink_where_a_folder_belongs", () => {
     mkdirSync(path.join(audio, ID), { recursive: true, mode: 0o700 });
     symlinkSync("nowhere", path.join(audio, ID, "coach")); // dangling link
     expect(() => ensureRoleDir(audio, ID, "coach")).toThrow(StorePathError);
+  });
+  it("test_refuses_a_regular_file_where_a_folder_belongs", () => {
+    mkdirSync(path.join(audio, ID), { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(audio, ID, "coach"), "x");
+    expect(() => ensureRoleDir(audio, ID, "coach")).toThrow(StorePathError);
+  });
+  it("test_repairs_existing_identity_and_role_folders_made_0777", () => {
+    mkdirSync(path.join(audio, ID, "coach"), { recursive: true });
+    chmodSync(audio, 0o700); chmodSync(path.join(audio, ID), 0o777); chmodSync(path.join(audio, ID, "coach"), 0o777);
+    const dir = ensureRoleDir(audio, ID, "coach");
+    expect(lstatSync(path.join(audio, ID)).mode & 0o777).toBe(0o700);
+    expect(lstatSync(dir).mode & 0o777).toBe(0o700);
+    expect(ensureRoleDir(audio, ID, "coach")).toBe(dir);
+  });
+  it("test_refuses_a_folder_whose_repair_fails", () => {
+    mkdirSync(path.join(audio, ID, "coach"), { recursive: true });
+    chmodSync(audio, 0o700); chmodSync(path.join(audio, ID), 0o700); chmodSync(path.join(audio, ID, "coach"), 0o777);
+    const spy = vi.spyOn(storeFsHooks, "fchmod").mockImplementation(() => { throw Object.assign(new Error("EPERM"), { code: "EPERM" }); });
+    try {
+      ensureRoleDir(audio, ID, "coach"); throw new Error("did not throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(StorePathError);
+      expect((e as Error).message).not.toContain(root);
+    } finally { spy.mockRestore(); }
   });
   it("test_repairs_a_group_readable_audio_dir", () => {
     mkdirSync(audio, { mode: 0o755 }); chmodSync(audio, 0o755);
