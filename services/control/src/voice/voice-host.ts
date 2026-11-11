@@ -1,6 +1,6 @@
 import path from "node:path";
 import { isSafeId } from "@acr/events";
-import { EXIT_LIVEKIT_LOST, WorkerMessageSchema, isLowerHex, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
+import { EXIT_LIVEKIT_LOST, VOICE_LINE_TIMEOUT_MS, WorkerMessageSchema, isLowerHex, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage, VoiceAlertCode } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
@@ -10,8 +10,7 @@ import { buildSpeechEnv } from "./speech-env.js";
 import { STT_GLOBAL_IN_FLIGHT, SttSlots, sttLeaseMs } from "./stt-slots.js";
 import { VoiceTokenRefused, type VoiceTokens } from "./tokens.js";
 
-/** The runtime must answer a voice line within this; otherwise the worker is told `refused: "failed"`. */
-export const VOICE_LINE_TIMEOUT_MS = 10_000;
+export { VOICE_LINE_TIMEOUT_MS };
 /** At most this many voice lines wait for the runtime per session; a line beyond it is refused at once (the runtime is far behind). */
 export const MAX_PENDING_LINES = 256;
 /**

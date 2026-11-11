@@ -65,6 +65,7 @@ describe("worker -> control messages", () => {
     { type: "speech_activity", roleId: "tech_lead", active: false, silentMs: 60000 },
     { type: "segment_failed", segmentId: seg, roleId: "cfo", participantId: "p", status: "empty" },
     { type: "segment_failed", segmentId: seg, roleId: "cfo", participantId: "p", status: "stt_failed" },
+    { type: "store_stopped", reason: "disk_low" }, { type: "store_stopped", reason: "write_error" },
   ];
   const invalid: unknown[] = [
     null, "x", {}, { type: "nope" },
@@ -82,6 +83,7 @@ describe("worker -> control messages", () => {
     { type: "segment_failed", segmentId: seg, roleId: "cfo", participantId: "p", status: "refused" },
     { type: "segment_failed", segmentId: seg, roleId: "cfo", participantId: "p", status: "empty", extra: 1 },
     { type: "segment_failed", segmentId: seg, roleId: "cfo", participantId: "rebind-pending", status: "empty" },
+    { type: "store_stopped", reason: "other" }, { type: "store_stopped" }, { type: "store_stopped", reason: "disk_low", extra: 1 },
   ];
   it("accepts every message of the overview with minimal fields", () => {
     for (const m of valid) expect(WorkerMessageSchema.safeParse(m).success, JSON.stringify(m)).toBe(true);
