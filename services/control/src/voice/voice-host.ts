@@ -246,7 +246,9 @@ export class VoiceHost {
     let handle: WorkerHandle;
     const identity = s.logIdentity; // US-0073: absent or invalid: the worker records no audio
     try {
-      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles, identity === undefined ? {} : { logIdentity: identity, sessionsDir: this.o.config.sessionsDir }), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
+      // R10: the audio settings come from control's config (the directory control audits and sweeps), only with a valid identity.
+      const extra = identity === undefined ? {} : { logIdentity: identity, sessionsDir: this.o.config.sessionsDir, audioDir: this.o.config.audioDir, minFreeMb: this.o.config.audioMinFreeMb };
+      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles, extra), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
     } catch (err) {
       this.o.log(`session ${sessionId} speech worker could not start (${err instanceof Error ? err.name : "error"})`);
       this.tellAvailability(sessionId, s);
@@ -414,7 +416,7 @@ export class VoiceHost {
       if (m.type === "voice_turn") { s.turnOpen = m.open; this.o.bots?.voiceTurn(sessionId, m.open); return; }
       // US-0073 (A2a Task 8): the choice is audited (ids only, the notice version is the constant v3) and used for nothing else.
       if (m.type === "voice_choice") {
-        this.audit(s, m.choice === "voice"
+        this.audit(s.logIdentity, m.choice === "voice"
           ? { type: "voice.opted_in", role: m.roleId, participant: m.participantId, noticeVersion: "v3" }
           : { type: "voice.opted_out", role: m.roleId, participant: m.participantId });
         return;
@@ -508,11 +510,21 @@ export class VoiceHost {
   }
 
   private fromWorker(sessionId: string, w: Worker, raw: unknown): void {
-    const s = this.sessions.get(sessionId);
-    if (!s || s.worker !== w) return;
     const parsed = WorkerMessageSchema.safeParse(raw);
     if (!parsed.success) return;
     const m: WorkerMessage = parsed.data;
+    const s = this.sessions.get(sessionId);
+    if (m.type === "store_stopped") {
+      // US-0073 (Task 8 review fix): the stop belongs to the audio THIS worker wrote, so it is audited under the identity the worker was
+      // spawned with, also for a retired worker still flushing, and never under a newer runtime's identity set at its `ready` before
+      // the attach retires this worker. The facilitator alert is for the session's current worker only. The transcript goes on; the
+      // alert is a no-op while the runtime is down, the audit line is written anyway.
+      if (w.exited) return;
+      this.audit(w.identity, { type: "voice.recording_stopped", reason: m.reason });
+      if (s && s.worker === w) this.alert(sessionId, m.reason);
+      return;
+    }
+    if (!s || s.worker !== w) return;
     switch (m.type) {
       case "worker_ready":
         if (w.ready) return; // once per worker
@@ -578,12 +590,6 @@ export class VoiceHost {
       }
       case "stt_slot_release":
         this.slots.release(sessionId, m.slot);
-        return;
-      case "store_stopped":
-        // US-0073 (A2a Task 8): the worker's audio store stopped (the transcript goes on). The alert is a no-op while the runtime is
-        // down; the audit line is written anyway.
-        this.alert(sessionId, m.reason);
-        this.audit(s, { type: "voice.recording_stopped", reason: m.reason });
         return;
       case "stt_health":
         // US-0071 (A1b Task 9): the worker reports a confirmed change only (two polls in a row, every 5 s); before its ready, nothing.
@@ -676,9 +682,11 @@ export class VoiceHost {
     try { this.o.toRuntime(sessionId, { type: "voice_alert", code }); } catch { /* reported nowhere: the runtime is gone */ }
   }
 
-  /** US-0073: fire-and-forget (AuditLog.append never rejects); nothing without an audit log or a valid identity. */
-  private audit(s: Session, e: AuditEvent): void {
-    const id = s.logIdentity;
+  /**
+   * US-0073: fire-and-forget (AuditLog.append never rejects); nothing without an audit log or an identity. `voice_choice` passes the
+   * session's identity (the runtime that sent it is the current one); `store_stopped` passes the sending worker's own.
+   */
+  private audit(id: string | undefined, e: AuditEvent): void {
     if (!this.o.audit || id === undefined) return;
     void this.o.audit.append(id, e).catch(() => undefined);
   }

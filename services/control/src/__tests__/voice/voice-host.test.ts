@@ -787,17 +787,18 @@ describe("VoiceHost log identity hand-off (US-0073, A2a Task 3)", () => {
   const IDENT = "0123456789abcdef0123456789abcdef";
   const OTHER = "fedcba9876543210fedcba9876543210";
   const makeAudio = () => new VoiceHost({
-    spawn, config: { ...config, ...AI_CONFIG, sessionsDir: "/data/sessions" }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", AUDIO_DIR: "/data/audio", SPEECH_LOG_IDENTITY: "e".repeat(32) }, log: (m) => logs.push(m),
+    spawn, config: { ...config, ...AI_CONFIG, sessionsDir: "/data/sessions", audioDir: "/data/audio", audioMinFreeMb: 4096 }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", AUDIO_DIR: "/inherited/audio", SPEECH_LOG_IDENTITY: "e".repeat(32) }, log: (m) => logs.push(m),
     setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
     toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
   });
 
-  it("a valid identity from attach reaches the worker env with the sessions dir; AUDIO_DIR comes from the parent env", () => {
+  it("a valid identity from attach reaches the worker env with the sessions dir; AUDIO_DIR and AUDIO_MIN_FREE_MB come from control's config (R10)", () => {
     const v = makeAudio();
     v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: IDENT });
     expect(workers[0]!.env.SPEECH_LOG_IDENTITY).toBe(IDENT);
     expect(workers[0]!.env.SPEECH_SESSIONS_DIR).toBe("/data/sessions");
-    expect(workers[0]!.env.AUDIO_DIR).toBe("/data/audio");
+    expect(workers[0]!.env.AUDIO_DIR).toBe("/data/audio"); // the inherited /inherited/audio is overridden
+    expect(workers[0]!.env.AUDIO_MIN_FREE_MB).toBe("4096");
   });
 
   it("the identity set at ready (before attach) is used by the spawn", () => {
@@ -815,6 +816,8 @@ describe("VoiceHost log identity hand-off (US-0073, A2a Task 3)", () => {
     expect(workers).toHaveLength(1);
     expect(workers[0]!.env.SPEECH_LOG_IDENTITY).toBeUndefined();
     expect(workers[0]!.env.SPEECH_SESSIONS_DIR).toBeUndefined();
+    expect(workers[0]!.env.AUDIO_DIR).toBeUndefined();
+    expect(workers[0]!.env.AUDIO_MIN_FREE_MB).toBeUndefined();
     ready(workers[0]!);
     expect(v.workerPid(ID)).toBe(4242);
   });
@@ -933,6 +936,44 @@ describe("VoiceHost audit log and store alerts (US-0073, A2a Task 8)", () => {
     v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
     expect(workers).toEqual([]);
     expect(audited).toEqual([{ id: IDENT, e: { type: "voice.opted_in", role: "tech_lead", participant: "p-secret-1", noticeVersion: "v3" } }]);
+  });
+
+  const OLD = "0123456789abcdef0123456789abcdef";
+  const NEW = "fedcba9876543210fedcba9876543210";
+
+  it("review fix: a store_stopped between a new runtime's ready (setIdentity NEW) and its attach is audited under the kept worker's OLD identity", () => {
+    const v = makeAudited();
+    const w = liveWith(v, OLD);
+    v.detach(ID);
+    v.setIdentity(ID, NEW); // the new runtime's ready; attach comes after the async player lookup
+    w.emit({ type: "store_stopped", reason: "disk_low" });
+    expect(audited).toEqual([{ id: OLD, e: { type: "voice.recording_stopped", reason: "disk_low" } }]);
+  });
+
+  it("review fix: a retired worker's store_stopped (still flushing) is audited under its own OLD identity with no alert", () => {
+    const v = makeAudited();
+    const w1 = liveWith(v, OLD);
+    v.detach(ID);
+    v.setIdentity(ID, NEW);
+    v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: NEW }); // retires w1, spawns w2
+    expect(w1.killed).toBe(1);
+    const before = relayed().length;
+    w1.emit({ type: "store_stopped", reason: "write_error" });
+    expect(audited).toEqual([{ id: OLD, e: { type: "voice.recording_stopped", reason: "write_error" } }]);
+    expect(relayed().slice(before)).toEqual([]);
+    // after its exit nothing more from it is audited
+    w1.exit(0);
+    w1.emit({ type: "store_stopped", reason: "disk_low" });
+    expect(audited).toHaveLength(1);
+  });
+
+  it("review fix: a worker spawned without an identity audits nothing even after the session later gets one", () => {
+    const v = makeAudited();
+    const w = liveWith(v);
+    v.setIdentity(ID, NEW);
+    w.emit({ type: "store_stopped", reason: "disk_low" });
+    expect(audited).toEqual([]);
+    expect(relayed().map((x) => x.m)).toEqual([{ type: "voice_alert", code: "disk_low" }]);
   });
 
   it("without an injected audit log, store_stopped and voice_choice still work (no-op audit)", () => {
