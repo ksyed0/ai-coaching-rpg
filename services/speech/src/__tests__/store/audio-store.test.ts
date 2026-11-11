@@ -118,7 +118,7 @@ describe("AudioStore.write: skipped segments touch nothing", () => {
 
 describe("AudioStore.write: faults", () => {
   it.each([
-    ["openSync", 1], ["writeSync", 1], ["fsyncSync", 1], ["fsyncDir", 1], ["closeSync", 1], ["appendIndex", 1],
+    ["openSync", 1], ["writeSync", 1], ["fsyncSync", 1], ["fsyncDir", 1], ["closeSync", 1],
   ] as const)("test_a_fault_in_%s_leaves_no_wav_no_index_line_and_stops", (method, nth) => {
     const { fs } = faulty(method, nth);
     const { store, onStopped } = make({ fs });
@@ -132,6 +132,27 @@ describe("AudioStore.write: faults", () => {
     expect(store.write(seg({ segmentId: "seg-2" }))).toBe("stopped");
     expect(existsSync(wavPath("seg-2"))).toBe(false);
     expect(onStopped).toHaveBeenCalledTimes(1);
+  });
+  it("test_a_fault_inside_appendIndex_before_any_line_keeps_the_wav_as_an_orphan_and_stops", () => {
+    const { fs } = faulty("appendIndex");
+    const { store, onStopped } = make({ fs });
+    expect(store.write(seg())).toBe("stopped");
+    expect(existsSync(wavPath())).toBe(true); // once the append was called the WAV stays (the sweep removes an orphan)
+    expect(readIndex(indexPath())).toEqual([]);
+    expect(onStopped).toHaveBeenCalledTimes(1);
+    expect(onStopped).toHaveBeenCalledWith("write_error");
+  });
+  it("test_a_fault_after_the_index_line_was_written_keeps_the_wav_and_stops", () => {
+    const onStopped = vi.fn();
+    const fs: StoreFs = { ...nodeStoreFs, appendIndex: (file, entry) => { nodeStoreFs.appendIndex(file, entry); throw Object.assign(new Error("close"), { code: "EIO" }); } };
+    const { store } = make({ fs, onStopped });
+    expect(store.write(seg({ seq: 4 }))).toBe("stopped");
+    expect(existsSync(wavPath())).toBe(true); // the line may exist, so its WAV is never removed
+    expect(readIndex(indexPath()).map((e) => e.segment)).toEqual(["seg-1"]);
+    for (const e of readIndex(indexPath())) expect(existsSync(path.join(roleDir(), `${e.segment}.wav`))).toBe(true); // no line without its WAV
+    expect(store.stopped).toBe(true);
+    expect(onStopped).toHaveBeenCalledTimes(1);
+    expect(onStopped).toHaveBeenCalledWith("write_error");
   });
   it("test_a_failing_unlink_during_cleanup_still_stops_without_throwing", () => {
     const base = faulty("fsyncSync").fs;

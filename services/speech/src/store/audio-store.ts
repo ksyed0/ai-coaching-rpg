@@ -122,11 +122,14 @@ export class AudioStore {
       if (seg.seq !== undefined) entry.seq = seg.seq;
       if (seg.raw !== undefined) entry.raw = seg.raw;
       if (seg.timings !== undefined) entry.timings = seg.timings;
+      // From here the line may already be on disk (an append can fail after writing, e.g. on close): never remove the WAV again.
+      created = false;
       this.fs.appendIndex(path.join(role, INDEX_NAME), entry);
       return "written";
     } catch {
       if (fd !== null) { try { this.fs.closeSync(fd); } catch { /* best effort */ } }
-      // Remove only a file this call created (an exclusive create that hit an existing file leaves that file alone).
+      // Remove only a file this call created (an exclusive create that hit an existing file leaves that file alone), and only before
+      // the index append was attempted: after it, a kept WAV is at worst an orphan the sweep removes, never a line without its WAV.
       if (file !== null && created) { try { this.fs.unlinkSync(file); } catch { /* best effort: the sweep removes an orphan */ } }
       this.stop("write_error");
       return "stopped";
