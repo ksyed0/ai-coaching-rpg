@@ -3,6 +3,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 import { parseAiPlayerSettings, type AiPlayerSettings } from "@acr/runtime/players";
+import { parseAudioSettings } from "./voice/audio-settings.js";
 
 /** services/control/src/config.ts: the repo root is three levels up from this file's directory. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -15,6 +16,10 @@ export type ControlConfig = {
   /** Live sessions allowed at once. */
   maxSessions: number;
   dataDir: string;
+  /** US-0073: AUDIO_DIR (absolute; default `<dataDir>/audio`), AUDIO_MIN_FREE_MB (512 to 1000000, default 2048), AUDIO_MAX_RETENTION_DAYS (1 to 30, default 30). */
+  audioDir: string;
+  audioMinFreeMb: number;
+  audioMaxRetentionDays: number;
   /** `<dataDir>/sessions`: the children's SESSION_DATA_DIR. */
   sessionsDir: string;
   /** `<dataDir>/sessions.json`. */
@@ -100,12 +105,17 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
   const reportAccessDays = whole("REPORT_ACCESS_DAYS", 90, 1, 365);
   const evaluateMarginMs = whole("REPORT_EVALUATE_MARGIN_MS", 120_000, 0, 3_600_000);
 
+  // US-0073: with no usable dataDir (already reported) the audio default is not computed.
+  const audio = parseAudioSettings(env, dataDir === "" ? path.sep : dataDir);
+  if (!audio.ok) problems.push(...audio.errors);
+
   const ai = parseAiPlayerSettings(env);
   if (!ai.ok) problems.push(...ai.errors);
 
-  if (problems.length > 0 || !ai.ok) throw new Error(`invalid control service settings: ${problems.join("; ")}`);
+  if (problems.length > 0 || !ai.ok || !audio.ok) throw new Error(`invalid control service settings: ${problems.join("; ")}`);
   return {
     port, serviceToken: token as string, maxSessions, dataDir,
+    audioDir: audio.audioDir, audioMinFreeMb: audio.minFreeMb, audioMaxRetentionDays: audio.maxRetentionDays,
     sessionsDir: path.join(dataDir, "sessions"), listFile: path.join(dataDir, "sessions.json"),
     scenariosDir, logDir, graceMs, readyTimeoutMs, intentsDir: path.join(dataDir, "intents"), aiPlayer: ai.settings,
     reportsDir: path.join(dataDir, "reports"), reportAccessFile: path.join(dataDir, "report-access.json"), reportAccessDays,

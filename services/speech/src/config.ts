@@ -1,7 +1,7 @@
 import path from "node:path";
 import { DEFAULT_STT_COLD_TIMEOUT_MS, DEFAULT_STT_IDLE_COLD_MS, parseSttUrl } from "@acr/adapters";
 import { isFileSafeId, isReservedRoleId, isSafeId, isScenarioId } from "@acr/events";
-import { MAX_HOLDERS } from "./protocol.js";
+import { MAX_HOLDERS, isLowerHex } from "./protocol.js";
 import { DEFAULT_SEGMENTER, HANGOVER_RANGE, MAX_SEGMENT_RANGE, type SegmenterSettings } from "./segmenter.js";
 
 export type WorkerConfig = {
@@ -9,6 +9,8 @@ export type WorkerConfig = {
   stt: { kind: "whisper"; url: URL; coldTimeoutMs: number; idleColdMs: number } | { kind: "fake"; scriptFile: string };
   /** US-0071: `livekit` listens to the seat rooms (control sends a token per connect); `roles` still names the session's player roles. */
   ingest: { kind: "file"; dir: string; roles: string[] } | { kind: "livekit"; roles: string[] };
+  /** US-0073: the audio store; absent when control offered none (no AUDIO_DIR), and voice still works. */
+  store?: { audioDir: string; minFreeMb: number; logIdentity: string; sessionsDir: string };
 };
 
 const COLD_RANGE = [1000, 300_000] as const;
@@ -61,7 +63,25 @@ export function parseWorkerConfig(env: NodeJS.ProcessEnv): { ok: true; cfg: Work
   const roleOk = (r: string): boolean => isFileSafeId(r) && isScenarioId(r) && !isReservedRoleId(r);
   if (roles.length > MAX_HOLDERS || !roles.every(roleOk) || new Set(roles).size !== roles.length) errors.push("SPEECH_INGEST_ROLES must be a comma-separated list of distinct role ids");
 
+  // US-0073: the store needs all of AUDIO_DIR, SPEECH_LOG_IDENTITY and SPEECH_SESSIONS_DIR; a bad value names the variable only.
+  const abs = (name: string): string | undefined => {
+    const v = env[name];
+    if (v === undefined || v === "") return undefined;
+    if (v.includes("\0") || !path.isAbsolute(v)) { errors.push(`${name} must be an absolute path`); return undefined; }
+    return path.resolve(v);
+  };
+  const audioDir = abs("AUDIO_DIR");
+  const sessionsDir = abs("SPEECH_SESSIONS_DIR");
+  const identity = env.SPEECH_LOG_IDENTITY;
+  let logIdentity: string | undefined;
+  if (identity !== undefined) {
+    if (isLowerHex(identity, 32)) logIdentity = identity;
+    else errors.push("SPEECH_LOG_IDENTITY must be 32 lower-case hexadecimal characters");
+  }
+  const minFreeMb = whole("AUDIO_MIN_FREE_MB", [512, 1_000_000], 2048);
+  const store = audioDir !== undefined && sessionsDir !== undefined && logIdentity !== undefined ? { audioDir, minFreeMb, logIdentity, sessionsDir } : undefined;
+
   if (errors.length > 0 || !stt) return { ok: false, errors };
   const ingest: WorkerConfig["ingest"] = ingestKind === "livekit" ? { kind: "livekit", roles } : { kind: "file", dir: dir!, roles };
-  return { ok: true, cfg: { segmenter: { ...DEFAULT_SEGMENTER, hangoverMs, maxSegmentMs }, stt, ingest } };
+  return { ok: true, cfg: { segmenter: { ...DEFAULT_SEGMENTER, hangoverMs, maxSegmentMs }, stt, ingest, ...(store ? { store } : {}) } };
 }

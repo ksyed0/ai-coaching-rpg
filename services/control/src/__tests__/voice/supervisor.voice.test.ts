@@ -61,7 +61,7 @@ beforeEach(() => {
   const scenariosDir = path.join(root, "scenarios");
   mkdirSync(path.join(scenariosDir, "other"), { recursive: true });
   config = {
-    port: 1, serviceToken: "t".repeat(40), maxSessions: 5, dataDir: root, sessionsDir: path.join(root, "sessions"),
+    port: 1, serviceToken: "t".repeat(40), maxSessions: 5, dataDir: root, audioDir: path.join(root, "audio"), audioMinFreeMb: 2048, audioMaxRetentionDays: 30, sessionsDir: path.join(root, "sessions"),
     listFile: path.join(root, "sessions.json"), scenariosDir, logDir: path.join(root, "child-logs"), graceMs: 777, readyTimeoutMs: 5000, ...AI_CONFIG,
   };
   mkdirSync(config.sessionsDir, { recursive: true });

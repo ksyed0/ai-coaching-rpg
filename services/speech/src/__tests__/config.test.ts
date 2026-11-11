@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_STT_COLD_TIMEOUT_MS, DEFAULT_STT_IDLE_COLD_MS } from "@acr/adapters";
-import { parseWorkerConfig } from "../config.js";
+import { parseWorkerConfig, type WorkerConfig } from "../config.js";
 import { FAKE_SCRIPT_REFUSED, loadFakeScript, parseFakeScript } from "../fake-script.js";
 import { DEFAULT_SEGMENTER } from "../segmenter.js";
 
@@ -157,5 +157,43 @@ describe("STT_MODEL shared rules (US-0072)", () => {
     expect(rules.sttModel.accepted.length).toBeGreaterThan(0);
     for (const v of rules.sttModel.accepted) expect(errorsOf(base({ STT_MODEL: v })), v).toEqual([]);
     for (const v of rules.sttModel.refused) expect(errorsOf(base({ STT_MODEL: v })).some((e) => e.startsWith("STT_MODEL ")), v).toBe(true);
+  });
+});
+
+describe("parseWorkerConfig store (US-0073)", () => {
+  const ID = "0123456789abcdef0123456789abcdef";
+  const withStore = (o: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => base({ AUDIO_DIR: "/srv/audio", SPEECH_LOG_IDENTITY: ID, SPEECH_SESSIONS_DIR: "/srv/sessions", ...o });
+
+  it("no AUDIO_DIR: no store, voice still works", () => {
+    const r = parseWorkerConfig(base({ SPEECH_LOG_IDENTITY: ID, SPEECH_SESSIONS_DIR: "/srv/sessions" }));
+    expect(r.ok && r.cfg.store).toBeUndefined();
+    expect(r.ok).toBe(true);
+  });
+
+  it("builds the store with the default free-space floor", () => {
+    const r = parseWorkerConfig(withStore());
+    expect(r.ok && r.cfg.store).toEqual({ audioDir: "/srv/audio", minFreeMb: 2048, logIdentity: ID, sessionsDir: "/srv/sessions" });
+  });
+
+  it("AUDIO_MIN_FREE_MB 512..1000000", () => {
+    for (const v of ["512", "1000000"]) { const r = parseWorkerConfig(withStore({ AUDIO_MIN_FREE_MB: v })); expect(r.ok && r.cfg.store?.minFreeMb).toBe(Number(v)); }
+    for (const v of ["511", "1000001", "x", "1e3"]) expect(errorsOf(withStore({ AUDIO_MIN_FREE_MB: v })), v).toEqual(["AUDIO_MIN_FREE_MB must be a whole number from 512 to 1000000"]);
+  });
+
+  it("a SPEECH_LOG_IDENTITY that is not 32 lower-case hex is a config error naming the variable only", () => {
+    for (const v of [ID.toUpperCase(), ID.slice(1), "../x", ID + "0", ""]) {
+      const e = errorsOf(withStore({ SPEECH_LOG_IDENTITY: v }));
+      expect(e, v).toEqual(["SPEECH_LOG_IDENTITY must be 32 lower-case hexadecimal characters"]);
+      if (v !== "") expect(JSON.stringify(e)).not.toContain(v);
+    }
+  });
+
+  it("a relative AUDIO_DIR or SPEECH_SESSIONS_DIR is refused", () => {
+    expect(errorsOf(withStore({ AUDIO_DIR: "audio" }))).toEqual(["AUDIO_DIR must be an absolute path"]);
+    expect(errorsOf(withStore({ SPEECH_SESSIONS_DIR: "s" }))).toEqual(["SPEECH_SESSIONS_DIR must be an absolute path"]);
+  });
+
+  it("AUDIO_DIR without an identity or sessions dir: no store (control did not offer one)", () => {
+    expect(parseWorkerConfig(base({ AUDIO_DIR: "/srv/audio" })).ok && (parseWorkerConfig(base({ AUDIO_DIR: "/srv/audio" })) as { cfg: WorkerConfig }).cfg.store).toBeUndefined();
   });
 });
