@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionLock } from "@acr/runtime/files";
 import { AuditLog, type AuditEvent } from "../../voice/audit-log.js";
-import { SWEEP_REMOVE_FAILED, makeAcquireLock, startAudioSweep, startSweepSchedule, stopWithin, sweepAudio } from "../../voice/sweep.js";
+import { SWEEP_REMOVE_FAILED, makeAcquireLock, startAudioSweep, segmentIdOf, startSweepSchedule, stopWithin, sweepAudio } from "../../voice/sweep.js";
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 1); // a whole second, so file times set through utimes are exact
@@ -433,6 +433,15 @@ describe("orphan WAV cleanup in a kept folder (US-0073, A2a Task 9b)", () => {
     expect(await run({ now: KEPT })).toEqual({ deleted: 0, skipped: 0, orphans: 1 });
     expect(wavsIn("r")).toEqual([]);
     expect(logs).toEqual([]);
+  });
+});
+
+describe("segmentIdOf", () => {
+  it.each(["../x.wav", "A.wav", "a.b.wav", ".wav", `${"a".repeat(65)}.wav`, "a/b.wav", "a.WAV", "a.wav.txt", "x", "a b.wav"])("%s is not a segment WAV name", (n) => {
+    expect(segmentIdOf(n)).toBeNull();
+  });
+  it.each([["seg0.wav", "seg0"], ["a_b-1.wav", "a_b-1"], [`${"a".repeat(64)}.wav`, "a".repeat(64)]])("%s is a segment WAV name", (n, want) => {
+    expect(segmentIdOf(n)).toBe(want);
   });
 });
 

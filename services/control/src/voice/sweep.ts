@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { closeSync, constants as fc, fstatSync, lstatSync, openSync, readSync, readdirSync, renameSync, rmdirSync, unlinkSync, type Stats } from "node:fs";
 import path from "node:path";
+import { isFileSafeId } from "@acr/events";
 import { SessionLock, SessionLockError, assertInside } from "@acr/runtime/files";
 import type { SetTimer } from "../supervisor.js";
 import type { AuditLog } from "./audit-log.js";
@@ -32,7 +33,12 @@ const DAY_MS = 86_400_000;
 export const NO_MARKER_GRACE_MS = DAY_MS;
 const LIVE_NAME = /^[0-9a-f]{32}$/;
 const LEFTOVER_NAME = /^[0-9a-f]{32}\.deleting-[a-z0-9]+$/;
-const WAV_NAME = /^[a-z0-9_-]{1,64}\.wav$/;
+/** A segment WAV name: `<file-safe id>.wav` (the id rule lives in `@acr/events`). Returns the id, or null. */
+export function segmentIdOf(name: string): string | null {
+  if (!name.endsWith(".wav")) return null;
+  const id = name.slice(0, -4);
+  return isFileSafeId(id) ? id : null;
+}
 const MAX_MARKER_BYTES = 4_096;
 const MAX_INDEX_BYTES = 64 * 1024 * 1024;
 /** The layout is two levels deep; a deeper tree is still removed, but the walk stops descending somewhere sane. */
@@ -199,7 +205,8 @@ function removeOrphans(o: SweepOptions, dir: string): number {
     let names: string[];
     try { names = readdirSync(role); } catch { continue; }
     for (const n of names) {
-      if (!WAV_NAME.test(n) || indexed.has(n.slice(0, -4))) continue;
+      const segId = segmentIdOf(n);
+      if (segId === null || indexed.has(segId)) continue;
       const p = path.join(role, n);
       try {
         assertInside(o.audioDir, p);
