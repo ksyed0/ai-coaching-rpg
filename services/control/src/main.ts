@@ -23,6 +23,7 @@ import { speechSpawn } from "./voice/speech-spawn.js";
 import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
+import { AuditLog } from "./voice/audit-log.js";
 import { livekitProbe } from "./voice/livekit-probe.js";
 import { timingLogSink } from "./voice/timing-log.js";
 import { VoiceTokens } from "./voice/tokens.js";
@@ -98,11 +99,14 @@ export async function startControl(
         cfg: lkWanted, admin: createRoomAdmin({ host: lkWanted.host, apiKey: lkWanted.apiKey, apiSecret: lkWanted.apiSecret }),
         mint: mintParticipantToken, mintWorker: mintWorkerToken, random: randomBytes, setTimer: realSetTimer, log,
       }) : undefined;
+      // US-0073 (A2a Task 8): the audio audit log (opt-in, opt-out, recording stops), under AUDIO_DIR with its own lock per identity.
+      const audit = new AuditLog({ audioDir: config.audioDir, now: Date.now, log });
       // US-0072 (A1c Task 11): the LiveKit probe goes with the tokens (same condition), so an outage is told from a fault.
       const v = new VoiceHost({
         spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, now: Date.now,
         ...(timingRaw === "1" ? { timingLog: timingLogSink(config.logDir, { log }) } : {}),
         ...(tokens && lkWanted ? { tokens, livekitReachable: opts.livekitReachable ?? livekitProbe(lkWanted.host) } : {}),
+        audit,
       });
       opts.onVoiceHost?.(v);
       return v;

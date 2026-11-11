@@ -4,6 +4,7 @@ import { EXIT_LIVEKIT_LOST, MAX_PENDING_LINES, VOICE_LINE_TIMEOUT_MS, WorkerMess
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage, VoiceAlertCode } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
+import type { AuditEvent, AuditLog } from "./audit-log.js";
 import { LIVEKIT_PROBE_TIMEOUT_MS } from "./livekit-probe.js";
 import { RESTART_TRIES, RESTART_STABLE_MS, livekitRetryDelay, restartDelay } from "./restart.js";
 import { buildSpeechEnv } from "./speech-env.js";
@@ -126,6 +127,12 @@ export class VoiceHost {
      * start_to_append_ms=<m>`: no role, segment, participant or text.
      */
     timingLog?: (line: string) => void;
+    /**
+     * US-0073 (A2a Task 8): the audio audit log (audit-log.ts; main.ts builds one from `config.audioDir`). Gets `voice.recording_stopped`
+     * at a worker's `store_stopped` and `voice.opted_in` / `voice.opted_out` at the runtime's `voice_choice`, only for a session with a
+     * valid log identity. Absent: nothing is audited.
+     */
+    audit?: Pick<AuditLog, "append">;
   }) {
     // A generation reaches the worker only for a LiveKit ingest: a file-ingest worker would drop every frame (none of its frames has one).
     this.livekitIngest = o.tokens !== undefined && o.parentEnv.SPEECH_INGEST === "livekit";
@@ -405,7 +412,13 @@ export class VoiceHost {
         return;
       }
       if (m.type === "voice_turn") { s.turnOpen = m.open; this.o.bots?.voiceTurn(sessionId, m.open); return; }
-      if (m.type === "voice_choice") return; // A2 writes it to the audio audit log
+      // US-0073 (A2a Task 8): the choice is audited (ids only, the notice version is the constant v3) and used for nothing else.
+      if (m.type === "voice_choice") {
+        this.audit(s, m.choice === "voice"
+          ? { type: "voice.opted_in", role: m.roleId, participant: m.participantId, noticeVersion: "v3" }
+          : { type: "voice.opted_out", role: m.roleId, participant: m.participantId });
+        return;
+      }
       const answer = s.pending.get(m.segmentId);
       if (!answer) return; // timed out already, or never asked
       s.pending.delete(m.segmentId);
@@ -566,6 +579,12 @@ export class VoiceHost {
       case "stt_slot_release":
         this.slots.release(sessionId, m.slot);
         return;
+      case "store_stopped":
+        // US-0073 (A2a Task 8): the worker's audio store stopped (the transcript goes on). The alert is a no-op while the runtime is
+        // down; the audit line is written anyway.
+        this.alert(sessionId, m.reason);
+        this.audit(s, { type: "voice.recording_stopped", reason: m.reason });
+        return;
       case "stt_health":
         // US-0071 (A1b Task 9): the worker reports a confirmed change only (two polls in a row, every 5 s); before its ready, nothing.
         if (w.ready) this.sttHealth(sessionId, s, m.ok);
@@ -655,6 +674,13 @@ export class VoiceHost {
     const s = this.sessions.get(sessionId);
     if (s && !s.runtimeUp) return;
     try { this.o.toRuntime(sessionId, { type: "voice_alert", code }); } catch { /* reported nowhere: the runtime is gone */ }
+  }
+
+  /** US-0073: fire-and-forget (AuditLog.append never rejects); nothing without an audit log or a valid identity. */
+  private audit(s: Session, e: AuditEvent): void {
+    const id = s.logIdentity;
+    if (!this.o.audit || id === undefined) return;
+    void this.o.audit.append(id, e).catch(() => undefined);
   }
 
   private failed(sessionId: string, err: unknown): void {

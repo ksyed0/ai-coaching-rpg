@@ -8,6 +8,7 @@ import { parseParticipantIdentity, type RoomAdmin } from "@acr/adapters/livekit"
 import { VoiceTokenRefused, VoiceTokens } from "../../voice/tokens.js";
 import { VOICE_LINE_TIMEOUT_MS, VoiceHost, type SpeechSpawnFn, type WorkerHandle } from "../../voice/voice-host.js";
 import { AI_CONFIG } from "../fake-child.js";
+import type { AuditEvent } from "../../voice/audit-log.js";
 
 class FakeWorker implements WorkerHandle {
   sent: ControlToWorker[] = [];
@@ -167,7 +168,7 @@ describe("VoiceHost (US-0070): one speech worker per voice session", () => {
     expect(relayed().map((x) => x.m)).toEqual([{ type: "voice_alert", code: "stt_unavailable" }]);
   });
 
-  it("voice_turn reaches the bots; voice_choice is dropped in A1a", () => {
+  it("voice_turn reaches the bots; voice_choice is relayed nowhere (A2a only audits it, Task 8)", () => {
     const v = make();
     live(v);
     expect(v.voiceTurnOpen(ID)).toBe(false);
@@ -855,5 +856,91 @@ describe("VoiceHost log identity hand-off (US-0073, A2a Task 3)", () => {
     // no failure was counted: RESTART_TRIES + 1 failures are still needed to turn voice off
     for (let i = 0; i < 6; i++) { workers.at(-1)!.exit(1); for (const t of timers.filter((x) => !x.cancelled && x.ms !== 700)) { t.cancelled = true; t.fn(); } }
     expect(toRuntime.filter((x) => x.m.type === "voice_alert" && (x.m as { code: string }).code === "voice_off")).toHaveLength(1);
+  });
+});
+
+describe("VoiceHost audit log and store alerts (US-0073, A2a Task 8)", () => {
+  const IDENT = "0123456789abcdef0123456789abcdef";
+  let audited: { id: string; e: AuditEvent }[];
+  const makeAudited = () => new VoiceHost({
+    spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake" }, log: (m) => logs.push(m),
+    setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+    toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
+    audit: { append: async (id, e) => { audited.push({ id, e }); } },
+  });
+  const liveWith = (v: VoiceHost, logIdentity?: string) => {
+    v.attach(ID, { voice: true, roles: ["tech_lead"], ...(logIdentity ? { logIdentity } : {}) });
+    const w = workers.at(-1)!; ready(w); return w;
+  };
+  beforeEach(() => { audited = []; });
+
+  it.each([["disk_low"], ["write_error"]] as const)("store_stopped %s raises the facilitator alert and audits voice.recording_stopped", (reason) => {
+    const v = makeAudited();
+    const w = liveWith(v, IDENT);
+    w.emit({ type: "store_stopped", reason });
+    expect(relayed().map((x) => x.m)).toEqual([{ type: "voice_alert", code: reason }]);
+    expect(audited).toEqual([{ id: IDENT, e: { type: "voice.recording_stopped", reason } }]);
+  });
+
+  it("store_stopped while the runtime is down: no alert reaches it, but the stop is still audited", () => {
+    const v = makeAudited();
+    const w = liveWith(v, IDENT);
+    v.detach(ID); runtimeUp = false;
+    w.emit({ type: "store_stopped", reason: "disk_low" });
+    expect(relayed().filter((x) => x.m.type === "voice_alert")).toEqual([]);
+    expect(audited).toEqual([{ id: IDENT, e: { type: "voice.recording_stopped", reason: "disk_low" } }]);
+  });
+
+  it("a malformed store_stopped is ignored (schema-validated)", () => {
+    const v = makeAudited();
+    const w = liveWith(v, IDENT);
+    for (const m of [{ type: "store_stopped", reason: "full" }, { type: "store_stopped" }, { type: "store_stopped", reason: "disk_low", text: "x" }]) w.emit(m);
+    expect(relayed()).toEqual([]);
+    expect(audited).toEqual([]);
+  });
+
+  it("voice_choice voice / text_only audits voice.opted_in (notice v3) / voice.opted_out with ids only, and is relayed nowhere", () => {
+    const v = makeAudited();
+    const w = liveWith(v, IDENT);
+    const sent = w.sent.length;
+    v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
+    v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "text_only", at: 6 });
+    expect(audited).toEqual([
+      { id: IDENT, e: { type: "voice.opted_in", role: "tech_lead", participant: "p-secret-1", noticeVersion: "v3" } },
+      { id: IDENT, e: { type: "voice.opted_out", role: "tech_lead", participant: "p-secret-1" } },
+    ]);
+    for (const a of audited) expect(a.e).not.toHaveProperty("text");
+    expect(relayed()).toEqual([]);
+    expect(w.sent.length).toBe(sent);
+    expect(turns).toEqual([]);
+  });
+
+  it("with no valid identity nothing is audited (store_stopped still alerts)", () => {
+    const v = makeAudited();
+    const w = liveWith(v);
+    v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
+    w.emit({ type: "store_stopped", reason: "write_error" });
+    expect(audited).toEqual([]);
+    expect(relayed().map((x) => x.m)).toEqual([{ type: "voice_alert", code: "write_error" }]);
+    v.setIdentity(ID, "A".repeat(32));
+    v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "text_only", at: 6 });
+    expect(audited).toEqual([]);
+  });
+
+  it("R1 (shared with Task 3): a voice_choice after setIdentity at ready but BEFORE attach is audited with that identity", () => {
+    const v = makeAudited();
+    v.setIdentity(ID, IDENT);
+    v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
+    expect(workers).toEqual([]);
+    expect(audited).toEqual([{ id: IDENT, e: { type: "voice.opted_in", role: "tech_lead", participant: "p-secret-1", noticeVersion: "v3" } }]);
+  });
+
+  it("without an injected audit log, store_stopped and voice_choice still work (no-op audit)", () => {
+    const v = make();
+    v.setIdentity(ID, IDENT);
+    const w = live(v);
+    v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
+    w.emit({ type: "store_stopped", reason: "disk_low" });
+    expect(relayed().map((x) => x.m)).toEqual([{ type: "voice_alert", code: "disk_low" }]);
   });
 });
