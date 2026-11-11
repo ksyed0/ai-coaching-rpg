@@ -76,9 +76,9 @@ async function main(): Promise<void> {
   const onParentGone = (): void => parentGone.abort();
   process.once("disconnect", onParentGone); process.once("SIGTERM", onParentGone);
   const opened = cfg.store ? await openStore({ cfg: cfg.store, now: Date.now, send, sleep: realSleep, signal: parentGone.signal }) : undefined;
-  process.removeListener("disconnect", onParentGone); process.removeListener("SIGTERM", onParentGone);
   const releaseStore = (): void => { opened?.release(); };
-  if (afterStoreWait({ connected: process.connected, aborted: parentGone.signal.aborted, release: releaseStore, exit: (c) => process.exit(c) })) return;
+  const parentWasLost = (): boolean => afterStoreWait({ connected: process.connected, aborted: parentGone.signal.aborted, release: releaseStore, exit: (c) => process.exit(c) });
+  if (parentWasLost()) return;
   let makeIngest: ((deps: { join: (roleId: string) => Promise<LiveKitJoinInfo> }) => AudioIngest) | undefined;
   let worker: RunningWorker | undefined;
   if (cfg.ingest.kind === "livekit") {
@@ -94,8 +94,12 @@ async function main(): Promise<void> {
       onStatus: (state) => { send({ type: "livekit_status", state }); if (state !== "connected") lost(); },
     });
   }
+  // The once-handlers stay until the real ones are attached below; nothing awaits between this check and that swap, so a `disconnect`
+  // (never re-emitted) cannot slip through the livekit import above.
+  if (parentWasLost()) return;
   worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}), ...(opened ? { store: opened.store } : {}), ...(slots ? { onSlotGrant: slots.granted.bind(slots), healthPoll: true } : {}) });
   const running = worker;
+  process.removeListener("disconnect", onParentGone); process.removeListener("SIGTERM", onParentGone);
   void running.done.then(releaseStore, releaseStore); // the end was handled: the last write and markEnded have happened
   process.on("message", (raw: unknown) => {
     const m = ControlToWorkerSchema.safeParse(raw);

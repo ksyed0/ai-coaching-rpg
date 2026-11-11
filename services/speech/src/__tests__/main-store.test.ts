@@ -137,4 +137,11 @@ describe("afterStoreWait", () => {
     const m = mk(true, false); expect(m.run()).toBe(false);
     expect(m.release).not.toHaveBeenCalled(); expect(m.exit).not.toHaveBeenCalled();
   });
+  it("test_the_same_decision_asked_again_after_a_late_abort_exits", () => {
+    const ac = new AbortController(); const release = vi.fn(); const exit = vi.fn();
+    const ask = () => afterStoreWait({ connected: true, aborted: ac.signal.aborted, release, exit });
+    expect(ask()).toBe(false); expect(exit).not.toHaveBeenCalled();
+    ac.abort(); // a disconnect during the livekit import
+    expect(ask()).toBe(true); expect(release).toHaveBeenCalledTimes(1); expect(exit).toHaveBeenCalledWith(0);
+  });
 });
