@@ -1,5 +1,5 @@
 import http from "node:http";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +14,7 @@ import { BotHost } from "../bots/bot-host.js";
 import { startControl, type RunningControl } from "../main.js";
 import * as participantWrites from "../participant-writes.js";
 import * as reportsModule from "../reports.js";
+import { startAudioSweep } from "../voice/sweep.js";
 import { SessionList } from "../session-list.js";
 import type { EvalSpawnFn } from "../eval-child.js";
 import type { SpawnFn } from "../supervisor.js";
@@ -26,6 +27,11 @@ vi.mock("../reports.js", async (orig) => {
 vi.mock("../participant-writes.js", async (orig) => {
   const m = await orig<typeof import("../participant-writes.js")>();
   return { ...m, createParticipantWriteService: vi.fn(m.createParticipantWriteService), warnIfReportsNotWritable: vi.fn(m.warnIfReportsNotWritable) };
+});
+
+vi.mock("../voice/sweep.js", async (orig) => {
+  const m = await orig<typeof import("../voice/sweep.js")>();
+  return { ...m, startAudioSweep: vi.fn(m.startAudioSweep) };
 });
 
 const TOKEN = "k".repeat(40);
@@ -56,6 +62,21 @@ const get = (port: number, p: string, token: string | null = TOKEN): Promise<Res
   fetch(`http://127.0.0.1:${port}${p}`, { headers: token === null ? {} : { "x-service-token": token } });
 
 describe("startControl", () => {
+  it("US-0073 (A2a Task 9b): the audio sweep runs at start with VOICE_ENABLED=0 and stops at close", async () => {
+    const audioDir = path.join(root, "audio");
+    const sidHex = "a".repeat(32);
+    mkdirSync(path.join(audioDir, sidHex, "r"), { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(audioDir, sidHex, "ended.json"), JSON.stringify({ v: 1, endedAtMs: 1_000 }));
+    writeFileSync(path.join(audioDir, sidHex, "r", "seg0.wav"), "RIFF");
+    running = await startControl({ ...env, VOICE_ENABLED: "0", AUDIO_DIR: audioDir }, { port: 0, spawn: (() => { throw new Error("no spawn"); }) as unknown as SpawnFn });
+    for (let i = 0; i < 100 && existsSync(path.join(audioDir, sidHex)); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(existsSync(path.join(audioDir, sidHex))).toBe(false);
+    const sched = vi.mocked(startAudioSweep).mock.results.at(-1)!.value as { stop(): Promise<void> };
+    const stop = vi.spyOn(sched, "stop");
+    await running.close();
+    expect(stop).toHaveBeenCalled(); // close() stops the schedule and waits (bounded) for a run in flight
+  });
+
   it("US-0071: refuses to start with SPEECH_INGEST=livekit and no LiveKit key, and with a bad LiveKit setting (names only, no value)", async () => {
     await expect(startControl({ ...env, SPEECH_INGEST: "livekit" }, { port: 0 })).rejects.toThrow(/SPEECH_INGEST=livekit needs LIVEKIT_API_KEY/);
     const err = await startControl({ ...env, LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "short-secret-value" }, { port: 0 }).catch((e: Error) => e);

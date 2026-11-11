@@ -43,8 +43,9 @@ export type VoiceRefusal = (typeof VOICE_REFUSALS)[number];
 /**
  * US-0071 adds `worker_restarting`, `voice_off` and `stt_recovered` (the last one an info alert). US-0072 (A1c Task 10) adds
  * `livekit_lost` (a LiveKit outage: voice waits for the media server without spending the restart budget) and `livekit_recovered` (info).
+ * US-0073 (A2a Task 8) adds `disk_low` and `write_error`: the worker's audio store stopped recording; the transcript continues.
  */
-export const VOICE_ALERT_CODES = ["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered", "livekit_lost", "livekit_recovered"] as const;
+export const VOICE_ALERT_CODES = ["worker_down", "stt_unavailable", "stt_failed", "worker_restarting", "voice_off", "stt_recovered", "livekit_lost", "livekit_recovered", "disk_low", "write_error"] as const;
 export type VoiceAlertCode = (typeof VOICE_ALERT_CODES)[number];
 const MAX_VOICE_TEXT_CHARS = 2000;
 const MAX_SILENT_MS = 60_000;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CHILD_ENV_ALLOWLIST } from "../../child-env.js";
-import { SPEECH_ENV_ALLOWLIST, buildSpeechEnv } from "../../voice/speech-env.js";
+import { SPEECH_ENV_ALLOWLIST, buildSpeechEnv, isAllowedSpeechVar } from "../../voice/speech-env.js";
 
 const parent: NodeJS.ProcessEnv = {
   PATH: "/usr/bin", NODE_OPTIONS: "--max-old-space-size=512", VOICE_HANGOVER_MS: "450", VOICE_MAX_SEGMENT_MS: "3000",
@@ -18,6 +18,20 @@ describe("the speech worker's environment (US-0070)", () => {
       "NODE_OPTIONS", "PATH", "SPEECH_INGEST", "SPEECH_INGEST_DIR", "SPEECH_INGEST_ROLES", "STT_COLD_TIMEOUT_MS", "STT_FAKE_SCRIPT", "STT_IDLE_COLD_MS",
       "STT_MODEL", "STT_PROVIDER", "STT_URL", "VOICE_HANGOVER_MS", "VOICE_MAX_SEGMENT_MS",
     ]);
+  });
+
+  it("US-0073 (R10): AUDIO_DIR, AUDIO_MIN_FREE_MB, SPEECH_LOG_IDENTITY and SPEECH_SESSIONS_DIR come from `extra` only, never the parent", () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    const p = { ...parent, AUDIO_DIR: "/inherited", AUDIO_MIN_FREE_MB: "999", AUDIO_MAX_RETENTION_DAYS: "5", SPEECH_LOG_IDENTITY: "evil", SPEECH_SESSIONS_DIR: "/evil" };
+    const env = buildSpeechEnv(p, ["pm"], { logIdentity: id, sessionsDir: "/s", audioDir: "/cfg/audio", minFreeMb: 1024 });
+    expect(env).toMatchObject({ AUDIO_DIR: "/cfg/audio", AUDIO_MIN_FREE_MB: "1024", SPEECH_LOG_IDENTITY: id, SPEECH_SESSIONS_DIR: "/s" });
+    expect(env).not.toHaveProperty("AUDIO_MAX_RETENTION_DAYS");
+    // no AUDIO_DIR in the parent: the config's value still reaches the worker (the documented default records)
+    expect(buildSpeechEnv(parent, ["pm"], { logIdentity: id, sessionsDir: "/s", audioDir: "/cfg/audio", minFreeMb: 2048 })).toMatchObject({ AUDIO_DIR: "/cfg/audio", AUDIO_MIN_FREE_MB: "2048" });
+    // no identity: none of the audio variables, inherited or not
+    const none = buildSpeechEnv(p, ["pm"]);
+    for (const k of ["SPEECH_LOG_IDENTITY", "SPEECH_SESSIONS_DIR", "AUDIO_DIR", "AUDIO_MIN_FREE_MB"]) expect(none, k).not.toHaveProperty(k);
+    for (const k of ["SPEECH_LOG_IDENTITY", "SPEECH_SESSIONS_DIR", "AUDIO_DIR", "AUDIO_MIN_FREE_MB"]) expect(isAllowedSpeechVar(k), k).toBe(false);
   });
 
   it("LIVEKIT_*, provider keys, LAUNCHER_TOKEN, FACILITATOR_SECRET and HOME are never copied", () => {

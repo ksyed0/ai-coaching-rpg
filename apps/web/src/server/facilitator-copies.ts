@@ -64,6 +64,8 @@ export const VOICE_ALERT_SENTENCES_COPY: readonly string[] = [
   "Voice input is available again.",
   "Voice input lost the LiveKit media server. It reconnects when the server answers; participants can continue by text.",
   "The LiveKit media server answers again; voice input is restarting. Participants who lost voice press Join with voice again.",
+  "Recording stopped: the disk is nearly full. The transcript continues.",
+  "Recording stopped: audio could not be saved. The transcript continues.",
 ];
 const alertMessage = (e: Ev<"facilitator.alert">): string =>
   typeof e.message === "string" && VOICE_ALERT_SENTENCES_COPY.includes(e.message) ? e.message : e.level === "info" ? ALERT_MESSAGES.info : ALERT_MESSAGES.warning;

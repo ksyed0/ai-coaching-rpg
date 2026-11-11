@@ -19,6 +19,7 @@ import * as voiceModule from "../voice.js";
 import { startServer, type ServerHandle } from "../ws-server.js";
 import type { VoiceConfig } from "../voice-config.js";
 import { VOICE_ALERT_LEVELS, VOICE_ALERT_SENTENCES, type VoiceNoticeCode } from "../voice.js";
+import { VOICE_ALERT_CODES } from "../parent-channel.js";
 
 // US-0070 (Task 10, AC-0399): a failed, empty or refused segment reaches the SPEAKER alone as a private, ephemeral voice_notice (never
 // logged, never to anyone else), rate-limited per role and code; the facilitator gets a fixed-sentence voice alert, rate-limited per code.
@@ -161,6 +162,18 @@ describe("voiceAlert (US-0070, AC-0399)", () => {
     expect(pending.size).toBe(0);
   });
 
+  it("pre-start write_error and disk_low are not evicted by every other code (the bound is one per code)", async () => {
+    const h = makeHost();
+    await h.host.voiceAlert("write_error");
+    await h.host.voiceAlert("disk_low");
+    for (const c of VOICE_ALERT_CODES) if (c !== "write_error" && c !== "disk_low") await h.host.voiceAlert(c);
+    const pending = (h.host as unknown as { pendingAlerts: Set<string> }).pendingAlerts;
+    expect(MAX_PENDING_VOICE_ALERTS).toBe(VOICE_ALERT_CODES.length);
+    expect(pending.has("write_error")).toBe(true);
+    expect(pending.has("disk_low")).toBe(true);
+    expect(pending.size).toBe(VOICE_ALERT_CODES.length);
+  });
+
   it("no pre-start alert is kept while voice is off", async () => {
     const off = makeHost({ voice: { enabled: false } });
     await off.host.voiceAlert("worker_down");
@@ -202,7 +215,7 @@ describe("the US-0071 alert codes (Task 3, K8)", () => {
       expect(sentence).not.toContain(code);
       expect(sentence).not.toMatch(/[_0-9]/);
     }
-    expect(VOICE_ALERT_LEVELS).toEqual({ worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info", livekit_lost: "warning", livekit_recovered: "info" });
+    expect(VOICE_ALERT_LEVELS).toEqual({ worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info", livekit_lost: "warning", livekit_recovered: "info", disk_low: "warning", write_error: "warning" });
   });
 
   it("US-0072 (A1c Task 10): the two LiveKit outage sentences are fixed and livekit_recovered is info", () => {
@@ -214,7 +227,7 @@ describe("the US-0071 alert codes (Task 3, K8)", () => {
   });
 
   it("VOICE_ALERT_SENTENCES is exported from host/voice.ts", () => {
-    expect(Object.keys(voiceModule.VOICE_ALERT_SENTENCES).sort()).toEqual(["livekit_lost", "livekit_recovered", "stt_failed", "stt_recovered", "stt_unavailable", "voice_off", "worker_down", "worker_restarting"]);
+    expect(Object.keys(voiceModule.VOICE_ALERT_SENTENCES).sort()).toEqual(["disk_low", "livekit_lost", "livekit_recovered", "stt_failed", "stt_recovered", "stt_unavailable", "voice_off", "worker_down", "worker_restarting", "write_error"]);
     expect("VOICE_ALERT_SENTENCES" in hostModule).toBe(false); // one source: a web test may import voice.ts, never session-host.ts
   });
 });
@@ -263,5 +276,14 @@ describe("voice_notice on the socket (US-0070, AC-0399)", () => {
     for (const c of [sam, fac]) for (const m of c.inbox) { expect(m.type).not.toBe("voice_notice"); expect(JSON.stringify(m)).not.toContain("stt_failed"); }
     for (const e of await h.log.all()) expect(JSON.stringify(e)).not.toContain("stt_failed");
     expect(pat.inbox.filter((m) => m.type === "voice_notice")).toHaveLength(1);
+  });
+});
+
+describe("US-0073 (A2a Task 8): the audio store's stop alerts", () => {
+  it("disk_low and write_error are fixed warning sentences that say the transcript continues", () => {
+    expect(VOICE_ALERT_SENTENCES.disk_low).toBe("Recording stopped: the disk is nearly full. The transcript continues.");
+    expect(VOICE_ALERT_SENTENCES.write_error).toBe("Recording stopped: audio could not be saved. The transcript continues.");
+    expect(VOICE_ALERT_LEVELS.disk_low).toBe("warning");
+    expect(VOICE_ALERT_LEVELS.write_error).toBe("warning");
   });
 });

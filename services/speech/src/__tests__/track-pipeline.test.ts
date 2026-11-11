@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FakeSpeechToText, LimitedSpeechToText, SpeechRefusedError, SpeechTimeoutError, type SpeechSegment, type Transcript } from "@acr/adapters";
 import { ActivityReporter } from "../activity.js";
 import type { WorkerMessage } from "../protocol.js";
 import { DEFAULT_SEGMENTER, Segmenter } from "../segmenter.js";
-import { TrackPipeline, newSegmentId } from "../track-pipeline.js";
+import { TrackPipeline, newSegmentId, type SegmentAudio } from "../track-pipeline.js";
 import { VoiceGate } from "../voice-gate.js";
 import { concat, frames, silence, tone } from "./signals.js";
 
@@ -13,7 +13,7 @@ const LOUD = -20;
 const good = (text: string): Transcript => ({ text, durationMs: 100, noSpeechProb: 0.02, avgLogprob: -0.2 });
 
 /** A pipeline for `roleId` over a real segmenter, a FakeSpeechToText and an injected clock. `answers` scripts the STT per call. */
-function harness(o: { roleId?: string; answers?: (seg: SpeechSegment, call: number) => Answer | Promise<Answer>; holders?: Holder[] | null; paused?: boolean } = {}) {
+function harness(o: { roleId?: string; answers?: (seg: SpeechSegment, call: number) => Answer | Promise<Answer>; holders?: Holder[] | null; paused?: boolean; onSegmentAudio?: (s: SegmentAudio) => void } = {}) {
   const roleId = o.roleId ?? "tech_lead";
   const sent: WorkerMessage[] = [];
   const clock = { t: 5_000_000 };
@@ -29,6 +29,7 @@ function harness(o: { roleId?: string; answers?: (seg: SpeechSegment, call: numb
   const p = new TrackPipeline({
     roleId, segmenter, stt, gate, activity: new ActivityReporter(send, () => clock.t), send, now: () => clock.t,
     newSegmentId: () => `seg${String(++n).padStart(3, "0")}`, deadlineMs: 5000,
+    ...(o.onSegmentAudio ? { onSegmentAudio: o.onSegmentAudio } : {}),
   });
   /** Pushes the signal frame by frame, advancing the clock 20 ms per frame (real-time pacing, simulated). */
   const feed = (pcm: Int16Array) => { for (const f of frames(pcm)) { clock.t += 20; p.push(f); } };
@@ -325,5 +326,79 @@ describe("TrackPipeline and seat generations (US-0071, A1b Task 7, Review Focus 
     await settle();
     expect(h.lines()).toEqual([]);
     expect(h.stt.calls).toHaveLength(0);
+  });
+});
+
+describe("TrackPipeline onSegmentAudio hook (US-0073, Task 7a)", () => {
+  it("fires once per delivered segment with the right fields, before the send", async () => {
+    const order: string[] = [];
+    const got: SegmentAudio[] = [];
+    const answers = [good("  hello there "), good(""), new SpeechTimeoutError()];
+    const h = harness({
+      answers: (_s, n) => answers[n]!,
+      onSegmentAudio: (s) => { got.push(s); order.push(`hook:${s.segmentId}`); },
+    });
+    const origSent = h.sent.push.bind(h.sent);
+    h.sent.push = (...m: WorkerMessage[]) => { for (const x of m) if (x.type === "voice_line" || x.type === "segment_failed") order.push(`send:${x.segmentId}`); return origSent(...m); };
+    h.feed(concat(BURST, BURST, BURST));
+    await settle();
+    expect(got.map((g) => [g.segmentId, g.outcome, g.raw])).toEqual([["seg001", "text", "hello there"], ["seg002", "empty", undefined], ["seg003", "stt_failed", undefined]]);
+    expect(order).toEqual(["hook:seg001", "send:seg001", "hook:seg002", "send:seg002", "hook:seg003", "send:seg003"]);
+    const first = got[0]!;
+    expect(first).toMatchObject({ roleId: "tech_lead", participantId: "p1" });
+    expect(first.pcm).toBeInstanceOf(Int16Array);
+    expect(first.pcm.length).toBeGreaterThan(0);
+    expect(first.endMs).toBeGreaterThanOrEqual(first.startMs);
+    const line = h.lines()[0]!;
+    expect(line).toMatchObject({ startMs: first.startMs, endMs: first.endMs });
+    expect("raw" in got[1]!).toBe(false);
+  });
+
+  it("never fires for an aborted segment", async () => {
+    const d = deferredAnswers();
+    const hook = vi.fn();
+    const h = harness({ answers: d.answers, onSegmentAudio: hook });
+    h.feed(BURST);
+    await settle();
+    h.p.stop();
+    d.pending[0]!(good("late"));
+    await settle();
+    expect(hook).not.toHaveBeenCalled();
+    expect(h.sent.filter((m) => m.type === "voice_line" || m.type === "segment_failed")).toEqual([]);
+  });
+
+  it("never fires for a segment whose participant changed or opted out meanwhile", async () => {
+    const d = deferredAnswers();
+    const hook = vi.fn();
+    const h = harness({ answers: d.answers, onSegmentAudio: hook });
+    h.feed(BURST);
+    await settle();
+    h.gate.update({ type: "voice_state", paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p2", recording: true }] });
+    d.pending[0]!(good("hello"));
+    await settle();
+    expect(hook).not.toHaveBeenCalled();
+    expect(h.lines()).toEqual([]);
+  });
+
+  it("never fires for a segment whose generation changed meanwhile", async () => {
+    const d = deferredAnswers();
+    const hook = vi.fn();
+    const h = harness({ answers: d.answers, onSegmentAudio: hook, holders: [{ roleId: "tech_lead", participantId: "p1", recording: true, generation: "11111111" } as Holder] });
+    for (const f of frames(BURST)) { h.clock.t += 20; h.p.push(f, "11111111"); }
+    await settle();
+    h.gate.update({ type: "voice_state", paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: true, generation: "22222222" }] });
+    d.pending[0]!(good("hello"));
+    await settle();
+    expect(hook).not.toHaveBeenCalled();
+    expect(h.lines()).toEqual([]);
+  });
+
+  it("a throwing hook still sends, and later deliveries still happen", async () => {
+    const hook = vi.fn(() => { throw new Error("disk"); });
+    const h = harness({ onSegmentAudio: hook });
+    h.feed(concat(BURST, BURST));
+    await settle();
+    expect(hook).toHaveBeenCalledTimes(2);
+    expect(h.lines().map((m) => m.type === "voice_line" && m.text)).toEqual(["line 1", "line 2"]);
   });
 });

@@ -5,13 +5,21 @@ import type { AudioIngest } from "./ingest/audio-ingest.js";
 import { HealthPoller } from "./health.js";
 import { FileIngest } from "./ingest/file-ingest.js";
 import { LiveKitJoinRefused, LiveKitJoinTimeout, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
-import type { ControlToWorker, WorkerMessage } from "./protocol.js";
+import { MAX_PENDING_LINES, VOICE_LINE_TIMEOUT_MS, type ControlToWorker, type WorkerMessage } from "./protocol.js";
 import { Segmenter } from "./segmenter.js";
-import { STT_DEADLINE_MS, TrackPipeline, newSegmentId } from "./track-pipeline.js";
+import type { AudioStore } from "./store/audio-store.js";
+import { STT_DEADLINE_MS, TrackPipeline, newSegmentId, type SegmentAudio } from "./track-pipeline.js";
 import { VoiceGate } from "./voice-gate.js";
 
 /** US-0071 (A1b Task 7): how long the worker waits for control's `livekit_join` after a `livekit_token_request`. */
 export const LIVEKIT_JOIN_WAIT_MS = 10_000;
+/**
+ * US-0073 (A2a Task 7b): how long a text segment's audio waits for its `voice_line_result`. A backstop only: control's own
+ * VOICE_LINE_TIMEOUT_MS normally answers first (`refused: failed`). Running out writes nothing (a timeout never keeps audio).
+ */
+export const LINE_RESULT_WAIT_MS = VOICE_LINE_TIMEOUT_MS + 2_000;
+/** The store as the worker uses it (injected: main.ts gives the real AudioStore). */
+export type WorkerStore = { write: AudioStore["write"]; markEnded(): void; readonly stopped: boolean };
 /** Returns a cancel function (the Supervisor's shape). */
 export type SetTimer = (fn: () => void, ms: number) => () => void;
 const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return () => clearTimeout(t); };
@@ -47,7 +55,12 @@ export type RunningWorker = {
  *  - The end of the ingest (a file ran out) flushes every track's open segment and closes its speech edge (F2).
  *  - `ended`: stops the ingest, flushes every track's open segment (audio recorded before the end), delivers what is pending, then applies
  *    the ended state (nothing records after it).
- * `voice_line_result` is not used in A1a (A2 writes the seq into the audio index). Logs fixed sentences and error names only.
+ * Logs fixed sentences and error names only.
+ *
+ * US-0073 (A2a Task 7b): with a `store`, each delivered segment's audio is handed over before its send: `empty` and `stt_failed` are
+ * written at once; a text line's audio waits in memory (at most MAX_PENDING_LINES, the oldest dropped unwritten beyond that) for its
+ * `voice_line_result`, whose `seq` or refusal goes to `store.write` (the consent rule there keeps or skips it). No answer within
+ * LINE_RESULT_WAIT_MS, a stopped role, the end, `stop` and a stopped store all write nothing.
  *
  * US-0071 (A1b Task 7): every `voice_state` gives the ingest its allowed seats (`allowedOf`) in the SAME synchronous step as the gate
  * update, so no frame can pass between the two; frames carry their seat generation and the pipeline drops any that is not the gate's.
@@ -66,6 +79,8 @@ export function startWorker(o: {
   onSlotGrant?: (slot: string) => void;
   /** US-0071 (A1b Task 9): poll the shared speech-to-text's health after the warm-up (main.ts: Whisper only; the fake is not polled). */
   healthPoll?: boolean;
+  /** US-0073 (A2a Task 7b): the audio store. Without one no audio is held or written (A1 behaviour). */
+  store?: WorkerStore;
 }): RunningWorker {
   const log = o.log ?? (() => {});
   const send = (m: WorkerMessage): void => { try { o.send(m); } catch { /* a closed channel: the parent is gone */ } };
@@ -91,10 +106,51 @@ export function startWorker(o: {
   let resolveDone!: () => void;
   const done = new Promise<void>((r) => { resolveDone = r; });
 
+  // US-0073 (A2a Task 7b): text segments waiting for the runtime's answer, oldest first (Map insertion order). Only an answer the
+  // consent rule keeps reaches the store; a stop of the role, a timeout, the end, `stop` or the cap drop an entry unwritten.
+  const store = o.store;
+  const pending = new Map<string, { seg: SegmentAudio; cancel: () => void }>();
+  let storeClosed = false;
+  const dropPending = (segmentId: string): void => {
+    const e = pending.get(segmentId);
+    if (!e) return;
+    e.cancel();
+    pending.delete(segmentId);
+  };
+  const dropAllPending = (): void => { for (const id of [...pending.keys()]) dropPending(id); };
+  const dropRoles = (roles: readonly string[]): void => {
+    if (roles.length === 0) return;
+    const set = new Set(roles);
+    for (const [id, e] of [...pending]) if (set.has(e.seg.roleId)) dropPending(id);
+  };
+  const baseOf = (s: SegmentAudio) => ({ roleId: s.roleId, participantId: s.participantId, segmentId: s.segmentId, startMs: s.startMs, endMs: s.endMs, pcm: s.pcm });
+  const onSegmentAudio = (s: SegmentAudio): void => {
+    if (!store || storeClosed || store.stopped) return;
+    if (s.outcome !== "text") { store.write({ ...baseOf(s), outcome: { kind: "no_text", status: s.outcome } }); return; }
+    dropPending(s.segmentId); // never happens (fresh random ids); keeps one timer per entry
+    while (pending.size >= MAX_PENDING_LINES) { const oldest = pending.keys().next().value; if (oldest === undefined) break; dropPending(oldest); }
+    const entry = { seg: s, cancel: () => {} };
+    entry.cancel = setTimer(() => { if (pending.get(s.segmentId) === entry) pending.delete(s.segmentId); }, LINE_RESULT_WAIT_MS);
+    pending.set(s.segmentId, entry);
+  };
+  const onLineResult = (m: Extract<ControlToWorker, { type: "voice_line_result" }>): void => {
+    const e = pending.get(m.segmentId);
+    if (!e || !store) return; // a late answer (after the wait, a drop or the end), or nobody held it
+    dropPending(m.segmentId);
+    if (store.stopped) return;
+    const base = baseOf(e.seg);
+    if (m.seq !== undefined) store.write({ ...base, outcome: { kind: "accepted" }, seq: m.seq, ...(e.seg.raw !== undefined ? { raw: e.seg.raw } : {}) });
+    else if (m.refused !== undefined) store.write({ ...base, outcome: { kind: "refused", code: m.refused } }); // decide() keeps or skips
+  };
+  const closeStore = (): void => { storeClosed = true; dropAllPending(); };
+
   const pipelineFor = (roleId: string): TrackPipeline => {
     let p = pipelines.get(roleId);
     if (!p) {
-      p = new TrackPipeline({ roleId, segmenter: new Segmenter(o.cfg.segmenter), stt: sttFor(roleId), gate, activity, send, now: o.now, newSegmentId, deadlineMs: STT_DEADLINE_MS });
+      p = new TrackPipeline({
+        roleId, segmenter: new Segmenter(o.cfg.segmenter), stt: sttFor(roleId), gate, activity, send, now: o.now, newSegmentId, deadlineMs: STT_DEADLINE_MS,
+        ...(store ? { onSegmentAudio } : {}),
+      });
       pipelines.set(roleId, p);
     }
     return p;
@@ -128,6 +184,9 @@ export function startWorker(o: {
       await Promise.all([...pipelines.values()].map((p) => p.flush()));
     } catch (err) { log(`speech flush failed (${err instanceof Error ? err.name : "error"})`); }
     gate.update(m);
+    // US-0073: the ended state: every waiting segment is dropped unwritten, then the session folder is marked ended (once).
+    closeStore();
+    if (store) { try { store.markEnded(); } catch { /* never throws; reporting only */ } }
     for (const p of pipelines.values()) p.stop();
     resolveDone();
   };
@@ -152,10 +211,14 @@ export function startWorker(o: {
           j.reject(new LiveKitJoinRefused());
           return;
         }
+        if (m.type === "voice_line_result") { onLineResult(m); return; }
         if (m.type !== "voice_state" || ending) return;
         if (m.ended) { ending = true; ingest.setAllowed?.(new Map()); void end(m); return; }
         // US-0071: the gate and the ingest's allowed seats change together, in this one synchronous step (no await in between).
+        // US-0073 (Review Focus 1): so does the drop of every segment a stopped role (opt-out, reissue, generation change, pause) still
+        // holds, so a later answer finds nothing and no audio of it is ever written.
         const { stopped } = gate.update(m);
+        dropRoles(stopped);
         ingest.setAllowed?.(allowedOf(m));
         for (const roleId of stopped) pipelines.get(roleId)?.stop();
         // A file is a stand-in for live audio: it starts playing when a seat first records, so its speech meets a listening pipeline.
@@ -165,6 +228,7 @@ export function startWorker(o: {
     async stop() {
       ending = true;
       health?.stop();
+      closeStore();
       await ingest.stop().catch(() => undefined);
       resolveDone();
     },

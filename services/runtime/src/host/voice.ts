@@ -38,11 +38,14 @@ export const VOICE_ALERT_SENTENCES: Readonly<Record<VoiceAlertCode, string>> = {
   // US-0072 (A1c Task 10). The pages do not rejoin by themselves after an outage (K15): the recovery sentence says who must act.
   livekit_lost: "Voice input lost the LiveKit media server. It reconnects when the server answers; participants can continue by text.",
   livekit_recovered: "The LiveKit media server answers again; voice input is restarting. Participants who lost voice press Join with voice again.",
+  // US-0073 (A2a Task 8): the audio store stopped; only the recording stops, the transcript (and voice input) go on.
+  disk_low: "Recording stopped: the disk is nearly full. The transcript continues.",
+  write_error: "Recording stopped: audio could not be saved. The transcript continues.",
 };
 /** US-0071 (K8): the level each voice alert is raised at; only the recovery is good news. */
 export const VOICE_ALERT_LEVELS: Readonly<Record<VoiceAlertCode, "info" | "warning">> = {
   worker_down: "warning", stt_unavailable: "warning", stt_failed: "warning", worker_restarting: "warning", voice_off: "warning", stt_recovered: "info",
-  livekit_lost: "warning", livekit_recovered: "info",
+  livekit_lost: "warning", livekit_recovered: "info", disk_low: "warning", write_error: "warning",
 };
 
 /**

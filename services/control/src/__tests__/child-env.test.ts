@@ -4,7 +4,7 @@ import { buildChildEnv, CHILD_ENV_ALLOWLIST, CHILD_WS_MAX_CONNECTIONS, CHILD_WS_
 import type { ControlConfig } from "../config.js";
 
 const config: ControlConfig = {
-  port: 8787, serviceToken: "x".repeat(40), maxSessions: 10, dataDir: "/data/control", sessionsDir: "/data/control/sessions",
+  port: 8787, serviceToken: "x".repeat(40), maxSessions: 10, dataDir: "/data/control", audioDir: "/data/control/audio", audioMinFreeMb: 2048, audioMaxRetentionDays: 30, sessionsDir: "/data/control/sessions",
   listFile: "/data/control/sessions.json", scenariosDir: "/scen", logDir: "/data/control/child-logs", graceMs: 1, readyTimeoutMs: 1000, ...AI_CONFIG,
 };
 const TOKEN = "ab".repeat(32);

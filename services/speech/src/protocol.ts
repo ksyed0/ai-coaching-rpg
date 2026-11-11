@@ -105,8 +105,19 @@ const SttSlotRequest = z.strictObject({ type: z.literal("stt_slot_request"), slo
 /** Gives a granted slot back (or withdraws a waiting request). */
 const SttSlotRelease = z.strictObject({ type: z.literal("stt_slot_release"), slot: SlotIdSchema });
 
+/** US-0073: the worker's audio store stopped writing (disk low, or a write error); control alerts and stops retention. */
+const StoreStopped = z.strictObject({ type: z.literal("store_stopped"), reason: z.enum(["disk_low", "write_error"]) });
+
+/** The runtime must answer a voice line within this; otherwise control tells the worker `refused: "failed"`. */
+export const VOICE_LINE_TIMEOUT_MS = 10_000;
+/**
+ * At most this many voice lines wait for the runtime per session: control refuses a line beyond it at once (the runtime is far behind),
+ * and the worker (US-0073) holds at most this many segments' audio waiting for an answer, dropping the oldest unwritten beyond it.
+ */
+export const MAX_PENDING_LINES = 256;
+
 export const WorkerMessageSchema = z.discriminatedUnion("type", [
-  WorkerReady, VoiceLine, SpeechActivity, SegmentFailed, LiveKitTokenRequest, LiveKitStatus, SttHealth, SttSlotRequest, SttSlotRelease,
+  WorkerReady, VoiceLine, SpeechActivity, SegmentFailed, LiveKitTokenRequest, LiveKitStatus, SttHealth, SttSlotRequest, SttSlotRelease, StoreStopped,
 ]);
 export type WorkerMessage = z.infer<typeof WorkerMessageSchema>;
 

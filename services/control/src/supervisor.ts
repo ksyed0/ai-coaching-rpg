@@ -43,7 +43,7 @@ export type SessionInfo = { sessionId: string; scenarioId: string; status: Sessi
 export type CreateResult = { sessionId: string; status: "running"; port: number; modelLabel: string; codes: { roleId: string; code: string }[] };
 
 type Codes = { roleId: string; code: string }[];
-type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiRolesReset?: string[]; includeInGroup?: false; includeInGroupReset?: false; aiCalls?: number; voice?: true };
+type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiRolesReset?: string[]; includeInGroup?: false; includeInGroupReset?: false; aiCalls?: number; voice?: true; logIdentity?: string };
 /**
  * What a child said right after `ready`, before goLive installed its handler (awaitReady sees it; nothing else does): BUG-0016's `ended`,
  * and US-0070's first `voice_seats` (the runtime sends it in the same turn as `ready`, so without this it was lost).
@@ -88,7 +88,9 @@ export type BotDeps = { reissue: (id: string, roleId: string) => Promise<string>
 export type VoiceDeps = { toRuntime: (sessionId: string, m: ParentMessage) => boolean; bots?: { voiceTurn(sessionId: string, open: boolean): void } };
 /** The VoiceHost as the supervisor uses it (services/control/src/voice/voice-host.ts). */
 export type VoiceLink = {
-  attach(sessionId: string, ready: { voice?: true; roles: string[] }): void;
+  /** US-0073: the runtime's `ready.logIdentity`, handed over synchronously at ready (before the async attach). */
+  setIdentity(sessionId: string, logIdentity: unknown): void;
+  attach(sessionId: string, ready: { voice?: true; roles: string[]; logIdentity?: string }): void;
   fromRuntime(sessionId: string, m: VoiceFromRuntime): void;
   detach(sessionId: string): void;
   end(sessionId: string): void;
@@ -248,7 +250,7 @@ export class Supervisor {
           if (requireCodes && got === undefined) { fail(new ControlError("start_failed", START_FAILED)); return; }
           settled = true;
           codes = undefined;
-          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiRolesReset ? { aiRolesReset: m.aiRolesReset } : {}), ...(m.includeInGroup === false ? { includeInGroup: false as const } : {}), ...(m.includeInGroupReset === false ? { includeInGroupReset: false as const } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}), ...(m.voice === true ? { voice: true as const } : {}) });
+          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiRolesReset ? { aiRolesReset: m.aiRolesReset } : {}), ...(m.includeInGroup === false ? { includeInGroup: false as const } : {}), ...(m.includeInGroupReset === false ? { includeInGroupReset: false as const } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}), ...(m.voice === true ? { voice: true as const } : {}), ...(m.logIdentity !== undefined ? { logIdentity: m.logIdentity } : {}) });
         }
       });
     });
@@ -380,8 +382,11 @@ export class Supervisor {
     child.onExit(() => this.onChildExit(id, child));
     // A child already gone or ended gets no attach (it would join a dead port or an ended runtime); the end/detach below stops any bots.
     if (!exit.done && !endedEarly) this.attachBots(id, ready);
+    // US-0073: the identity is handed over here, synchronously at ready and before the async player lookup of attachVoice, so a voice_choice
+    // or voice_seats arriving in that window already has it.
+    if (!exit.done && !endedEarly && ready.voice === true) this.setVoiceIdentity(id, ready.logIdentity);
     if (earlySeats) this.onVoiceMessage(id, child, earlySeats);
-    if (!exit.done && !endedEarly && ready.voice === true) this.attachVoice(id, scenarioId, child);
+    if (!exit.done && !endedEarly && ready.voice === true) this.attachVoice(id, scenarioId, child, ready.logIdentity);
     if (exit.done) this.onChildExit(id, child);
     else if (endedEarly) this.onEnded(id, child, exit);
   }
@@ -431,14 +436,18 @@ export class Supervisor {
   }
 
   /** US-0070: starts (or keeps) the session's speech worker once the player roles are known; only while this child is still the live one. */
-  private attachVoice(id: string, scenarioId: string, child: ChildHandle): void {
+  private setVoiceIdentity(id: string, logIdentity: string | undefined): void {
+    try { this.voice?.setIdentity(id, logIdentity); } catch (err) { this.logFn(`session ${id} voice identity failed (${err instanceof Error ? err.name : "error"})`); }
+  }
+
+  private attachVoice(id: string, scenarioId: string, child: ChildHandle, logIdentity?: string): void {
     const voice = this.voice;
     if (!voice || this.closed) return;
     const failed = (err: unknown): void => this.logFn(`session ${id} voice attach failed (${err instanceof Error ? err.name : "error"})`);
     void this.playerOrder(id, scenarioId).then((roles) => {
       const l = this.live.get(id);
       if (this.closed || !l || l.child !== child || l.status !== "running") return;
-      voice.attach(id, { voice: true, roles });
+      voice.attach(id, { voice: true, roles, ...(logIdentity !== undefined ? { logIdentity } : {}) });
     }).catch(failed);
   }
 

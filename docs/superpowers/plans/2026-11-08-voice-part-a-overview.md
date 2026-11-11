@@ -81,7 +81,7 @@ type ControlToWorker =
   | { type: "voice_line_result"; segmentId: SegmentId; refused: VoiceRefusal };   // one schema: exactly one of seq | refused
 ```
 
-A2 adds no message here (the worker writes its own store); A1b adds `livekit_join { roleId, url, token, room }` (control→worker, the answer to the worker's `livekit_token_request { roleId }`, one room per seat), `stt_slot_grant`, and `stt_health { ok }`, `stt_slot_request`/`stt_slot_release`, `livekit_status` (worker→control); the A1b plan has the exact shapes; A3 adds `partial { roleId, text }` (worker→control, facilitator only).
+A2a (US-0073, built) adds one worker→control message here, `store_stopped { reason: "disk_low" | "write_error" }` (the audio store stopped recording; control raises the alert and audits it), and the two alert codes `disk_low` and `write_error` in both protocol copies; the worker otherwise writes its own store; A1b adds `livekit_join { roleId, url, token, room }` (control→worker, the answer to the worker's `livekit_token_request { roleId }`, one room per seat), `stt_slot_grant`, and `stt_health { ok }`, `stt_slot_request`/`stt_slot_release`, `livekit_status` (worker→control); the A1b plan has the exact shapes; A3 adds `partial { roleId, text }` (worker→control, facilitator only).
 
 ### 2. Control ↔ runtime (parent channel: `services/runtime/src/host/parent-channel.ts` and its copy `services/control/src/protocol.ts`, drift test `services/control/src/__tests__/protocol.drift.test.ts`)
 
@@ -89,7 +89,7 @@ A2 adds no message here (the worker writes its own store); A1b adds `livekit_joi
 type VoiceRefusal = "voice_off" | "not_started" | "unknown_role" | "ai_role" | "not_holder" | "not_recording"
                   | "paused" | "not_in_scene" | "ended" | "failed";
 type VoiceNoticeCode = "stt_failed" | "empty" | "paused" | "not_in_scene" | "ended" | "not_recording" | "voice_unavailable";
-type VoiceAlertCode = "worker_down" | "stt_unavailable" | "stt_failed";            // A1b adds "worker_restarting", "voice_off"; A2 adds "disk_low", "write_error"
+type VoiceAlertCode = "worker_down" | "stt_unavailable" | "stt_failed";            // A1b adds "worker_restarting", "voice_off"; A2a adds "disk_low", "write_error" (built)
 
 // ParentMessage additions (control -> runtime)
 | { type: "voice_line"; segmentId: SegmentId; roleId: RoleId; participantId: ParticipantId; text: string /* 1..MAX_UTTERANCE_CHARS (2000) */ }
@@ -282,7 +282,7 @@ Constants (not settings; changed only by code review): `VAD_FRAME_MS` 20, `VAD_T
 7. **Normaliser rules: DECIDED 2026-11-08 (owner): conservative.** Strip control, bidi and zero-width characters, collapse whitespace, trim, drop a duplicated currency word after a currency amount ("$11,000 dollars" becomes "$11,000"), cut at 2000 characters on a code-point boundary. No conversion of spelled numbers, times or percentages (the logged text is what the evaluator quotes).
 8. **Spec §16 items** (participant access to their own audio; REC-07 correction deferred; audit log mandatory) are still the owner's; the plans follow the spec's defaults.
 9. **GPU cap scope** (Risk 7): per worker (plan) or one cap across all sessions (needs a shared limiter in control)?
-10. **Lock for the audio store (F8):** export `SessionLock` as `@acr/runtime/files` (a sixth allowed subpath) or copy the pattern into `services/speech`? Decided in the A2 plan; the owner may prefer one now.
+10. **Lock for the audio store (F8):** export `SessionLock` as `@acr/runtime/files` (a sixth allowed subpath) or copy the pattern into `services/speech`? **DECIDED by the owner, 2026-11-09 ("Yes, share it"), and built in A2a (US-0073): one shared export, `@acr/runtime/files`, with an additive `suffix` option on `SessionLock.acquire`; control's allowed `@acr/runtime` subpaths are now six and the speech package may import exactly that one subpath. This supersedes the 2026-11-08 decision to copy the pattern into `services/speech`.**
 11. **Legal and HR sign-off** on notice v3 (release gate for outside participants; **deferred while the project is in pre-production, owner decision 2026-11-08**) and **a domain and certificate** (US-0048) are prerequisites outside this epic's code.
 
 ---

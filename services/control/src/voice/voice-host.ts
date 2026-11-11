@@ -1,19 +1,17 @@
 import path from "node:path";
 import { isSafeId } from "@acr/events";
-import { EXIT_LIVEKIT_LOST, WorkerMessageSchema, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
+import { EXIT_LIVEKIT_LOST, MAX_PENDING_LINES, VOICE_LINE_TIMEOUT_MS, WorkerMessageSchema, isLowerHex, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage, VoiceAlertCode } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
+import type { AuditEvent, AuditLog } from "./audit-log.js";
 import { LIVEKIT_PROBE_TIMEOUT_MS } from "./livekit-probe.js";
 import { RESTART_TRIES, RESTART_STABLE_MS, livekitRetryDelay, restartDelay } from "./restart.js";
 import { buildSpeechEnv } from "./speech-env.js";
 import { STT_GLOBAL_IN_FLIGHT, SttSlots, sttLeaseMs } from "./stt-slots.js";
 import { VoiceTokenRefused, type VoiceTokens } from "./tokens.js";
 
-/** The runtime must answer a voice line within this; otherwise the worker is told `refused: "failed"`. */
-export const VOICE_LINE_TIMEOUT_MS = 10_000;
-/** At most this many voice lines wait for the runtime per session; a line beyond it is refused at once (the runtime is far behind). */
-export const MAX_PENDING_LINES = 256;
+export { MAX_PENDING_LINES, VOICE_LINE_TIMEOUT_MS };
 /**
  * Owner decision 2026-11-08 (spec section 16, open question 1): an EMPTY segment (noise the gate dropped) gets no speaker notice, only a
  * failed transcription does. One constant, so the decision can be reversed in one line.
@@ -37,13 +35,15 @@ type Seats = Extract<ChildMessage, { type: "voice_seats" }>;
 
 /** `stable` cancels the RESTART_STABLE_MS timer armed at `worker_ready` (it resets the session's failure count). */
 type Pending = { cancel: () => void; startMs: number; endMs: number };
-type Worker = { handle: WorkerHandle; ready: boolean; exited: boolean; stopping: boolean; stable?: () => void };
+type Worker = { handle: WorkerHandle; /** US-0073: the log identity it was spawned with (undefined: no audio). */ identity?: string; ready: boolean; exited: boolean; stopping: boolean; stable?: () => void };
 type Session = {
   worker?: Worker;
   /** US-0071 (A1b Task 8): unexpected worker exits (and failed spawns) in a row; reset after a worker was ready for RESTART_STABLE_MS. */
   failures: number;
   /** US-0071: voice is off for the session after RESTART_TRIES failed restarts in a row: no worker is ever started again. */
   voiceOff: boolean;
+  /** US-0073: the session's audio-store identity (exactly 32 lower-case hex), from the runtime's `ready`; absent: no audio is recorded. */
+  logIdentity?: string;
   /** US-0071: the player roles of the last attach (a timer respawn uses them). */
   roles: string[];
   /** US-0071: cancels the pending restart timer; absent when none is pending. */
@@ -127,6 +127,12 @@ export class VoiceHost {
      * start_to_append_ms=<m>`: no role, segment, participant or text.
      */
     timingLog?: (line: string) => void;
+    /**
+     * US-0073 (A2a Task 8): the audio audit log (audit-log.ts; main.ts builds one from `config.audioDir`). Gets `voice.recording_stopped`
+     * at a worker's `store_stopped` and `voice.opted_in` / `voice.opted_out` at the runtime's `voice_choice`, only for a session with a
+     * valid log identity. Absent: nothing is audited.
+     */
+    audit?: Pick<AuditLog, "append">;
   }) {
     // A generation reaches the worker only for a LiveKit ingest: a file-ingest worker would drop every frame (none of its frames has one).
     this.livekitIngest = o.tokens !== undefined && o.parentEnv.SPEECH_INGEST === "livekit";
@@ -149,10 +155,25 @@ export class VoiceHost {
     return s;
   }
 
-  attach(sessionId: string, ready: { voice?: true; roles: string[] }): void {
+  /**
+   * US-0073: the runtime's `ready.logIdentity`, handed over synchronously at `ready` (before the supervisor's async player lookup), so a
+   * `voice_choice` or `voice_seats` arriving before `attach` already has it. Kept only when exactly 32 lower-case hex, else cleared.
+   * May create the session's entry, as a `voice_seats` can. Never throws.
+   */
+  setIdentity(sessionId: string, logIdentity: unknown): void {
+    try {
+      if (this.closed) return;
+      const s = this.session(sessionId);
+      if (isLowerHex(logIdentity, 32)) s.logIdentity = logIdentity as string;
+      else delete s.logIdentity;
+    } catch (err) { this.failed(sessionId, err); }
+  }
+
+  attach(sessionId: string, ready: { voice?: true; roles: string[]; logIdentity?: string }): void {
     if (this.closed) return;
     const s = this.session(sessionId);
     s.runtimeUp = true;
+    this.setIdentity(sessionId, ready.logIdentity); // the same validation as at `ready`, so both paths agree
     if (ready.voice === true && !s.ended && this.o.tokens) {
       try {
         this.o.tokens.openSession(sessionId);
@@ -165,7 +186,10 @@ export class VoiceHost {
     // else voice can reach it.
     this.tellAvailability(sessionId, s, true);
     // US-0071 (Task 8): the worker re-attaches without the runtime's help: a ready worker gets the current state at every runtime ready.
-    if (s.worker) { this.pushState(sessionId, s); return; }
+    if (s.worker) {
+      if (s.worker.identity === s.logIdentity) { this.pushState(sessionId, s); return; }
+      this.retireWorker(sessionId, s); // US-0073: the new runtime has another log identity: the kept worker would record into the old one
+    }
     if (s.voiceOff || s.restart) return; // off for good, or a restart is already waiting for its backoff (it uses these roles)
     // US-0072 (A1c Task 11): during a LiveKit outage (or while the probe that decides one is out) nothing is spawned: the recovery
     // spawns with these roles. The runtime was told `available: false` just above.
@@ -199,18 +223,39 @@ export class VoiceHost {
     else if (healthy && was === false) this.alert(sessionId, "stt_recovered");
   }
 
+  /**
+   * US-0073: stops the session's kept worker because the new runtime's log identity differs (a clean stop, not a failure: nothing
+   * counts toward RESTART_TRIES and no alert). The worker is detached from the session at once (its messages are ignored, its slots and
+   * pending lines go), told to stop, and forced after graceMs; the caller then spawns the new one.
+   */
+  private retireWorker(sessionId: string, s: Session): void {
+    const w = s.worker;
+    if (!w) return;
+    w.stopping = true;
+    w.stable?.();
+    delete s.worker;
+    this.slots.releaseAll(sessionId);
+    this.failPending(s);
+    try { w.handle.kill(); } catch { /* already gone */ }
+    this.o.setTimer(() => { if (!w.exited) { try { w.handle.forceKill(); } catch { /* already gone */ } } }, this.o.config.graceMs);
+    this.tellAvailability(sessionId, s);
+  }
+
   /** Forks the session's worker with the last attach's roles; a spawn that throws counts as a failure (US-0071, Task 8). */
   private spawnWorker(sessionId: string, s: Session): void {
     let handle: WorkerHandle;
+    const identity = s.logIdentity; // US-0073: absent or invalid: the worker records no audio
     try {
-      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
+      // R10: the audio settings come from control's config (the directory control audits and sweeps), only with a valid identity.
+      const extra = identity === undefined ? {} : { logIdentity: identity, sessionsDir: this.o.config.sessionsDir, audioDir: this.o.config.audioDir, minFreeMb: this.o.config.audioMinFreeMb };
+      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles, extra), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
     } catch (err) {
       this.o.log(`session ${sessionId} speech worker could not start (${err instanceof Error ? err.name : "error"})`);
       this.tellAvailability(sessionId, s);
       this.workerFailed(sessionId, s);
       return;
     }
-    const w: Worker = { handle, ready: false, exited: false, stopping: false };
+    const w: Worker = { handle, ready: false, exited: false, stopping: false, ...(identity === undefined ? {} : { identity }) };
     s.worker = w;
     handle.onMessage((raw) => { try { this.fromWorker(sessionId, w, raw); } catch (err) { this.failed(sessionId, err); } });
     handle.onExit((code) => { try { this.workerExited(sessionId, w, code); } catch (err) { this.failed(sessionId, err); } });
@@ -369,7 +414,13 @@ export class VoiceHost {
         return;
       }
       if (m.type === "voice_turn") { s.turnOpen = m.open; this.o.bots?.voiceTurn(sessionId, m.open); return; }
-      if (m.type === "voice_choice") return; // A2 writes it to the audio audit log
+      // US-0073 (A2a Task 8): the choice is audited (ids only, the notice version is the constant v3) and used for nothing else.
+      if (m.type === "voice_choice") {
+        this.audit(s.logIdentity, m.choice === "voice"
+          ? { type: "voice.opted_in", role: m.roleId, participant: m.participantId, noticeVersion: "v3" }
+          : { type: "voice.opted_out", role: m.roleId, participant: m.participantId });
+        return;
+      }
       const answer = s.pending.get(m.segmentId);
       if (!answer) return; // timed out already, or never asked
       s.pending.delete(m.segmentId);
@@ -459,11 +510,21 @@ export class VoiceHost {
   }
 
   private fromWorker(sessionId: string, w: Worker, raw: unknown): void {
-    const s = this.sessions.get(sessionId);
-    if (!s || s.worker !== w) return;
     const parsed = WorkerMessageSchema.safeParse(raw);
     if (!parsed.success) return;
     const m: WorkerMessage = parsed.data;
+    const s = this.sessions.get(sessionId);
+    if (m.type === "store_stopped") {
+      // US-0073 (Task 8 review fix): the stop belongs to the audio THIS worker wrote, so it is audited under the identity the worker was
+      // spawned with, also for a retired worker still flushing, and never under a newer runtime's identity set at its `ready` before
+      // the attach retires this worker. The facilitator alert is for the session's current worker only. The transcript goes on; the
+      // alert is a no-op while the runtime is down, the audit line is written anyway.
+      if (w.exited) return;
+      this.audit(w.identity, { type: "voice.recording_stopped", reason: m.reason });
+      if (s && s.worker === w) this.alert(sessionId, m.reason);
+      return;
+    }
+    if (!s || s.worker !== w) return;
     switch (m.type) {
       case "worker_ready":
         if (w.ready) return; // once per worker
@@ -619,6 +680,15 @@ export class VoiceHost {
     const s = this.sessions.get(sessionId);
     if (s && !s.runtimeUp) return;
     try { this.o.toRuntime(sessionId, { type: "voice_alert", code }); } catch { /* reported nowhere: the runtime is gone */ }
+  }
+
+  /**
+   * US-0073: fire-and-forget (AuditLog.append never rejects); nothing without an audit log or an identity. `voice_choice` passes the
+   * session's identity (the runtime that sent it is the current one); `store_stopped` passes the sending worker's own.
+   */
+  private audit(id: string | undefined, e: AuditEvent): void {
+    if (!this.o.audit || id === undefined) return;
+    void this.o.audit.append(id, e).catch(() => undefined);
   }
 
   private failed(sessionId: string, err: unknown): void {

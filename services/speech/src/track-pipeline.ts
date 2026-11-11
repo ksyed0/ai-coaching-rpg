@@ -11,6 +11,12 @@ import type { VoiceGate } from "./voice-gate.js";
 /** STT_DEADLINE_MS: how long a segment's text stays useful (the limiter enforces it; a cold model gets its own longer deadline). */
 export const STT_DEADLINE_MS = 5000;
 
+/** US-0073: one delivered segment's audio and its outcome; `raw` is the normalised text for `text` only. */
+export type SegmentAudio = {
+  roleId: string; participantId: string; segmentId: string; startMs: number; endMs: number; pcm: Int16Array;
+  outcome: "text" | "empty" | "stt_failed"; raw?: string;
+};
+
 /** A server-made segment id: 16 hex characters (a file-safe id, unique across restarts by chance alone). */
 export function newSegmentId(): string { return randomBytes(8).toString("hex"); }
 
@@ -47,6 +53,8 @@ export class TrackPipeline {
   private cancel = new AbortController();
 
   constructor(private readonly o: {
+    /** US-0073: called for each delivered segment, after the abort and "still recording" checks and before the send; a throw is swallowed. */
+    onSegmentAudio?: (s: SegmentAudio) => void;
     roleId: string; segmenter: Segmenter; stt: SpeechToText; gate: VoiceGate; activity: ActivityReporter;
     send: (m: WorkerMessage) => void; now: () => number; newSegmentId: () => string; deadlineMs: number;
   }) {}
@@ -118,6 +126,12 @@ export class TrackPipeline {
       if (signal.aborted) return; // cancelled by a stop: never a line, never a failure notice
       const still = this.o.gate.recordingFor(roleId);
       if (still === null || still.participantId !== participantId || still.generation !== generation) return; // replaced, opted out, paused or ended meanwhile
+      if (this.o.onSegmentAudio) {
+        const base = { roleId, participantId, segmentId, startMs, endMs, pcm: s.pcm }; // s.pcm is a fresh array per segment (segmenter), never reused
+        try {
+          this.o.onSegmentAudio(out.kind === "text" ? { ...base, outcome: "text", raw: out.text } : { ...base, outcome: out.status });
+        } catch { /* a failing store must not stop the send or later deliveries */ }
+      }
       if (out.kind === "text") this.o.send({ type: "voice_line", segmentId, roleId, participantId, text: out.text, startMs, endMs });
       else this.o.send({ type: "segment_failed", segmentId, roleId, participantId, status: out.status });
     }).catch(() => undefined); // a throwing send must not stop the track's later deliveries

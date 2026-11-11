@@ -3128,3 +3128,203 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-09. Not run by the agents (no container, image pull or real service in this slice); the owner runs it.
+
+## US-0073: voice audio store (EPIC-0003 voice A2a)
+
+TC-0205: Settings validate and the runtime's ready hands over the identity
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0426
+Type: Unit
+Preconditions: A checkout with dependencies installed; no real runtime or worker process.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-settings.test.ts src/__tests__/voice/voice-host.test.ts src/__tests__/voice/speech-env.test.ts`; from `services/speech`: `pnpm exec vitest run src/__tests__/config.test.ts`.
+Expected Result: Defaults (`<CONTROL_DATA_DIR>/audio`, 2048 MB, 30 days), ranges (1 to 30 days; 512 to 1 000 000 MB) and the absolute-path rule hold in both services; a bad value is refused naming the variable only; the worker learns a 32-hex identity from `ready` (set before the asynchronous seat lookup) and builds no path before it; a malformed identity (`../x`, upper case, 31 or 33 characters, a number) records no audio while voice still works; a kept worker is stopped and respawned only when the identity differs; the worker's `SPEECH_LOG_IDENTITY`, `SPEECH_SESSIONS_DIR`, `AUDIO_DIR` and `AUDIO_MIN_FREE_MB` come from control's values, never the parent environment.
+Actual Result: As expected (audio-settings.test.ts, speech config.test.ts store cases, voice-host.test.ts `VoiceHost log identity hand-off`, speech-env.test.ts R10). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The expected result was widened to name rulings R10 and R11 (control passes the audio settings; the worker allowlist no longer inherits them).
+
+TC-0206: Audio paths and the index file are safe
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427
+Type: Security
+Preconditions: A private temporary directory as `AUDIO_DIR` (real files, real modes; no root-only assertions).
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/paths.test.ts src/__tests__/store/paths-containment.test.ts src/__tests__/store/index-file.test.ts src/__tests__/store/wav.test.ts src/__tests__/store/audio-store.test.ts`.
+Expected Result: Ids containing `..`, a separator or upper-case hex are refused before any join and before the disk is touched; the joined path must still be inside `AUDIO_DIR` (proven with the id check disabled); a symlinked `AUDIO_DIR`, identity folder or role folder, a dangling link and a file where a folder belongs are refused; an existing folder that is group- or world-writable is repaired to 0700 or refused when the repair fails; directories 0700, files 0600; the WAV is a canonical little-endian 44-byte header plus 16 kHz mono 16-bit samples; a torn last index line is skipped and given its newline; a symlinked index is refused; error text never carries a path or a value.
+Actual Result: As expected (paths.test.ts, paths-containment.test.ts, index-file.test.ts, wav.test.ts and audio-store.test.ts all passed). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. `paths-containment.test.ts` was added in Task 10 after the first mutation run showed that removing `assertInside` failed no test (`isFileSafeId` refuses every escaping id first); it mocks the id check to pass and shows containment refusing alone.
+
+TC-0207: The disk guard stops writes
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0428
+Type: Functional
+Preconditions: A fake `statfs` (speech) and the real `DiskGuard` on a tiny fake volume (control end to end).
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/disk-guard.test.ts src/__tests__/store/audio-store.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-store.e2e.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: Writing is refused when free space on either the audio volume or the sessions volume is not strictly greater than `AUDIO_MIN_FREE_MB` plus the next file (an unreadable or odd measure counts as full); nothing is written, the worker sends `store_stopped { disk_low }` exactly once, control raises one facilitator alert and audits `voice.recording_stopped`; the voice lines still go to the runtime; the store stays stopped for the rest of that worker's life (it does not resume when space returns; a respawned worker checks again).
+Actual Result: As expected (disk-guard.test.ts; audio-store.test.ts guard cases; audio-store.e2e.test.ts scenario 4; voice-host.test.ts `store_stopped %s raises the facilitator alert and audits voice.recording_stopped`). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean). No real disk near the floor was used.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The filed expected result said writing resumes when space returns; the built behaviour (and spec section 5 as built) is that a stopped store stays stopped in the same worker, so the case was corrected. A real near-full disk: TC-0218.
+
+TC-0208: Only consented outcomes keep audio
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0429
+Type: Security
+Preconditions: A fake pipeline with accepted, `empty`, `stt_failed`, `paused`, `not_in_scene`, `failed`, `ended`, `not_started`, consent-class and timeout outcomes; the real worker with the real store in one process (control e2e).
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/consent-rule.test.ts src/__tests__/worker-audio.test.ts src/__tests__/store/audio-store.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-store.e2e.test.ts`.
+Expected Result: Exactly the allowlisted outcomes write a WAV (16 kHz mono 16-bit) and an index line (`transcribed` with the seq, `empty`, `stt_failed`, `refused:paused`, `refused:not_in_scene`); every other refusal code (including `failed`, `ended`, `not_started`, the consent and seat class and an unknown future code), a timeout and a segment whose answer never comes write nothing; an opt-out, a reissue or a pause while a segment waits writes nothing even when a late `seq` follows; at most 256 segments wait; the end drops what waits; a crash between the WAV and its index line leaves an orphan, never a line without its WAV.
+Actual Result: As expected (consent-rule.test.ts; worker-audio.test.ts; audio-store.test.ts; audio-store.e2e.test.ts scenarios 1, 2 (three variants), 3 and 3b). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. Review Focus 1 and 5.
+
+TC-0209: The speech worker holds the store lock and keeps pending segments
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0430
+Type: Functional
+Preconditions: Fake lock and runtime answers; a real forked worker for the parent-gone case.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/__tests__/files-export.test.ts`; from `services/speech`: `pnpm exec vitest run src/__tests__/store/ src/__tests__/main-store.test.ts src/__tests__/main-store.process.test.ts src/__tests__/imports.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/bots/imports.test.ts`.
+Expected Result: The `<logIdentity>.store.lock` is held through `SessionLock.acquire` with the `store` suffix (a store and an audit lock of one identity coexist, the same suffix twice is refused, a suffix with a separator is refused, the default lock name is unchanged); a `locked` acquire is retried every 250 ms for about 35 s, then `store_stopped { write_error }` is sent once and the worker runs as transcript-only; another error is not retried; a lost lock stops recording; when the parent goes away during the wait the process exits 0, sends nothing and holds no lock; the speech import guard allows only `@acr/runtime/files` and control allows exactly six `@acr/runtime` subpaths.
+Actual Result: As expected (files-export.test.ts; main-store.test.ts; main-store.process.test.ts, a real forked `main.ts` with the lock held by the test; imports.test.ts in both services). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The 35 s wait is a retry loop on an injected clock; no real 35 s wait was run.
+
+TC-0210: Control audits the store without keeping any content
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0431
+Type: Security
+Preconditions: A private audit directory; fake locks and a fake clock.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audit-log.test.ts src/__tests__/voice/voice-host.test.ts src/__tests__/protocol.drift.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-notice.test.ts`; from `apps/web`: `pnpm exec vitest run src/server/__tests__/facilitator-copies.test.ts`.
+Expected Result: `store_stopped` raises the alert (`disk_low` or `write_error`) and appends `voice.recording_stopped`; `voice_choice` appends `voice.opted_in` (notice v3) or `voice.opted_out` with ids only; every line is `{ v: 1, ts, ... }` with only the fields its type declares (a smuggled text, audio or transcript key is never written); appends for one identity keep their order; a held audit lock is retried 3 times 50 ms apart, then one fixed sentence is logged and the append never rejects; a malformed identity, a symlinked directory and an unsafe audit file write nothing; the stop is audited under the sending worker's own identity (also a retiring worker's); both protocol copies and the runtime and web sentences carry the two new codes.
+Actual Result: As expected (audit-log.test.ts; voice-host.test.ts `VoiceHost audit log and store alerts`; protocol.drift.test.ts; the runtime and web copies tests). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. Not tested: a persistent fault in the audit directory over time (a line lost to it is lost; one fixed sentence is logged).
+
+TC-0211: The sweep deletes only what it may
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0432
+Type: Functional
+Preconditions: Temporary audio directories with live, dead, foreign and malformed identities, planted links, and a fake clock and lock.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/sweep.test.ts src/__tests__/main.test.ts src/__tests__/voice/audio-store.e2e.test.ts src/__tests__/voice/audio-store.e2e.real.test.ts`.
+Expected Result: Only expired audio and crash orphans under 32-hex identities whose store lock can be taken are deleted: renamed aside, audited exactly once, removed without following links; a folder is kept one millisecond before the retention (1 and 30 days) and deleted at it; the clock is `ended.json`, else the last `endMs` plus 24 h, else the newest file time, and a time later than now counts as now; a live worker's lock (this process or another live process) skips the folder, also right after a control restart; a leftover `.deleting-*` is finished with no second audit line; links, plain files, non-hex names and other users' folders are left alone; an index that is unreadable, a link or over 64 MiB removes nothing; the sweep runs with `VOICE_ENABLED=0`, never overlaps itself, and stops with the service; **the audit file is never deleted**.
+Actual Result: As expected (sweep.test.ts, main.test.ts, audio-store.e2e.test.ts scenarios 5, 5b, 6 and 7, audio-store.e2e.real.test.ts: a real runtime child and a real forked worker hold the lock, the sweep skips, then deletes and audits once after the end). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The filed expected result said the audit log is pruned by retention; spec section 7 and the code say it is not (kept as long as the session's log), so the case was corrected.
+
+TC-0212: Audio retention works end to end and is documented
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0433
+Type: Regression
+Preconditions: The fake-ingest stack, a real runtime child and a real forked speech worker, and the branch's documents.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-store.e2e.test.ts src/__tests__/voice/audio-store.e2e.real.test.ts`.
+  2. Check `docs/THREAT_MODEL.md` ("Voice audio store, slice A2a"), `.env.example`, `docs/memory/models-and-providers.md`, `docs/VOICE_RUNBOOK.md` sections 7 and 8, `CHANGELOG.md`, `progress.md` and MEMORY fact 29.
+  3. From the repository root: `pnpm -r typecheck`, `pnpm -r test`, `npm run plan:generate`.
+Expected Result: Write, index, `ended.json` and sweep work end to end (private modes, one transcribed line with the runtime's real seq, one `audio.deleted` line, the audit file kept); each Review Focus failure mode has a test that fails under its mutation; the documents describe A2a; `VOICE_ENABLED` stays `0` by default.
+Actual Result: As expected. The in-process end to end (scenarios 1 to 7) and the real-process test passed; see TC-0214 for the mutation runs. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean). `npm run plan:generate` reported no parse errors.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. No real room, real hardware or real clock was used (TC-0218).
+
+TC-0213: The store survives faults at every file step
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427, AC-0429
+Type: Negative
+Preconditions: Injected file calls (`StoreFs`) that fail one step at a time; a private temporary directory.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/audio-store.test.ts` (`test_a_fault_inside_appendIndex_before_any_line_keeps_the_wav_as_an_orphan_and_stops`, `test_a_fault_after_the_index_line_was_written_keeps_the_wav_and_stops`, `test_a_failing_unlink_during_cleanup_still_stops_without_throwing`, `test_a_short_write_is_completed`, `test_a_zero_byte_write_is_a_write_error`, `test_a_throwing_onStopped_does_not_escape_write`, `test_the_wav_is_fsynced_and_the_role_folder_fsynced_before_the_index_line`, the `ended.json` fault cases).
+Expected Result: A fault before the index append removes the partial WAV and stops the store with `write_error`; once the append has been tried the WAV is kept (ruling R6) and the store stops; a short write is completed and a zero-byte write is an error; the WAV and its folder are fsynced before the index line; a fault while writing `ended.json` neither throws nor stops the store nor leaves a temp file; `write` never throws and never overwrites an existing WAV.
+Actual Result: As expected. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Review Focus 5. Ruling R6 came from the Task 6 review.
+
+TC-0214: The consent and containment rules fail the named tests when removed (mutation checks)
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0429, AC-0433
+Type: Regression
+Preconditions: A clean working tree; each mutation applied to the working tree only and reverted (Task 10).
+Steps:
+  1. Apply, one at a time: `decide` also keeps `failed`; the allowlist keeps every refusal; the disk guard skipped in `AudioStore.write`; `assertInside` removed from the path join; the id check made a no-op; both of those; the sweep treating a refused lock as acquired; `dropRoles` removed at `gate.update`. Run the narrowest test files for each (the Task 10 report lists them).
+Expected Result: Every mutation fails at least one named test, and the suite is green again after each revert. The `assertInside` removal first failed no test (a gap) and `paths-containment.test.ts` now fails with it.
+Actual Result: As recorded in the Task 10 report (2026-11-11): each of the eight runs failed the named tests (for example `test_the_refusal_keep_set_is_exactly_paused_and_not_in_scene`, `test_a_failing_guard_stops_with_disk_low_and_writes_nothing`, `a refused lock skips the folder: nothing deleted, nothing audited`, `Review Focus 1: an opt-out while the segment waits drops it...`) and was reverted; `git status` showed no production change afterwards. Not repeated in this documents pass.
+Status: [x] Pass (prior evidence, not re-run)
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). The run is evidence from Task 10, not a re-run today.
+
+TC-0215: Identity change, retired workers and the order of stops
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0426, AC-0431
+Type: Functional
+Preconditions: Fake workers; no real process.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/voice-host.test.ts` (`a runtime restart with a DIFFERENT identity stops the kept worker and respawns it with the new one, without counting a failure`, `review fix: a store_stopped between a new runtime's ready (setIdentity NEW) and its attach is audited under the kept worker's OLD identity`, `review fix: a retired worker's store_stopped (still flushing) is audited under its own OLD identity with no alert`, `review fix: a worker spawned without an identity audits nothing even after the session later gets one`).
+Expected Result: A retiring worker is detached at once (its messages are ignored, its slots released) and stopped; the new one is spawned with the new identity; `store_stopped` is audited under the identity of the worker that sent it and never under a newer runtime's; a worker spawned without an identity never audits; a retirement counts no failure and raises no alert (ruling R3).
+Actual Result: As expected. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Not covered by a test (deferred minors): that a retired worker's later messages are ignored and that `forceKill` fires.
+
+TC-0216: The sweep leaves unsafe and live entries alone, and finishes interrupted deletions
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0432
+Type: Security
+Preconditions: Temporary audio directories with planted links, plain files, foreign names, an index that is a link, a 64 MiB sparse index and leftover `.deleting-*` folders.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/sweep.test.ts` (`leaves non-hex names, plain files, symlinks and other leftovers strictly alone`, `a symlink inside a deleted folder is unlinked, never followed`, `an index that is a link or unreadable is not trusted: nothing is removed on a guess`, `an index over 64 MiB (sparse) removes NOTHING`, `a worker that takes the lock right after the sweep's release keeps its lock file (never unlinked by path)`, `exactly one audit line across a removal that fails: the next run finishes it silently`, `only regular files named like a segment: a link, a folder and other names are left alone and never followed`).
+Expected Result: No link is followed or removed as its target; a non-identity name is never touched; an unreadable, linked or oversized index removes nothing (only a missing one means no index); the sweep never unlinks a lock file by path; a deletion whose removal failed is finished by the next run with one audit line in total.
+Actual Result: As expected. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean). The chmod-0500 cases fail when run as root (they are not skipped for uid 0; deferred).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Not covered: a folder swapped for a link between the listing and the removal (the same-user race, THREAT_MODEL residual risks), an audit append that fails during a deletion (R12, by construction), a plain file named `<hex32>.deleting-x`.
+
+TC-0217: The segment WAV name rule is the shared id rule
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427, AC-0432
+Type: Regression
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/sweep.test.ts` (`segmentIdOf`); from `services/runtime`: `pnpm exec vitest run src/__tests__/id-rules.files.test.ts`.
+Expected Result: `segmentIdOf` accepts exactly `<file-safe id>.wav` through `isFileSafeId`; no source file other than `packages/events/src/ids.ts` spells an identifier rule.
+Actual Result: As expected after the fix `cc7149d` (the sweep had spelled the rule out and failed the US-0020 single-definition test). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11).
+
+TC-0218: Audio retention on the real stack (owner-approved run; not in CI)
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427, AC-0428, AC-0432
+Type: Functional
+Preconditions: The pilot laptop with a real session, real speech-to-text and the owner's approval; the audio directory on a real volume; the notice v3 wording to hand.
+Steps:
+  1. `docs/VOICE_RUNBOOK.md` section 11, item 10: record a short session by voice, list the audio folder and check the modes with `ls -lR`, end the session and check `ended.json`, restart control while a second session runs and read the audit file, then, with the owner's approval and only on a throwaway session folder, set `endedAtMs` in its `ended.json` more than `AUDIO_MAX_RETENTION_DAYS` days back, restart control and watch the sweep delete it; read the notice wording against the opt-out behaviour.
+Expected Result: Folders are 0700 and files 0600; one WAV per kept segment; the index and `ended.json` exist; the audit file holds only ids and labels; a restart of control while the worker runs leaves the audio alone; an expired session is removed and audited once; the owner confirms the opt-out sentence and the audit-failure and future-time rulings.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Not run by the agents: no real room, real hardware, real disk near the floor or wall-clock retention run exists for A2a. The owner runs it with the room test.

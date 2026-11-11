@@ -23,6 +23,8 @@ import { speechSpawn } from "./voice/speech-spawn.js";
 import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
+import { AuditLog } from "./voice/audit-log.js";
+import { startAudioSweep, stopWithin } from "./voice/sweep.js";
 import { livekitProbe } from "./voice/livekit-probe.js";
 import { timingLogSink } from "./voice/timing-log.js";
 import { VoiceTokens } from "./voice/tokens.js";
@@ -86,6 +88,8 @@ export async function startControl(
     if (!entry) throw new Error("unknown session");
     return loadScenario(scenarioDir(config.scenariosDir, entry.scenarioId));
   };
+  // US-0073 (A2a Task 8): the audio audit log (opt-in, opt-out, recording stops, sweep deletions), under AUDIO_DIR with its own lock per identity.
+  const audit = new AuditLog({ audioDir: config.audioDir, now: Date.now, log });
   const supervisor = new Supervisor({
     config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
@@ -103,12 +107,16 @@ export async function startControl(
         spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, now: Date.now,
         ...(timingRaw === "1" ? { timingLog: timingLogSink(config.logDir, { log }) } : {}),
         ...(tokens && lkWanted ? { tokens, livekitReachable: opts.livekitReachable ?? livekitProbe(lkWanted.host) } : {}),
+        audit,
       });
       opts.onVoiceHost?.(v);
       return v;
     },
   });
   await supervisor.resumeAll();
+  // US-0073 (A2a Task 9b): the audio retention sweep runs whenever control runs, NOT only with voice hosting: a rollback to VOICE_ENABLED=0
+  // must not strand recordings the notice promises to delete. Stopped in close().
+  const sweep = startAudioSweep(config, { audit, setTimer: realSetTimer, log });
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
   const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
   const secrets = collectSecrets(env);
@@ -152,7 +160,7 @@ export async function startControl(
       server.listen(port, CONTROL_HOST, () => { server.off("error", reject); resolve(); });
     });
   } catch (err) {
-    await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
+    await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
     throw new Error(`cannot listen on ${CONTROL_HOST}:${port} (${(err as NodeJS.ErrnoException).code ?? "error"})`);
   }
   server.on("error", () => log("server error"));
@@ -164,7 +172,8 @@ export async function startControl(
     closing ??= (async () => {
       const stopped = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeIdleConnections();
-      await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
+      // The sweep is awaited (bounded) alongside the children, so a deletion that was renamed aside can still write its audit line.
+      await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
       server.closeAllConnections();
       await stopped;
     })();
