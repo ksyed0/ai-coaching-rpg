@@ -7,7 +7,7 @@ import type { AudioIngest } from "./ingest/audio-ingest.js";
 import { LiveKitIngest, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
 import type { RoomPort } from "./ingest/room-port.js";
 import { SlotSpeechToText, newSlotId } from "./slot-stt.js";
-import { openStore } from "./store/store-setup.js";
+import { afterStoreWait, openStore } from "./store/store-setup.js";
 import { startWorker, type RunningWorker } from "./worker.js";
 
 /** After the parent's IPC channel closes: exit this long later whatever happens (a hung stop must not leave an orphan). */
@@ -70,8 +70,15 @@ async function main(): Promise<void> {
   // US-0073 (A2a Task 7c): the audio store, behind its lock. Awaited BEFORE startWorker: after a control restart the old worker may hold
   // the lock for up to ~35 s, and only then is readiness (sent by startWorker after the STT warm-up) delayed; a failed acquire never
   // blocks the worker (it becomes transcript-only and `store_stopped` is sent). The lock is released only after the worker's last write.
-  const opened = cfg.store ? await openStore({ cfg: cfg.store, now: Date.now, send, sleep: realSleep }) : undefined;
+  // During the wait no worker exists yet, so an ended `voice_state` sent then is dropped; harmless, nothing was written. If the parent
+  // goes away during the wait (`disconnect` is not re-emitted later) the wait is aborted and the process exits before the worker starts.
+  const parentGone = new AbortController();
+  const onParentGone = (): void => parentGone.abort();
+  process.once("disconnect", onParentGone); process.once("SIGTERM", onParentGone);
+  const opened = cfg.store ? await openStore({ cfg: cfg.store, now: Date.now, send, sleep: realSleep, signal: parentGone.signal }) : undefined;
+  process.removeListener("disconnect", onParentGone); process.removeListener("SIGTERM", onParentGone);
   const releaseStore = (): void => { opened?.release(); };
+  if (afterStoreWait({ connected: process.connected, aborted: parentGone.signal.aborted, release: releaseStore, exit: (c) => process.exit(c) })) return;
   let makeIngest: ((deps: { join: (roleId: string) => Promise<LiveKitJoinInfo> }) => AudioIngest) | undefined;
   let worker: RunningWorker | undefined;
   if (cfg.ingest.kind === "livekit") {

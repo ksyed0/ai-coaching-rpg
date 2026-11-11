@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DEFAULT_LOCK_STALE_MS, SessionLock, SessionLockError } from "@acr/runtime/files";
 import type { WorkerMessage } from "../protocol.js";
-import { openStore } from "../store/store-setup.js";
+import { afterStoreWait, openStore } from "../store/store-setup.js";
 
 /** US-0073 (A2a Task 7c): the store and lock wiring of the worker process, against fakes (and once a real lock). */
 const ID = "0123456789abcdef0123456789abcdef";
@@ -102,5 +102,39 @@ describe("openStore", () => {
     const third = await openStore({ cfg: cfg(), now: Date.now, send: (m) => { sent3.push(m); return true; }, sleep: async () => undefined });
     expect(third.store.stopped).toBe(false); expect(sent3).toEqual([]);
     third.release();
+  });
+});
+
+describe("openStore with an abort signal", () => {
+  it("test_an_already_aborted_signal_ends_at_once_with_no_message_no_acquire", async () => {
+    const ac = new AbortController(); ac.abort();
+    let n = 0;
+    const f = fakes(() => { n++; return goodLock(); });
+    const r = await openStore({ ...f.base, signal: ac.signal });
+    expect(n).toBe(0); expect(f.sent).toEqual([]);
+    expect(r.store.stopped).toBe(true); expect(r.store.write(seg)).toBe("stopped");
+  });
+  it("test_abort_mid_wait_stops_the_retries_promptly_and_sends_nothing", async () => {
+    const ac = new AbortController(); let n = 0;
+    const f = fakes(() => { n++; throw locked(); });
+    const sleep = vi.fn(async (_ms: number, signal?: AbortSignal) => { if (n >= 3) ac.abort(); if (signal?.aborted) throw new Error("aborted"); });
+    const r = await openStore({ ...f.base, sleep, signal: ac.signal });
+    expect(n).toBe(3); expect(sleep.mock.calls[0]![1]).toBe(ac.signal);
+    expect(f.sent).toEqual([]); expect(r.store.stopped).toBe(true);
+    expect(readdirSync(audio)).toEqual([]);
+  });
+});
+
+describe("afterStoreWait", () => {
+  const mk = (connected: boolean, aborted: boolean) => { const release = vi.fn(); const exit = vi.fn(); return { release, exit, run: () => afterStoreWait({ connected, aborted, release, exit }) }; };
+  it("test_parent_gone_releases_and_exits_0", () => {
+    for (const [c, a] of [[false, false], [true, true]] as const) {
+      const m = mk(c, a); expect(m.run()).toBe(true);
+      expect(m.release).toHaveBeenCalledTimes(1); expect(m.exit).toHaveBeenCalledWith(0);
+    }
+  });
+  it("test_parent_present_continues_without_release_or_exit", () => {
+    const m = mk(true, false); expect(m.run()).toBe(false);
+    expect(m.release).not.toHaveBeenCalled(); expect(m.exit).not.toHaveBeenCalled();
   });
 });
