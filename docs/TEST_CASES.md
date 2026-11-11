@@ -3269,7 +3269,7 @@ Steps:
   1. Apply, one at a time: `decide` also keeps `failed`; the allowlist keeps every refusal; the disk guard skipped in `AudioStore.write`; `assertInside` removed from the path join; the id check made a no-op; both of those; the sweep treating a refused lock as acquired; `dropRoles` removed at `gate.update`. Run the narrowest test files for each (the Task 10 report lists them).
 Expected Result: Every mutation fails at least one named test, and the suite is green again after each revert. The `assertInside` removal first failed no test (a gap) and `paths-containment.test.ts` now fails with it.
 Actual Result: As recorded in the Task 10 report (2026-11-11): each of the eight runs failed the named tests (for example `test_the_refusal_keep_set_is_exactly_paused_and_not_in_scene`, `test_a_failing_guard_stops_with_disk_low_and_writes_nothing`, `a refused lock skips the folder: nothing deleted, nothing audited`, `Review Focus 1: an opt-out while the segment waits drops it...`) and was reverted; `git status` showed no production change afterwards. Not repeated in this documents pass.
-Status: [x] Pass
+Status: [x] Pass (prior evidence, not re-run)
 Defect Raised: None
 Notes: Filed 2026-11-11 (Task 11). The run is evidence from Task 10, not a re-run today.
 
