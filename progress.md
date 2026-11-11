@@ -625,9 +625,9 @@ The controller's final independent review; then the PR into `develop`; then the 
 
 ### Open owner items
 
-1. Confirm that audio recorded before a participant opts out staying until expiry (or the A2b manual delete) matches the notice v3 wording.
-2. The future-time clamp: keep (a corrupt future time never expires) or fall back to the folder's own mtime.
-3. R12: an expired folder is deleted even when its audit line cannot be written.
+1. DECIDED (owner, 2026-11-11): audio recorded before a participant opts out stays until expiry (or the A2b manual delete), matching the notice v3 wording.
+2. PENDING, delegated by the owner to the facilitator (2026-11-11): the future-time clamp: keep (a corrupt future time never expires), fall back to the folder's own mtime, or record a first-seen time. The clamp stays as built until then.
+3. DECIDED (owner, 2026-11-11): R12, an expired folder is deleted even when its audit line cannot be written.
 4. Run TC-0218 (runbook section 11 item 10) with the room test; decide when A2b is scheduled. Voice must not go live before A2b and the deferred compliance items. Still open from before: A1c's real run (TC-0204), the OpenRouter key rotation, the domain and certificate (US-0048), the uncommitted cost-log rows.
 
 ### Next
