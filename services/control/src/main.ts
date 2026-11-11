@@ -24,7 +24,7 @@ import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
 import { AuditLog } from "./voice/audit-log.js";
-import { startAudioSweep } from "./voice/sweep.js";
+import { startAudioSweep, stopWithin } from "./voice/sweep.js";
 import { livekitProbe } from "./voice/livekit-probe.js";
 import { timingLogSink } from "./voice/timing-log.js";
 import { VoiceTokens } from "./voice/tokens.js";
@@ -160,8 +160,7 @@ export async function startControl(
       server.listen(port, CONTROL_HOST, () => { server.off("error", reject); resolve(); });
     });
   } catch (err) {
-    sweep.stop();
-    await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
+    await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
     throw new Error(`cannot listen on ${CONTROL_HOST}:${port} (${(err as NodeJS.ErrnoException).code ?? "error"})`);
   }
   server.on("error", () => log("server error"));
@@ -171,10 +170,10 @@ export async function startControl(
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
-      sweep.stop();
       const stopped = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeIdleConnections();
-      await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
+      // The sweep is awaited (bounded) alongside the children, so a deletion that was renamed aside can still write its audit line.
+      await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
       server.closeAllConnections();
       await stopped;
     })();

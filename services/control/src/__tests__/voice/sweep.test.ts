@@ -1,12 +1,12 @@
 import {
-  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync,
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionLock } from "@acr/runtime/files";
 import { AuditLog, type AuditEvent } from "../../voice/audit-log.js";
-import { SWEEP_REMOVE_FAILED, makeAcquireLock, startAudioSweep, startSweepSchedule, sweepAudio } from "../../voice/sweep.js";
+import { SWEEP_REMOVE_FAILED, makeAcquireLock, startAudioSweep, startSweepSchedule, stopWithin, sweepAudio } from "../../voice/sweep.js";
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 1); // a whole second, so file times set through utimes are exact
@@ -373,6 +373,23 @@ describe("orphan WAV cleanup in a kept folder (US-0073, A2a Task 9b)", () => {
     expect(wavsIn("r")).toEqual(["seg0.wav"]);
   });
 
+  it.skipIf(process.getuid?.() === 0)("an index that cannot be opened (chmod 000) removes NOTHING", async () => {
+    keptSession({ r: [{ v: 1, kind: "segment", segment: "seg0" }] }, { r: 2 });
+    const idx = path.join(audioDir, A, "r", "index.jsonl");
+    chmodSync(idx, 0o000);
+    try {
+      expect(await run({ now: KEPT })).toEqual({ deleted: 0, skipped: 0, orphans: 0 });
+      expect(wavsIn("r")).toEqual(["seg0.wav", "seg1.wav"]);
+    } finally { chmodSync(idx, 0o600); }
+  });
+
+  it("an index over 64 MiB (sparse) removes NOTHING", async () => {
+    keptSession({ r: [{ v: 1, kind: "segment", segment: "seg0" }] }, { r: 2 });
+    truncateSync(path.join(audioDir, A, "r", "index.jsonl"), 64 * 1024 * 1024 + 1);
+    expect(await run({ now: KEPT })).toEqual({ deleted: 0, skipped: 0, orphans: 0 });
+    expect(wavsIn("r")).toEqual(["seg0.wav", "seg1.wav"]);
+  });
+
   it("removal happens while the store lock is held; the lock path is never unlinked by the sweep", async () => {
     keptSession({}, { r: 1 });
     const seen: boolean[] = [];
@@ -518,6 +535,48 @@ describe("startSweepSchedule (US-0073, A2a Task 9b)", () => {
     s.stop();
     finish(); await flush();
     expect(timers).toHaveLength(0);
+  });
+
+  it("stop() during a run resolves only after that run finishes, cancels the timer, and nothing is rescheduled", async () => {
+    let finish!: () => void;
+    const s = startSweepSchedule({ run: () => new Promise<void>((r) => { finish = r; }), setTimer });
+    let stopped = false;
+    const p = s.stop().then(() => { stopped = true; });
+    await flush();
+    expect(stopped).toBe(false); // the run is still going
+    finish(); await p;
+    expect(stopped).toBe(true);
+    await flush();
+    expect(timers).toHaveLength(0);
+    await expect(s.stop()).resolves.toBeUndefined(); // idempotent, nothing in flight
+  });
+
+  it("stop() with nothing in flight resolves at once and cancels the pending timer", async () => {
+    const s = startSweepSchedule({ run: async () => undefined, setTimer });
+    await flush();
+    await s.stop();
+    expect(pending()).toHaveLength(0);
+  });
+
+  it("stopWithin proceeds after the bound when the run hangs, and at once when the run ends first", async () => {
+    vi.useFakeTimers();
+    try {
+      const fakeSet = (fn: () => void, ms: number): (() => void) => { const h = setTimeout(fn, ms); return () => clearTimeout(h); };
+      const hung = startSweepSchedule({ run: () => new Promise<void>(() => {}), setTimer: fakeSet });
+      let done = false;
+      void stopWithin(hung, fakeSet, 5_000).then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done).toBe(true);
+      let finish!: () => void;
+      const quick = startSweepSchedule({ run: () => new Promise<void>((r) => { finish = r; }), setTimer: fakeSet });
+      let done2 = false;
+      void stopWithin(quick, fakeSet, 5_000).then(() => { done2 = true; });
+      finish();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done2).toBe(true);
+    } finally { vi.useRealTimers(); }
   });
 
   it("works under real fake timers too (hourly)", async () => {

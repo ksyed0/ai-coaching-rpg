@@ -173,9 +173,11 @@ function removeTree(audioDir: string, p: string, depth = 0): void {
 /** The segment ids a role's index names (`kind:"segment"` lines; torn or foreign lines ignored); null when the index cannot be trusted. */
 function indexedSegments(role: string): Set<string> | null {
   const file = path.join(role, "index.jsonl");
-  const st = lstatOrNull(file);
   const ids = new Set<string>();
-  if (st === null) return ids; // no index at all: every WAV in the folder is an orphan
+  try { lstatSync(file); } catch (e) {
+    // Only ENOENT means "no index at all" (every WAV in the folder is an orphan); EIO, EACCES, ENOMEM and the rest mean "cannot tell".
+    return (e as NodeJS.ErrnoException).code === "ENOENT" ? ids : null;
+  }
   const text = readRegular(file, MAX_INDEX_BYTES);
   if (text === null) return null; // present but unreadable, a link or oversized: remove nothing on a guess
   for (const line of text.split("\n")) {
@@ -307,33 +309,53 @@ export const SWEEP_INTERVAL_MS = 3_600_000;
 
 /**
  * Runs `run` once now (not awaited), then `intervalMs` after each run COMPLETES. Single-flight: runs never overlap, and a rejection is
- * swallowed (the sweep logs its own fixed sentences). `stop()` cancels the pending timer, is idempotent, and a run that ends after it
- * schedules nothing.
+ * swallowed (the sweep logs its own fixed sentences). `stop()` cancels the pending timer at once, is idempotent, schedules nothing more,
+ * and returns a promise that resolves when no run is in flight (so a shutdown can let a deletion finish its audit line).
  */
-export function startSweepSchedule(o: { run: () => Promise<unknown>; setTimer: SetTimer; intervalMs?: number }): { stop(): void } {
+export function startSweepSchedule(o: { run: () => Promise<unknown>; setTimer: SetTimer; intervalMs?: number }): { stop(): Promise<void> } {
   const intervalMs = o.intervalMs ?? SWEEP_INTERVAL_MS;
-  let stopped = false, running = false;
+  let stopped = false;
+  let inflight: Promise<void> | null = null;
   let cancel: (() => void) | null = null;
   const tick = (): void => {
     cancel = null;
-    if (stopped || running) return;
-    running = true;
+    if (stopped || inflight) return;
     let p: Promise<unknown>;
     try { p = Promise.resolve(o.run()); } catch { p = Promise.resolve(); }
-    void p.catch(() => {}).then(() => {
-      running = false;
-      if (!stopped) cancel = o.setTimer(tick, intervalMs);
+    const me: Promise<void> = p.catch(() => {}).then(() => {
+      inflight = null;
+      if (!stopped) { try { cancel = o.setTimer(tick, intervalMs); } catch { /* no timer: no further runs */ } }
     });
+    inflight = me;
   };
   tick();
-  return { stop(): void { stopped = true; const c = cancel; cancel = null; try { c?.(); } catch { /* cancelling never throws out */ } } };
+  return {
+    stop(): Promise<void> {
+      stopped = true;
+      const c = cancel; cancel = null;
+      try { c?.(); } catch { /* cancelling never throws out */ }
+      return inflight ?? Promise.resolve();
+    },
+  };
+}
+
+export const SWEEP_STOP_WAIT_MS = 5_000;
+
+/** `stop()` then wait for the in-flight run, but never longer than `waitMs` (a hung run must not hold the shutdown). Never rejects. */
+export function stopWithin(sched: { stop(): Promise<void> }, setTimer: SetTimer, waitMs = SWEEP_STOP_WAIT_MS): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let cancel: (() => void) | null = null;
+    const done = (): void => { try { cancel?.(); } catch { /* ignore */ } resolve(); };
+    try { cancel = setTimer(done, waitMs); } catch { /* no bound available: rely on the run */ }
+    sched.stop().then(done, done);
+  });
 }
 
 /** The control service's sweep: independent of VOICE_ENABLED and of voice hosting. `deps.audit` is the audit log the sweep appends to. */
 export function startAudioSweep(
   config: { audioDir: string; audioMaxRetentionDays: number },
   deps: { audit: Pick<AuditLog, "append">; setTimer: SetTimer; log: (m: string) => void; now?: () => number; acquireLock?: StoreLockAcquirer; intervalMs?: number },
-): { stop(): void } {
+): { stop(): Promise<void> } {
   return startSweepSchedule({
     setTimer: deps.setTimer,
     ...(deps.intervalMs !== undefined ? { intervalMs: deps.intervalMs } : {}),
