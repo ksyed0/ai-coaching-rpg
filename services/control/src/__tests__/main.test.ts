@@ -1,5 +1,5 @@
 import http from "node:http";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -56,6 +56,17 @@ const get = (port: number, p: string, token: string | null = TOKEN): Promise<Res
   fetch(`http://127.0.0.1:${port}${p}`, { headers: token === null ? {} : { "x-service-token": token } });
 
 describe("startControl", () => {
+  it("US-0073 (A2a Task 9b): the audio sweep runs at start with VOICE_ENABLED=0 and stops at close", async () => {
+    const audioDir = path.join(root, "audio");
+    const sidHex = "a".repeat(32);
+    mkdirSync(path.join(audioDir, sidHex, "r"), { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(audioDir, sidHex, "ended.json"), JSON.stringify({ v: 1, endedAtMs: 1_000 }));
+    writeFileSync(path.join(audioDir, sidHex, "r", "seg0.wav"), "RIFF");
+    running = await startControl({ ...env, VOICE_ENABLED: "0", AUDIO_DIR: audioDir }, { port: 0, spawn: (() => { throw new Error("no spawn"); }) as unknown as SpawnFn });
+    for (let i = 0; i < 100 && existsSync(path.join(audioDir, sidHex)); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(existsSync(path.join(audioDir, sidHex))).toBe(false);
+  });
+
   it("US-0071: refuses to start with SPEECH_INGEST=livekit and no LiveKit key, and with a bad LiveKit setting (names only, no value)", async () => {
     await expect(startControl({ ...env, SPEECH_INGEST: "livekit" }, { port: 0 })).rejects.toThrow(/SPEECH_INGEST=livekit needs LIVEKIT_API_KEY/);
     const err = await startControl({ ...env, LIVEKIT_API_KEY: "APIkey", LIVEKIT_API_SECRET: "short-secret-value" }, { port: 0 }).catch((e: Error) => e);

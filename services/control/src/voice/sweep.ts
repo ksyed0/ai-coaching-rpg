@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { closeSync, constants as fc, fstatSync, lstatSync, openSync, readSync, readdirSync, renameSync, rmdirSync, unlinkSync, type Stats } from "node:fs";
 import path from "node:path";
 import { SessionLock, SessionLockError, assertInside } from "@acr/runtime/files";
+import type { SetTimer } from "../supervisor.js";
 import type { AuditLog } from "./audit-log.js";
 
 /**
@@ -15,6 +16,8 @@ import type { AuditLog } from "./audit-log.js";
  *   now. Expired when the age is at least `retentionDays` days.
  * - Expired: count the WAVs, rename to `<id>.deleting-<rand>`, THEN audit once, then remove without following links, then `release()` the
  *   lock (which unlinks the lock file only while it is still ours; the sweep never unlinks a lock path itself).
+ * - Kept (not expired) but locked by us (no worker is live): a WAV with no `kind:"segment"` index line in ITS OWN role folder is an orphan
+ *   (a crash between the WAV and its index line) and is removed under the lock; a failed removal logs a fixed sentence, the next run retries.
  * - Logs fixed sentences only: never a path, an identity or any content.
  */
 export const SWEEP_REMOVE_FAILED = "audio sweep could not remove a folder";
@@ -29,6 +32,7 @@ const DAY_MS = 86_400_000;
 export const NO_MARKER_GRACE_MS = DAY_MS;
 const LIVE_NAME = /^[0-9a-f]{32}$/;
 const LEFTOVER_NAME = /^[0-9a-f]{32}\.deleting-[a-z0-9]+$/;
+const WAV_NAME = /^[a-z0-9_-]{1,64}\.wav$/;
 const MAX_MARKER_BYTES = 4_096;
 const MAX_INDEX_BYTES = 64 * 1024 * 1024;
 /** The layout is two levels deep; a deeper tree is still removed, but the walk stops descending somewhere sane. */
@@ -166,6 +170,47 @@ function removeTree(audioDir: string, p: string, depth = 0): void {
   }
 }
 
+/** The segment ids a role's index names (`kind:"segment"` lines; torn or foreign lines ignored); null when the index cannot be trusted. */
+function indexedSegments(role: string): Set<string> | null {
+  const file = path.join(role, "index.jsonl");
+  const st = lstatOrNull(file);
+  const ids = new Set<string>();
+  if (st === null) return ids; // no index at all: every WAV in the folder is an orphan
+  const text = readRegular(file, MAX_INDEX_BYTES);
+  if (text === null) return null; // present but unreadable, a link or oversized: remove nothing on a guess
+  for (const line of text.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const v = JSON.parse(line) as unknown;
+      if (v && typeof v === "object" && (v as { kind?: unknown }).kind === "segment" && typeof (v as { segment?: unknown }).segment === "string") ids.add((v as { segment: string }).segment);
+    } catch { /* a torn line */ }
+  }
+  return ids;
+}
+
+/** Removes the orphan WAVs of a kept session folder (the store lock is held by the caller). Returns how many were removed. */
+function removeOrphans(o: SweepOptions, dir: string): number {
+  let removed = 0;
+  for (const role of roleDirs(dir)) {
+    const indexed = indexedSegments(role);
+    if (indexed === null) continue;
+    let names: string[];
+    try { names = readdirSync(role); } catch { continue; }
+    for (const n of names) {
+      if (!WAV_NAME.test(n) || indexed.has(n.slice(0, -4))) continue;
+      const p = path.join(role, n);
+      try {
+        assertInside(o.audioDir, p);
+        const st = lstatSync(p);
+        if (!st.isFile()) continue; // a link or folder named like a WAV is never followed or removed
+        unlinkSync(p);
+        removed++;
+      } catch { safeLog(o, SWEEP_REMOVE_FAILED); }
+    }
+  }
+  return removed;
+}
+
 /** Finishes a deletion: removes the renamed folder, logging the fixed sentence on failure. True when it is gone. */
 function finishRemoval(o: SweepOptions, aside: string): boolean {
   try { removeTree(o.audioDir, aside); return true; } catch {
@@ -185,32 +230,32 @@ function asideName(audioDir: string, id: string): string {
   throw new Error("no free aside name");
 }
 
-async function sweepOne(o: SweepOptions, id: string, now: number, maxAgeMs: number): Promise<"kept" | "deleted" | "skipped"> {
+async function sweepOne(o: SweepOptions, id: string, now: number, maxAgeMs: number): Promise<{ r: "kept" | "deleted" | "skipped"; orphans: number }> {
   const dir = path.join(o.audioDir, id);
   assertInside(o.audioDir, dir);
   const lock = o.acquireLock(o.audioDir, id);
-  if (lock === null) return "skipped";
+  if (lock === null) return { r: "skipped", orphans: 0 };
   try {
     // Judged again under the lock: the folder must still be the real directory of this user that readdir listed.
     const own = lstatOrNull(dir);
-    if (own === null || !isOwnRealDir(own)) return "skipped";
+    if (own === null || !isOwnRealDir(own)) return { r: "skipped", orphans: 0 };
     const clock = expiryClock(dir, own, now);
-    if (now - clock < maxAgeMs) return "kept";
+    if (now - clock < maxAgeMs) return { r: "kept", orphans: removeOrphans(o, dir) };
     const segments = countSegments(dir);
     const aside = asideName(o.audioDir, id);
     assertInside(o.audioDir, aside);
-    try { renameSync(dir, aside); } catch { safeLog(o, SWEEP_RENAME_FAILED); return "skipped"; }
+    try { renameSync(dir, aside); } catch { safeLog(o, SWEEP_RENAME_FAILED); return { r: "skipped", orphans: 0 }; }
     const moved = lstatOrNull(aside);
     if (moved === null || !isOwnRealDir(moved) || moved.ino !== own.ino || moved.dev !== own.dev) {
       // Something else was swapped in between the check and the rename: put it back untouched and audit nothing.
       try { renameSync(aside, dir); } catch { /* leave it: a link or foreign entry under a .deleting- name is never followed or removed */ }
       safeLog(o, SWEEP_FOLDER_FAILED);
-      return "skipped";
+      return { r: "skipped", orphans: 0 };
     }
     // The audit line comes after the rename and exactly once: a crash from here on leaves a .deleting-* folder, finished silently later.
     await o.audit.append(id, { type: "audio.deleted", scope: { kind: "session" }, reason: "expired", by: "system", segments });
     finishRemoval(o, aside);
-    return "deleted";
+    return { r: "deleted", orphans: 0 };
   } finally {
     try { lock.release(); } catch { /* release never throws; a leftover lock of ours goes stale */ }
   }
@@ -218,10 +263,10 @@ async function sweepOne(o: SweepOptions, id: string, now: number, maxAgeMs: numb
 
 /**
  * One retention pass over `audioDir`. Never rejects; resolves with how many sessions were deleted (renamed and audited in this run) and
- * how many were skipped (lock refused, folder unsafe or a step failed). Finished leftovers from an earlier run count as neither.
+ * how many orphan WAVs were removed from kept folders and how many sessions were skipped (lock refused, folder unsafe or a step failed). Finished leftovers from an earlier run count as neither.
  */
-export async function sweepAudio(o: SweepOptions): Promise<{ deleted: number; skipped: number }> {
-  const result = { deleted: 0, skipped: 0 };
+export async function sweepAudio(o: SweepOptions): Promise<{ deleted: number; skipped: number; orphans: number }> {
+  const result = { deleted: 0, skipped: 0, orphans: 0 };
   try {
     const now = o.now();
     if (!validMs(now) || typeof o.retentionDays !== "number" || !Number.isFinite(o.retentionDays) || o.retentionDays < 1) {
@@ -244,8 +289,9 @@ export async function sweepAudio(o: SweepOptions): Promise<{ deleted: number; sk
         if (st === null || !isOwnRealDir(st)) continue; // files, links and other users' entries are left strictly alone
         if (!live) { finishRemoval(o, p); continue; }
         const r = await sweepOne(o, name, now, maxAgeMs);
-        if (r === "deleted") result.deleted++;
-        else if (r === "skipped") result.skipped++;
+        result.orphans += r.orphans;
+        if (r.r === "deleted") result.deleted++;
+        else if (r.r === "skipped") result.skipped++;
       } catch {
         safeLog(o, SWEEP_FOLDER_FAILED);
         if (live) result.skipped++;
@@ -255,4 +301,45 @@ export async function sweepAudio(o: SweepOptions): Promise<{ deleted: number; sk
     safeLog(o, SWEEP_FOLDER_FAILED);
   }
   return result;
+}
+
+export const SWEEP_INTERVAL_MS = 3_600_000;
+
+/**
+ * Runs `run` once now (not awaited), then `intervalMs` after each run COMPLETES. Single-flight: runs never overlap, and a rejection is
+ * swallowed (the sweep logs its own fixed sentences). `stop()` cancels the pending timer, is idempotent, and a run that ends after it
+ * schedules nothing.
+ */
+export function startSweepSchedule(o: { run: () => Promise<unknown>; setTimer: SetTimer; intervalMs?: number }): { stop(): void } {
+  const intervalMs = o.intervalMs ?? SWEEP_INTERVAL_MS;
+  let stopped = false, running = false;
+  let cancel: (() => void) | null = null;
+  const tick = (): void => {
+    cancel = null;
+    if (stopped || running) return;
+    running = true;
+    let p: Promise<unknown>;
+    try { p = Promise.resolve(o.run()); } catch { p = Promise.resolve(); }
+    void p.catch(() => {}).then(() => {
+      running = false;
+      if (!stopped) cancel = o.setTimer(tick, intervalMs);
+    });
+  };
+  tick();
+  return { stop(): void { stopped = true; const c = cancel; cancel = null; try { c?.(); } catch { /* cancelling never throws out */ } } };
+}
+
+/** The control service's sweep: independent of VOICE_ENABLED and of voice hosting. `deps.audit` is the audit log the sweep appends to. */
+export function startAudioSweep(
+  config: { audioDir: string; audioMaxRetentionDays: number },
+  deps: { audit: Pick<AuditLog, "append">; setTimer: SetTimer; log: (m: string) => void; now?: () => number; acquireLock?: StoreLockAcquirer; intervalMs?: number },
+): { stop(): void } {
+  return startSweepSchedule({
+    setTimer: deps.setTimer,
+    ...(deps.intervalMs !== undefined ? { intervalMs: deps.intervalMs } : {}),
+    run: () => sweepAudio({
+      audioDir: config.audioDir, retentionDays: config.audioMaxRetentionDays, now: deps.now ?? Date.now, audit: deps.audit,
+      acquireLock: deps.acquireLock ?? makeAcquireLock(deps.log), log: deps.log,
+    }),
+  });
 }

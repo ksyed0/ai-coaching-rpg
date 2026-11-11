@@ -24,6 +24,7 @@ import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
 import { AuditLog } from "./voice/audit-log.js";
+import { startAudioSweep } from "./voice/sweep.js";
 import { livekitProbe } from "./voice/livekit-probe.js";
 import { timingLogSink } from "./voice/timing-log.js";
 import { VoiceTokens } from "./voice/tokens.js";
@@ -87,6 +88,8 @@ export async function startControl(
     if (!entry) throw new Error("unknown session");
     return loadScenario(scenarioDir(config.scenariosDir, entry.scenarioId));
   };
+  // US-0073 (A2a Task 8): the audio audit log (opt-in, opt-out, recording stops, sweep deletions), under AUDIO_DIR with its own lock per identity.
+  const audit = new AuditLog({ audioDir: config.audioDir, now: Date.now, log });
   const supervisor = new Supervisor({
     config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
@@ -99,8 +102,6 @@ export async function startControl(
         cfg: lkWanted, admin: createRoomAdmin({ host: lkWanted.host, apiKey: lkWanted.apiKey, apiSecret: lkWanted.apiSecret }),
         mint: mintParticipantToken, mintWorker: mintWorkerToken, random: randomBytes, setTimer: realSetTimer, log,
       }) : undefined;
-      // US-0073 (A2a Task 8): the audio audit log (opt-in, opt-out, recording stops), under AUDIO_DIR with its own lock per identity.
-      const audit = new AuditLog({ audioDir: config.audioDir, now: Date.now, log });
       // US-0072 (A1c Task 11): the LiveKit probe goes with the tokens (same condition), so an outage is told from a fault.
       const v = new VoiceHost({
         spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, now: Date.now,
@@ -113,6 +114,9 @@ export async function startControl(
     },
   });
   await supervisor.resumeAll();
+  // US-0073 (A2a Task 9b): the audio retention sweep runs whenever control runs, NOT only with voice hosting: a rollback to VOICE_ENABLED=0
+  // must not strand recordings the notice promises to delete. Stopped in close().
+  const sweep = startAudioSweep(config, { audit, setTimer: realSetTimer, log });
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
   const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
   const secrets = collectSecrets(env);
@@ -156,6 +160,7 @@ export async function startControl(
       server.listen(port, CONTROL_HOST, () => { server.off("error", reject); resolve(); });
     });
   } catch (err) {
+    sweep.stop();
     await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
     throw new Error(`cannot listen on ${CONTROL_HOST}:${port} (${(err as NodeJS.ErrnoException).code ?? "error"})`);
   }
@@ -166,6 +171,7 @@ export async function startControl(
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
+      sweep.stop();
       const stopped = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeIdleConnections();
       await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
