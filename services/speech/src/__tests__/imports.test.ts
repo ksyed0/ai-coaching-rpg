@@ -28,15 +28,30 @@ describe("speech sources and the other services", () => {
     expect(specifiers(fixture)).toEqual(["x1", "x2", "x3", "x4", "x5", "x6"]);
   });
 
-  it("no speech source imports the runtime or the control service", () => {
+  // US-0073 (voice A2a): the one runtime subpath speech may import is `@acr/runtime/files` (the shared single-writer lock).
+  const ALLOWED_RUNTIME = ["@acr/runtime/files"];
+  /** The first import this rule refuses in `text`, or null. */
+  function forbidden(text: string): string | null {
+    for (const spec of specifiers(text)) {
+      if (/^@acr\/runtime(\/|$)/.test(spec) && !ALLOWED_RUNTIME.includes(spec)) return spec;
+      if (/^@acr\/control(\/|$)/.test(spec) || /(^|\/)control(\/|$)/.test(spec)) return spec;
+      if (/(^|\/)runtime(\/|$)/.test(spec) && !ALLOWED_RUNTIME.includes(spec)) return spec;
+    }
+    return null;
+  }
+
+  it("speech may import exactly @acr/runtime/files from the runtime: any other specifier, and any runtime/src path, is refused", () => {
+    expect(ALLOWED_RUNTIME).toEqual(["@acr/runtime/files"]);
+    expect(forbidden('import { SessionLock } from "@acr/runtime/files";')).toBeNull();
+    for (const bad of ["@acr/runtime/review", "@acr/runtime", "@acr/runtime/files/x", "@acr/runtime/src/engine/log-files.js", "../../runtime/src/x.js", "@acr/control/x"]) {
+      expect(forbidden(`import x from "${bad}";`), bad).toBe(bad);
+    }
+  });
+
+  it("no speech source imports the control service, or the runtime other than @acr/runtime/files", () => {
     const files = sources(SRC);
     expect(files.length).toBeGreaterThan(0);
-    for (const f of files) {
-      for (const spec of specifiers(readFileSync(f, "utf8"))) {
-        expect(spec, f).not.toMatch(/^@acr\/(runtime|control)(\/|$)/);
-        expect(spec, f).not.toMatch(/(^|\/)(runtime|control)(\/|$)/);
-      }
-    }
+    for (const f of files) expect(forbidden(readFileSync(f, "utf8")), f).toBeNull();
   });
 
   it("protocol.ts imports only zod and @acr/events (control loads it, so nothing native may come with it)", () => {
