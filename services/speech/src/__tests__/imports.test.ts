@@ -103,9 +103,10 @@ describe("the speech worker and @livekit/rtc-node (US-0071)", () => {
     expect(main).not.toMatch(/import\("\.\/ingest\/livekit-room\.js"\)/);
   });
 
-  it("a file-ingest run never loads @livekit/rtc-node (main, the worker, both ingests and the config)", async () => {
-    const keys = await loadedBy(["main.ts", "worker.ts", "config.ts", "ingest/file-ingest.ts", "ingest/livekit-ingest.ts"], "file-run");
+  it("a file-ingest run never loads @livekit/rtc-node (main, the worker, both ingests, the config and the audio store)", async () => {
+    const keys = await loadedBy(["main.ts", "worker.ts", "config.ts", "ingest/file-ingest.ts", "ingest/livekit-ingest.ts", "store/audio-store.ts"], "file-run");
     expect(keys.some((u) => u.includes("/src/ingest/livekit-ingest.ts"))).toBe(true); // the probe saw the modules
+    expect(keys.some((u) => u.includes("/src/store/audio-store.ts"))).toBe(true); // US-0073: the store loads nothing native
     expect(rtc(keys)).toEqual([]);
   }, 90_000);
 

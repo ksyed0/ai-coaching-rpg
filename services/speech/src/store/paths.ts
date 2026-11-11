@@ -69,13 +69,16 @@ function requireRealOwnDir(dir: string): void {
   } finally { closeSync(fd); }
 }
 
-/**
- * Creates `<audioDir>/<identity>/<roleId>` one level at a time (0700) and returns it. `audioDir` is `lstat`ed BEFORE
- * `ensurePrivateDir`, because that helper follows links and chmods a group-writable folder rather than refusing it; every
- * level is `lstat`ed after its `mkdir` and must be a real directory owned by this user.
- */
-export function ensureRoleDir(audioDir: string, identity: string, roleId: string): string {
-  const role = roleDir(audioDir, identity, roleId); // validates every id first: nothing touches the disk on a bad one
+/** `mkdir` one level (0700, EEXIST tolerated), then require it to be a real private folder of this user. */
+function makeLevel(dir: string): void {
+  try { mkdirSync(dir, { mode: 0o700 }); } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw new StorePathError("could not create a folder");
+  }
+  requireRealOwnDir(dir);
+}
+
+/** Checks `audioDir` itself: `lstat`ed BEFORE `ensurePrivateDir`, because that helper follows links and chmods a group-writable folder. */
+function ensureAudioDir(audioDir: string): void {
   let st;
   try { st = lstatSync(audioDir); } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new StorePathError("audio directory unreadable");
@@ -83,11 +86,27 @@ export function ensureRoleDir(audioDir: string, identity: string, roleId: string
   if (st?.isSymbolicLink()) throw new StorePathError("audio directory is a link");
   try { ensurePrivateDir(audioDir); } catch { throw new StorePathError("audio directory is not private"); }
   requireRealOwnDir(audioDir);
-  for (const level of [sessionDir(audioDir, identity), role]) {
-    try { mkdirSync(level, { mode: 0o700 }); } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw new StorePathError("could not create a folder");
-    }
-    requireRealOwnDir(level);
-  }
+}
+
+/**
+ * Creates `<audioDir>/<identity>` (0700) and returns it (US-0073 Task 6: the folder `ended.json` lives in). Same checks as
+ * `ensureRoleDir`: the identity is validated before anything touches the disk, and every level must be a real folder of this user.
+ */
+export function ensureSessionDir(audioDir: string, identity: string): string {
+  const session = sessionDir(audioDir, identity);
+  ensureAudioDir(audioDir);
+  makeLevel(session);
+  return session;
+}
+
+/**
+ * Creates `<audioDir>/<identity>/<roleId>` one level at a time (0700) and returns it. `audioDir` is `lstat`ed BEFORE
+ * `ensurePrivateDir`, because that helper follows links and chmods a group-writable folder rather than refusing it; every
+ * level is `lstat`ed after its `mkdir` and must be a real directory owned by this user.
+ */
+export function ensureRoleDir(audioDir: string, identity: string, roleId: string): string {
+  const role = roleDir(audioDir, identity, roleId); // validates every id first: nothing touches the disk on a bad one
+  ensureSessionDir(audioDir, identity);
+  makeLevel(role);
   return role;
 }

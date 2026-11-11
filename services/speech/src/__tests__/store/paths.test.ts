@@ -3,7 +3,7 @@ import { vi } from "vitest";
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { StorePathError, ensureRoleDir, storeFsHooks, roleDir, segmentFile, sessionDir } from "../../store/paths.js";
+import { StorePathError, ensureRoleDir, ensureSessionDir, storeFsHooks, roleDir, segmentFile, sessionDir } from "../../store/paths.js";
 
 /** US-0073 (voice A2a, Task 4): path building validates every id and stays inside the audio directory; folders are private and never links. */
 const ID = "0123456789abcdef0123456789abcdef";
@@ -116,6 +116,26 @@ describe("ensureRoleDir", () => {
   });
   it("test_bad_ids_throw_before_touching_the_disk", () => {
     expect(() => ensureRoleDir(audio, "nope", "coach")).toThrow(StorePathError);
+    expect(() => lstatSync(audio)).toThrow();
+  });
+});
+
+describe("ensureSessionDir", () => {
+  it("test_creates_the_audio_and_identity_folders_0700_and_is_idempotent", () => {
+    const dir = ensureSessionDir(audio, ID);
+    expect(dir).toBe(path.join(audio, ID));
+    for (const d of [audio, dir]) expect(lstatSync(d).mode & 0o777).toBe(0o700);
+    expect(ensureSessionDir(audio, ID)).toBe(dir);
+    expect(() => lstatSync(path.join(dir, "coach"))).toThrow(); // no role folder
+  });
+  it("test_refuses_a_symlinked_identity_folder", () => {
+    mkdirSync(audio, { mode: 0o700 });
+    const elsewhere = path.join(root, "elsewhere"); mkdirSync(elsewhere, { mode: 0o700 });
+    symlinkSync(elsewhere, path.join(audio, ID));
+    expect(() => ensureSessionDir(audio, ID)).toThrow(StorePathError);
+  });
+  it("test_a_bad_identity_throws_before_touching_the_disk", () => {
+    expect(() => ensureSessionDir(audio, "NOPE")).toThrow(StorePathError);
     expect(() => lstatSync(audio)).toThrow();
   });
 });
