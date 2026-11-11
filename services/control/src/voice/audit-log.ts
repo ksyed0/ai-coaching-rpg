@@ -1,6 +1,6 @@
-import { closeSync, constants as fc, fchmodSync, fstatSync, fsyncSync, lstatSync, openSync, writeSync } from "node:fs";
+import { closeSync, constants as fc, fchmodSync, fstatSync, fsyncSync, mkdirSync, openSync, writeSync } from "node:fs";
 import path from "node:path";
-import { SessionLock, assertInside, ensurePrivateDir, type LockOptions } from "@acr/runtime/files";
+import { SessionLock, assertInside, type LockOptions } from "@acr/runtime/files";
 import { isLowerHex } from "@acr/speech/protocol";
 
 /**
@@ -36,32 +36,41 @@ export function auditFile(audioDir: string, logIdentity: string): string {
 
 const ownUid = (): number | null => (typeof process.getuid === "function" ? process.getuid() : null);
 
+const DIR_FLAGS = fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW;
+
+function openError(err: unknown): AuditPathError {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") return new AuditPathError("audio directory missing");
+  // macOS answers a link with ELOOP under O_NOFOLLOW; Linux (O_DIRECTORY) may answer ENOTDIR: both are refused.
+  if (code === "ELOOP") return new AuditPathError("audio directory is a link");
+  if (code === "ENOTDIR") return new AuditPathError("audio directory is not a directory");
+  return new AuditPathError("audio directory could not be opened safely");
+}
+
 /**
  * The audio directory must exist, be a real directory of this user (not a link) and private (0700). Like the worker's
- * `ensureAudioRoot` (speech `store/paths.ts`, re-implemented here because control imports only `@acr/speech/protocol`): `lstat`ed BEFORE
- * `ensurePrivateDir`, because that helper follows links and repairs a group-writable folder rather than refusing it. Throws
- * AuditPathError (a fixed sentence) on anything unsafe.
+ * `ensureAudioRoot` (speech `store/paths.ts`, re-implemented here because control imports only `@acr/speech/protocol`): the directory
+ * is OPENED first with O_DIRECTORY|O_NOFOLLOW (a link, a file or a missing entry fails the open; the path is never checked and then
+ * used), created 0700 when missing and opened again, and every check is made on that descriptor: a directory, owned by this user, with
+ * group and other permissions dropped through the descriptor; any group or other bit that remains is refused. Throws AuditPathError
+ * (a fixed sentence) on anything unsafe.
  */
 export function ensureAuditRoot(audioDir: string): void {
-  let st;
-  try { st = lstatSync(audioDir); } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new AuditPathError("audio directory unreadable");
-  }
-  if (st?.isSymbolicLink()) throw new AuditPathError("audio directory is a link");
-  let problem: string | null;
-  try { problem = ensurePrivateDir(audioDir); } catch { throw new AuditPathError("audio directory is not private"); }
-  if (problem !== null) throw new AuditPathError("audio directory is not private");
-  // Checked again after creation: a real folder of this user, through a descriptor that does not follow a link swapped in meanwhile.
-  try { st = lstatSync(audioDir); } catch { throw new AuditPathError("audio directory missing"); }
-  if (st.isSymbolicLink() || !st.isDirectory()) throw new AuditPathError("audio directory is not a directory");
-  const uid = ownUid();
-  if (uid !== null && st.uid !== uid) throw new AuditPathError("audio directory is owned by another user");
   let fd: number;
-  try { fd = openSync(audioDir, fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW); } catch { throw new AuditPathError("audio directory could not be opened safely"); }
+  try { fd = openSync(audioDir, DIR_FLAGS); } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw openError(err);
+    try { mkdirSync(audioDir, { recursive: true, mode: 0o700 }); } catch { throw new AuditPathError("audio directory could not be created"); }
+    try { fd = openSync(audioDir, DIR_FLAGS); } catch (again) { throw openError(again); }
+  }
   try {
-    const open = fstatSync(fd);
-    if (open.ino !== st.ino || open.dev !== st.dev || !open.isDirectory()) throw new AuditPathError("audio directory changed while checking");
-    if ((open.mode & 0o077) !== 0) throw new AuditPathError("audio directory is not private");
+    let st = fstatSync(fd);
+    if (!st.isDirectory()) throw new AuditPathError("audio directory is not a directory");
+    const uid = ownUid();
+    if (uid !== null && st.uid !== uid) throw new AuditPathError("audio directory is owned by another user");
+    if ((st.mode & 0o077) !== 0) {
+      try { fchmodSync(fd, st.mode & 0o700); st = fstatSync(fd); } catch { /* judged below */ }
+    }
+    if ((st.mode & 0o077) !== 0) throw new AuditPathError("audio directory is not private");
   } finally { closeSync(fd); }
 }
 

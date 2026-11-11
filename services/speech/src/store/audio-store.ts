@@ -1,4 +1,4 @@
-import { closeSync, constants as fc, existsSync, fsyncSync, openSync, renameSync, statfsSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants as fc, fsyncSync, openSync, renameSync, statfsSync, unlinkSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fsyncDirSync, type SessionLock } from "@acr/runtime/files";
@@ -55,9 +55,14 @@ const ENDED_NAME = "ended.json";
 
 /** `statfs` of the nearest existing ancestor: the audio folder may not exist before the first write (read-only, nothing is created). */
 function statfsNearest(p: string): { bavail: number; bsize: number } {
+  // Measured directly (never checked for existence first): an ENOENT moves one level up, any other error is thrown (counts as full).
   let dir = path.resolve(p);
-  while (!existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir);
-  return statfsSync(dir);
+  for (;;) {
+    try { return statfsSync(dir); } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT" || path.dirname(dir) === dir) throw err;
+      dir = path.dirname(dir);
+    }
+  }
 }
 
 /**

@@ -283,7 +283,8 @@ describe("AudioStore.markEnded", () => {
     expect(() => store.markEnded()).not.toThrow();
     expect(store.stopped).toBe(false);
     expect(onStopped).not.toHaveBeenCalled();
-    const left = existsSync(path.join(audio, ID)) ? readdirSync(path.join(audio, ID)) : [];
+    let left: string[] = [];
+    try { left = readdirSync(path.join(audio, ID)); } catch { /* no session folder: nothing left */ }
     expect(left.filter((n) => n !== "ended.json")).toEqual([]);
     store.markEnded(); // a failed attempt may be retried
     expect(existsSync(marker())).toBe(true);

@@ -50,7 +50,9 @@ const indexLines = (id = ID): Record<string, unknown>[] =>
   readFileSync(path.join(roleDir(id), "index.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
 const auditLines = (id = ID): Record<string, unknown>[] => {
   const f = path.join(audioDir(), `${id}.audio-audit.jsonl`);
-  return existsSync(f) ? readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) : [];
+  let text: string;
+  try { text = readFileSync(f, "utf8"); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return []; throw err; } // read directly, no existence check first
+  return text.split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
 };
 
 /** One worker session for `id`: `bursts` turns of speech in the coach's file, the real store behind its lock, a controllable clock. */

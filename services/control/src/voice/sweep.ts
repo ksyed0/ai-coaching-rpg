@@ -108,21 +108,35 @@ function listVerifiedDir(p: string, expected: Stats): string[] {
  * bit), judged through a descriptor opened without following a link. Otherwise another user could rename an entry and plant a link under
  * its name between our checks (final review I1). The worker and the audit log refuse or repair such a directory; the sweep only refuses.
  */
-function rootIsPrivate(audioDir: string, st: Stats): boolean {
-  if (!isOwnRealDir(st)) return false;
+function judgeRoot(audioDir: string): Stats | "missing" | "unsafe" {
+  // Opened FIRST (a link, a file or a missing entry fails the open itself); every check is made on the descriptor. The Stats returned
+  // are the descriptor's: `listVerifiedDir` then proves the listed path is still that very directory.
   let fd: number;
-  try { fd = openSync(audioDir, fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW); } catch { return false; }
+  try { fd = openSync(audioDir, fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW); } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unsafe";
+  }
   try {
     const open = fstatSync(fd);
     const uid = ownUid();
-    return open.isDirectory() && sameIdent(open, st) && (uid === null || open.uid === uid) && (open.mode & 0o022) === 0;
-  } catch { return false; } finally { closeSync(fd); }
+    return open.isDirectory() && (uid === null || open.uid === uid) && (open.mode & 0o022) === 0 ? open : "unsafe";
+  } catch { return "unsafe"; } finally { closeSync(fd); }
 }
 
 /** Reads a small regular file without following a link; null when missing, not a regular file, too large or unreadable. */
 function readRegular(file: string, maxBytes: number): string | null {
+  const r = readRegularOrCode(file, maxBytes);
+  return typeof r === "string" ? r : null;
+}
+
+/**
+ * As `readRegular`, but tells "no such file" apart: the file is opened FIRST (never stat'ed and then opened), and an open that fails
+ * with ENOENT returns { missing: true }; every other failure (a link, not a regular file, too large, unreadable) returns null.
+ */
+function readRegularOrCode(file: string, maxBytes: number): string | { missing: true } | null {
   let fd: number;
-  try { fd = openSync(file, fc.O_RDONLY | fc.O_NOFOLLOW); } catch { return null; }
+  try { fd = openSync(file, fc.O_RDONLY | fc.O_NOFOLLOW); } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? { missing: true } : null;
+  }
   try {
     const st = fstatSync(fd);
     if (!st.isFile() || st.size > maxBytes) return null;
@@ -241,12 +255,11 @@ function removeTree(audioDir: string, p: string, depth = 0): void {
 function indexedSegments(role: string): Set<string> | null {
   const file = path.join(role, "index.jsonl");
   const ids = new Set<string>();
-  try { lstatSync(file); } catch (e) {
-    // Only ENOENT means "no index at all" (every WAV in the folder is an orphan); EIO, EACCES, ENOMEM and the rest mean "cannot tell".
-    return (e as NodeJS.ErrnoException).code === "ENOENT" ? ids : null;
-  }
-  const text = readRegular(file, MAX_INDEX_BYTES);
-  if (text === null) return null; // present but unreadable, a link or oversized: remove nothing on a guess
+  const text = readRegularOrCode(file, MAX_INDEX_BYTES);
+  // Only ENOENT means "no index at all" (every WAV in the folder is an orphan); a link, EIO, EACCES, an oversized file and the rest mean
+  // "cannot tell": remove nothing on a guess.
+  if (text === null) return null;
+  if (typeof text !== "string") return ids;
   for (const line of text.split("\n")) {
     if (line.trim() === "") continue;
     try {
@@ -345,9 +358,9 @@ export async function sweepAudio(o: SweepOptions): Promise<{ deleted: number; sk
       return result;
     }
     const maxAgeMs = o.retentionDays * DAY_MS;
-    const rootSt = lstatOrNull(o.audioDir);
-    if (rootSt === null) return result; // nothing recorded yet
-    if (!rootIsPrivate(o.audioDir, rootSt)) { safeLog(o, SWEEP_DIR_UNSAFE); return result; }
+    const rootSt = judgeRoot(o.audioDir);
+    if (rootSt === "missing") return result; // nothing recorded yet
+    if (rootSt === "unsafe") { safeLog(o, SWEEP_DIR_UNSAFE); return result; }
     let names: string[];
     try { names = listVerifiedDir(o.audioDir, rootSt); } catch { safeLog(o, SWEEP_DIR_UNSAFE); return result; }
     for (const name of names.sort()) {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,13 +123,20 @@ describe("the audio store through real processes (US-0073, Task 10)", () => {
     const identity = await until("the session's audio folder", () => readdirSync(audio).find((n) => /^[0-9a-f]{32}$/.test(n)));
     const roleDir = path.join(audio, identity, VOICE_ROLE);
     const indexFile = path.join(roleDir, "index.jsonl");
-    await until("the index line", () => existsSync(indexFile) && readFileSync(indexFile, "utf8").includes("\n"));
+    // Read directly (no existence check first): a missing index simply is not there yet.
+    const readIfThere = (f: string): string => { try { return readFileSync(f, "utf8"); } catch { return ""; } };
+    await until("the index line", () => readIfThere(indexFile).includes("\n"));
     const index = readFileSync(indexFile, "utf8").trim().split("\n").map((l) => JSON.parse(l));
     expect(index).toEqual([expect.objectContaining({ v: 1, kind: "segment", participantId: `human-${VOICE_ROLE}`, status: "transcribed", seq: line.seq })]);
     const wav = path.join(roleDir, `${index[0].segment}.wav`);
-    expect(statSync(wav).mode & 0o777).toBe(0o600);
+    // One descriptor for both the mode and the bytes (CodeQL js/file-system-race: never stat a path and then read it).
+    const wfd = openSync(wav, "r");
+    let b: Buffer;
+    try {
+      expect(fstatSync(wfd).mode & 0o777).toBe(0o600);
+      b = readFileSync(wfd);
+    } finally { closeSync(wfd); }
     for (const d of [audio, path.join(audio, identity), roleDir]) expect(statSync(d).mode & 0o777).toBe(0o700);
-    const b = readFileSync(wav);
     expect([b.toString("ascii", 0, 4), b.toString("ascii", 8, 12), b.readUInt16LE(20), b.readUInt16LE(22), b.readUInt32LE(24), b.readUInt16LE(34)]).toEqual(["RIFF", "WAVE", 1, 1, 16_000, 16]);
     expect(readdirSync(roleDir).sort()).toEqual([`${index[0].segment}.wav`, "index.jsonl"].sort());
 
