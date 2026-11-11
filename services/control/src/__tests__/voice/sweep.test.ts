@@ -1,12 +1,12 @@
 import {
-  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync,
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, truncateSync, utimesSync, writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionLock } from "@acr/runtime/files";
 import { AuditLog, type AuditEvent } from "../../voice/audit-log.js";
-import { SWEEP_REMOVE_FAILED, makeAcquireLock, startAudioSweep, segmentIdOf, startSweepSchedule, stopWithin, sweepAudio } from "../../voice/sweep.js";
+import { SWEEP_DIR_UNSAFE, SWEEP_REMOVE_FAILED, makeAcquireLock, sweepTestHooks, startAudioSweep, segmentIdOf, startSweepSchedule, stopWithin, sweepAudio } from "../../voice/sweep.js";
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 1); // a whole second, so file times set through utimes are exact
@@ -433,6 +433,81 @@ describe("orphan WAV cleanup in a kept folder (US-0073, A2a Task 9b)", () => {
     expect(await run({ now: KEPT })).toEqual({ deleted: 0, skipped: 0, orphans: 1 });
     expect(wavsIn("r")).toEqual([]);
     expect(logs).toEqual([]);
+  });
+});
+
+describe("an unsafe audio directory and swapped folders (US-0073, final review I1)", () => {
+  const isRoot = process.getuid?.() === 0;
+  let outside: string;
+  beforeEach(() => {
+    outside = path.join(root, "outside");
+    mkdirSync(outside, { mode: 0o700 });
+    writeFileSync(path.join(outside, "precious.txt"), "keep");
+    writeFileSync(path.join(outside, "seg9.wav"), "keep");
+  });
+  afterEach(() => { sweepTestHooks.beforeOpenDir = undefined; sweepTestHooks.afterOpenDir = undefined; });
+  const outsideIntact = () => {
+    expect(readdirSync(outside).sort()).toEqual(["precious.txt", "seg9.wav"]);
+    expect(readFileSync(path.join(outside, "precious.txt"), "utf8")).toBe("keep");
+  };
+  /** Moves the real folder at `p` away (out of the audio dir) and plants a link to `outside` under its name. */
+  const swap = (p: string) => { renameSync(p, path.join(root, `moved-${path.basename(p)}`)); symlinkSync(outside, p); };
+
+  it.skipIf(isRoot).each([0o770, 0o777, 0o720, 0o702])("a root with mode %o (group or other writable) is not swept at all", async (mode) => {
+    mkSession(A, { ended: T0, wavs: { r: 2 } });
+    const left = path.join(audioDir, `${B}.deleting-0a1b2c3d`);
+    mkdirSync(left, { mode: 0o700 });
+    writeFileSync(path.join(left, "x.wav"), "x");
+    chmodSync(audioDir, mode);
+    const before = readdirSync(audioDir).sort();
+    expect(await run({ now: T0 + 60 * DAY })).toEqual({ deleted: 0, skipped: 0, orphans: 0 });
+    expect(logs).toEqual([SWEEP_DIR_UNSAFE]);
+    expect(readdirSync(audioDir).sort()).toEqual(before);
+    expect(readdirSync(path.join(audioDir, A, "r")).sort()).toEqual(["seg0.wav", "seg1.wav"]);
+    expect(existsSync(path.join(left, "x.wav"))).toBe(true);
+    expect(calls).toEqual([]);
+    chmodSync(audioDir, 0o700);
+  });
+
+  it.skipIf(isRoot)("a group-readable but not writable root (0750) is swept as before", async () => {
+    mkSession(A, { ended: T0, wavs: { r: 1 } });
+    chmodSync(audioDir, 0o750);
+    expect(await run({ now: T0 + 60 * DAY })).toEqual({ deleted: 1, skipped: 0, orphans: 0 });
+    expect(logs).toEqual([]);
+  });
+
+  it.each(["beforeOpenDir", "afterOpenDir"] as const)("a leftover folder swapped for a link (%s) is not followed", async (hook) => {
+    const left = path.join(audioDir, `${A}.deleting-0a1b2c3d`);
+    mkdirSync(left, { mode: 0o700 });
+    writeFileSync(path.join(left, "x.wav"), "x");
+    const seen: string[] = [];
+    sweepTestHooks[hook] = (p) => { seen.push(p); if (p === left) swap(left); };
+    await run({ now: T0 });
+    expect(seen).toContain(left);
+    outsideIntact();
+    expect(logs).toEqual([SWEEP_REMOVE_FAILED]);
+    expect(readFileSync(path.join(root, `moved-${path.basename(left)}`, "x.wav"), "utf8")).toBe("x");
+  });
+
+  it.each(["beforeOpenDir", "afterOpenDir"] as const)("a role folder swapped for a link while an expired session is removed (%s) is not followed", async (hook) => {
+    mkSession(A, { ended: T0, wavs: { r: 1 } });
+    let swapped = false;
+    sweepTestHooks[hook] = (p) => { if (!swapped && p.includes(".deleting-") && path.basename(p) === "r") { swapped = true; swap(p); } };
+    expect(await run({ now: T0 + 60 * DAY })).toEqual({ deleted: 1, skipped: 0, orphans: 0 });
+    expect(swapped).toBe(true);
+    outsideIntact();
+    expect(logs).toEqual([SWEEP_REMOVE_FAILED]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it.each(["beforeOpenDir", "afterOpenDir"] as const)("a role folder swapped for a link during the orphan pass (%s) is not followed", async (hook) => {
+    mkSession(A, { ended: T0, index: { r: [{ v: 1, kind: "segment", segment: "seg0" }] }, wavs: { r: 1 } });
+    const role = path.join(audioDir, A, "r");
+    let swapped = false;
+    sweepTestHooks[hook] = (p) => { if (!swapped && p === role) { swapped = true; swap(p); } };
+    expect(await run({ now: T0 + DAY })).toEqual({ deleted: 0, skipped: 0, orphans: 0 });
+    expect(swapped).toBe(true);
+    outsideIntact(); // seg9.wav outside is not indexed: following the link would have unlinked it as an orphan
   });
 });
 

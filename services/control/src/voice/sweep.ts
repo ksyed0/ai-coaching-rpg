@@ -19,6 +19,8 @@ import type { AuditLog } from "./audit-log.js";
  *   lock (which unlinks the lock file only while it is still ours; the sweep never unlinks a lock path itself).
  * - Kept (not expired) but locked by us (no worker is live): a WAV with no `kind:"segment"` index line in ITS OWN role folder is an orphan
  *   (a crash between the WAV and its index line) and is removed under the lock; a failed removal logs a fixed sentence, the next run retries.
+ * - The audio directory must be a real directory of this user with no group or other write bit (judged through an O_NOFOLLOW descriptor),
+ *   or nothing is swept; every directory is listed only after its identity is verified through a descriptor (`listVerifiedDir`).
  * - Logs fixed sentences only: never a path, an identity or any content.
  */
 export const SWEEP_REMOVE_FAILED = "audio sweep could not remove a folder";
@@ -71,6 +73,51 @@ const isOwnRealDir = (st: Stats): boolean => {
   return !st.isSymbolicLink() && st.isDirectory() && (uid === null || st.uid === uid);
 };
 const lstatOrNull = (p: string): Stats | null => { try { return lstatSync(p); } catch { return null; } };
+const sameIdent = (a: { dev: number; ino: number }, b: { dev: number; ino: number }): boolean => a.dev === b.dev && a.ino === b.ino;
+/** `p` is still the real directory of this user that `expected` described (same device and inode). */
+const stillDir = (p: string, expected: Stats): boolean => { const st = lstatOrNull(p); return st !== null && isOwnRealDir(st) && sameIdent(st, expected); };
+
+/** Test seams (final review I1): run just before a directory is opened for listing, and between that open and the listing. */
+export const sweepTestHooks: { beforeOpenDir?: (p: string) => void; afterOpenDir?: (p: string) => void } = {};
+
+class DirChangedError extends Error {
+  constructor() { super("a directory changed while it was being listed"); this.name = "DirChangedError"; }
+}
+
+/**
+ * Lists a directory only while it is provably the one `expected` describes: opened O_DIRECTORY|O_NOFOLLOW (a link in its place fails),
+ * its fstat identity compared with `expected`, the descriptor kept open across the listing (the inode cannot be reused meanwhile), and
+ * the path lstat'ed again afterwards (a swap during the listing is caught). Node has no fd-relative readdir, hence the double check.
+ * Throws DirChangedError (or the open error) on any mismatch; the caller then touches nothing in it.
+ */
+function listVerifiedDir(p: string, expected: Stats): string[] {
+  sweepTestHooks.beforeOpenDir?.(p);
+  const fd = openSync(p, fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isDirectory() || !sameIdent(st, expected)) throw new DirChangedError();
+    sweepTestHooks.afterOpenDir?.(p);
+    const names = readdirSync(p);
+    if (!stillDir(p, expected)) throw new DirChangedError();
+    return names;
+  } finally { closeSync(fd); }
+}
+
+/**
+ * The audio directory may be swept only when it is a real directory of this user that nobody else can write to (no group or other write
+ * bit), judged through a descriptor opened without following a link. Otherwise another user could rename an entry and plant a link under
+ * its name between our checks (final review I1). The worker and the audit log refuse or repair such a directory; the sweep only refuses.
+ */
+function rootIsPrivate(audioDir: string, st: Stats): boolean {
+  if (!isOwnRealDir(st)) return false;
+  let fd: number;
+  try { fd = openSync(audioDir, fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW); } catch { return false; }
+  try {
+    const open = fstatSync(fd);
+    const uid = ownUid();
+    return open.isDirectory() && sameIdent(open, st) && (uid === null || open.uid === uid) && (open.mode & 0o022) === 0;
+  } catch { return false; } finally { closeSync(fd); }
+}
 
 /** Reads a small regular file without following a link; null when missing, not a regular file, too large or unreadable. */
 function readRegular(file: string, maxBytes: number): string | null {
@@ -98,16 +145,24 @@ function markerTime(dir: string): number | null {
   return null;
 }
 
-/** The real role directories directly inside a session folder. */
-function roleDirs(dir: string): string[] {
+/** The real role directories directly inside a session folder, each with the identity it was found with. */
+function roleDirs(dir: string): Array<{ p: string; st: Stats }> {
+  const own = lstatOrNull(dir);
+  if (own === null || !isOwnRealDir(own)) return [];
   let names: string[];
-  try { names = readdirSync(dir); } catch { return []; }
-  return names.map((n) => path.join(dir, n)).filter((p) => { const st = lstatOrNull(p); return st !== null && isOwnRealDir(st); });
+  try { names = listVerifiedDir(dir, own); } catch { return []; }
+  const out: Array<{ p: string; st: Stats }> = [];
+  for (const n of names) {
+    const p = path.join(dir, n);
+    const st = lstatOrNull(p);
+    if (st !== null && isOwnRealDir(st)) out.push({ p, st });
+  }
+  return out;
 }
 
 function lastSegmentEnd(dir: string): number | null {
   let best: number | null = null;
-  for (const role of roleDirs(dir)) {
+  for (const { p: role } of roleDirs(dir)) {
     const text = readRegular(path.join(role, "index.jsonl"), MAX_INDEX_BYTES);
     if (text === null) continue;
     for (const line of text.split("\n")) {
@@ -161,15 +216,21 @@ function countSegments(dir: string): number {
 }
 
 /**
- * Removes a tree WITHOUT following links: every entry is `lstat`ed; a link (to anything) is unlinked as a link, a directory is emptied
- * and rmdir'ed. Every path is asserted inside `audioDir`. Throws on the first failure (the caller retries in a later run).
+ * Removes a tree WITHOUT following links: every entry is `lstat`ed; a link (to anything) is unlinked as a link, a directory is listed only
+ * through `listVerifiedDir`, checked again (same device and inode, still a real directory of this user) before each child is touched and
+ * before it is rmdir'ed. Every path is asserted inside `audioDir`. Throws on the first failure or mismatch (a later run retries).
  */
 function removeTree(audioDir: string, p: string, depth = 0): void {
   assertInside(audioDir, p);
   const st = lstatSync(p);
   if (st.isDirectory() && !st.isSymbolicLink()) {
+    if (!isOwnRealDir(st)) throw new DirChangedError(); // another user's folder is never emptied
     if (depth > MAX_DEPTH) throw new Error("tree too deep");
-    for (const n of readdirSync(p)) removeTree(audioDir, path.join(p, n), depth + 1);
+    for (const n of listVerifiedDir(p, st)) {
+      if (!stillDir(p, st)) throw new DirChangedError();
+      removeTree(audioDir, path.join(p, n), depth + 1);
+    }
+    if (!stillDir(p, st)) throw new DirChangedError();
     rmdirSync(p);
   } else {
     unlinkSync(p);
@@ -199,17 +260,18 @@ function indexedSegments(role: string): Set<string> | null {
 /** Removes the orphan WAVs of a kept session folder (the store lock is held by the caller). Returns how many were removed. */
 function removeOrphans(o: SweepOptions, dir: string): number {
   let removed = 0;
-  for (const role of roleDirs(dir)) {
+  for (const { p: role, st: roleSt } of roleDirs(dir)) {
     const indexed = indexedSegments(role);
     if (indexed === null) continue;
     let names: string[];
-    try { names = readdirSync(role); } catch { continue; }
+    try { names = listVerifiedDir(role, roleSt); } catch { safeLog(o, SWEEP_FOLDER_FAILED); continue; }
     for (const n of names) {
       const segId = segmentIdOf(n);
       if (segId === null || indexed.has(segId)) continue;
       const p = path.join(role, n);
       try {
         assertInside(o.audioDir, p);
+        if (!stillDir(role, roleSt)) { safeLog(o, SWEEP_FOLDER_FAILED); break; } // the role folder was swapped: touch nothing in it
         const st = lstatSync(p);
         if (!st.isFile()) continue; // a link or folder named like a WAV is never followed or removed
         unlinkSync(p);
@@ -285,9 +347,9 @@ export async function sweepAudio(o: SweepOptions): Promise<{ deleted: number; sk
     const maxAgeMs = o.retentionDays * DAY_MS;
     const rootSt = lstatOrNull(o.audioDir);
     if (rootSt === null) return result; // nothing recorded yet
-    if (!isOwnRealDir(rootSt)) { safeLog(o, SWEEP_DIR_UNSAFE); return result; }
+    if (!rootIsPrivate(o.audioDir, rootSt)) { safeLog(o, SWEEP_DIR_UNSAFE); return result; }
     let names: string[];
-    try { names = readdirSync(o.audioDir); } catch { safeLog(o, SWEEP_DIR_UNSAFE); return result; }
+    try { names = listVerifiedDir(o.audioDir, rootSt); } catch { safeLog(o, SWEEP_DIR_UNSAFE); return result; }
     for (const name of names.sort()) {
       const live = LIVE_NAME.test(name);
       if (!live && !LEFTOVER_NAME.test(name)) continue;
