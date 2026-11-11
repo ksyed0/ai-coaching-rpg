@@ -4,7 +4,7 @@ import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
 import { EngineError, type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
-import type { VoiceAlertCode, VoiceRefusal } from "./parent-channel.js";
+import { VOICE_ALERT_CODES, type VoiceAlertCode, type VoiceRefusal } from "./parent-channel.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
@@ -41,8 +41,8 @@ export class HostError extends Error {
 export const NOTICE_MIN_INTERVAL_MS = 10_000;
 /** US-0070: at most one voice alert per code in this long (host clock). */
 export const ALERT_MIN_INTERVAL_MS = 30_000;
-/** US-0070 (F10): at most this many voice alerts wait for the start (one per code, so in practice at most the three codes). */
-export const MAX_PENDING_VOICE_ALERTS = 8;
+/** US-0070 (F10): at most this many voice alerts wait for the start: one per code, so every code can wait and none evicts another. */
+export const MAX_PENDING_VOICE_ALERTS = VOICE_ALERT_CODES.length;
 /** The refusals of a voice line its speaker hears about (the others have no such speaker listening: not the holder, no such seat, voice off). */
 const SPEAKER_NOTICES: ReadonlySet<VoiceRefusal> = new Set<VoiceRefusal>(["paused", "not_in_scene", "ended", "not_recording"]);
 

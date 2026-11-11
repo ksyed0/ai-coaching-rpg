@@ -19,6 +19,7 @@ import * as voiceModule from "../voice.js";
 import { startServer, type ServerHandle } from "../ws-server.js";
 import type { VoiceConfig } from "../voice-config.js";
 import { VOICE_ALERT_LEVELS, VOICE_ALERT_SENTENCES, type VoiceNoticeCode } from "../voice.js";
+import { VOICE_ALERT_CODES } from "../parent-channel.js";
 
 // US-0070 (Task 10, AC-0399): a failed, empty or refused segment reaches the SPEAKER alone as a private, ephemeral voice_notice (never
 // logged, never to anyone else), rate-limited per role and code; the facilitator gets a fixed-sentence voice alert, rate-limited per code.
@@ -159,6 +160,18 @@ describe("voiceAlert (US-0070, AC-0399)", () => {
     await startAll(h);
     await vi.waitFor(async () => expect((await alerts(h)).map((a) => a.message)).toEqual([VOICE_ALERT_SENTENCES.worker_down, VOICE_ALERT_SENTENCES.stt_unavailable, VOICE_ALERT_SENTENCES.stt_failed]));
     expect(pending.size).toBe(0);
+  });
+
+  it("pre-start write_error and disk_low are not evicted by every other code (the bound is one per code)", async () => {
+    const h = makeHost();
+    await h.host.voiceAlert("write_error");
+    await h.host.voiceAlert("disk_low");
+    for (const c of VOICE_ALERT_CODES) if (c !== "write_error" && c !== "disk_low") await h.host.voiceAlert(c);
+    const pending = (h.host as unknown as { pendingAlerts: Set<string> }).pendingAlerts;
+    expect(MAX_PENDING_VOICE_ALERTS).toBe(VOICE_ALERT_CODES.length);
+    expect(pending.has("write_error")).toBe(true);
+    expect(pending.has("disk_low")).toBe(true);
+    expect(pending.size).toBe(VOICE_ALERT_CODES.length);
   });
 
   it("no pre-start alert is kept while voice is off", async () => {
