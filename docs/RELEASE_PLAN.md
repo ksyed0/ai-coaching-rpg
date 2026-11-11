@@ -2150,3 +2150,32 @@ Status: In Progress
 Branch: feature/EPIC-0003-US-0072-voice-operations
 Notes: Plan: docs/superpowers/plans/2026-11-09-voice-a1c-operations.md (Revision 2, Tasks 0 to 15 in five batches, with independent reviews A, B, B2 and C after batches 1 to 4 and a final one in Task 15): the `voice-ops` package and its settings, an HTTP probe in `@acr/adapters`, the `.env` secrets writer, the private state directory and process identity, whisper-server hardening, the compose services (LiveKit and Caddy) pinned by digest, the loopback-only web server, `voice:up` and `voice:down` with repair and rollback, the checks and `voice:check`, the LiveKit-outage path in control's restart budget, the timing record, the runbook and the close-out. Covers AC-0417 to AC-0425 (TC-0189 to TC-0197).
 ```
+
+
+```
+US-0073 (EPIC-0003): As the facilitator running a voice pilot, I want the voice audio of each session kept briefly, privately and only where consent allows, so that a disputed line can be checked later without keeping more than needed.
+Priority: Medium
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0003-US-0073-voice-audio-store
+Dependencies: US-0070
+Acceptance Criteria:
+  - [ ] AC-0426: `AUDIO_DIR`, `AUDIO_MIN_FREE_MB` and `AUDIO_MAX_RETENTION_DAYS` are validated in control's and the speech worker's settings (absolute directory, 512 to 1 000 000 MB, 1 to 30 days; defaults `<CONTROL_DATA_DIR>/audio`, 2048 and 30), and the runtime's `ready` hands the speech worker the session's 32-hex `logIdentity`, which every later path uses (TC-0205)
+  - [ ] AC-0427: audio lives under `<AUDIO_DIR>/<logIdentity>/<roleId>/<segment>.wav` with an `index.jsonl` of `v: 1` lines; every id passes `isFileSafeId` and the resolved path stays inside the session directory; directories are `0700`, files `0600` and created exclusively; a symlinked or group-writable `AUDIO_DIR` or role folder is refused or repaired; a torn last index line is tolerated (TC-0206)
+  - [ ] AC-0428: the store writes nothing when free space is under `AUDIO_MIN_FREE_MB` (or cannot be measured), stops with `store_stopped` and one alert, and starts again when space returns (TC-0207)
+  - [ ] AC-0429: audio is written only for an accepted line, `empty`, `stt_failed` and a runtime refusal of `paused` or `not_in_scene` (an allowlist: `failed`, `ended`, `not_started`, any later code and every timeout write nothing); no file appears when a participant opts out or the seat is reissued while a segment waits; the WAV is 16 kHz mono 16-bit PCM, written before its index line (TC-0208)
+  - [ ] AC-0430: the speech worker holds the store lock `<logIdentity>.store.lock` (made by `SessionLock.acquire` with a `suffix`, via `@acr/runtime/files`), retries and alerts when it cannot, keeps bounded `pending` segments until the runtime answers, drops them at `gate.update`, and the shared lock export keeps the speech import guard to exactly that one subpath (TC-0209)
+  - [ ] AC-0431: control records the store's alerts and `store_stopped` in `<logIdentity>.audio-audit.jsonl` (lines `v: 1` with `ts`, never any text, audio or transcript) under its own lock `<logIdentity>.audio-audit.lock`, retried on failure, and raises the alert codes (TC-0210)
+  - [ ] AC-0432: a sweep that runs regardless of `VOICE_ENABLED` deletes audio older than `AUDIO_MAX_RETENTION_DAYS` and orphans of a crash, only under identities (32 lower-case hex) whose store lock proves no live worker, atomically and never under a worker that is still flushing after a control restart, and prunes the audit log by the same retention (TC-0211)
+  - [ ] AC-0433: the fake-ingest stack writes, indexes and sweeps audio end to end with every failure mode of the plan's Review Focus covered and mutation-checked, and the threat model, `.env.example`, memory files, changelog and progress describe A2a; voice stays dark behind `VOICE_ENABLED=0` (TC-0212)
+Notes: Slice A2a of EPIC-0003 part A (spec docs/superpowers/specs/2026-11-09-voice-a2a-audio-store-design.md; plan docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md, ACs AC-a to AC-h in order: settings and identity, paths and index, disk guard, consent rule and store, worker integration, control audit and alerts, sweep, end to end and documents). Filed 2026-11-11 from the registry. Replay, manual delete, `audio.played`, `deleted` index lines and the console panel are slice A2b, not filed. Task 1 adds the additive `suffix` option to `SessionLock` and the `@acr/runtime/files` export (the speech import guard allows exactly that subpath). Dark behind `VOICE_ENABLED=0`.
+```
+
+```
+TASK-0109 (US-0073): Build the voice audio store and its sweep (slice A2a)
+Type: Dev
+Assignee: Agent
+Status: Planned
+Branch: feature/EPIC-0003-US-0073-voice-audio-store
+Notes: Plan: docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md (Tasks 1 to 11: the shared lock export with the `suffix` option, settings, the identity hand-off, paths and the index file, the disk guard, the consent rule and `AudioStore`, the pipeline hook, worker `pending` segments, the store and lock wiring, control's alerts and audit log, the sweep core, orphans and scheduler, end to end and mutation checks, documents and close-out). Covers AC-0426 to AC-0433 (TC-0205 to TC-0212).
+```

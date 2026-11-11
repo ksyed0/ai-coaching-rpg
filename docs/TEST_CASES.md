@@ -3128,3 +3128,117 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-09. Not run by the agents (no container, image pull or real service in this slice); the owner runs it.
+
+## US-0073: voice audio store (EPIC-0003 voice A2a)
+
+TC-0205: Settings validate and the runtime's ready hands over the identity
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0426
+Type: Unit
+Preconditions: From `services/control` and `services/speech`: the config tests for the audio settings and the identity tests for `ready`.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: Defaults, ranges and absolute-path rules hold in both services; a bad value is refused naming the variable only; the worker learns a 32-hex identity from `ready` and no path is built before it.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
+
+TC-0206: Audio paths and the index file are safe
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427
+Type: Security
+Preconditions: A private temporary directory as `AUDIO_DIR`.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: Ids containing `..`, a separator or upper-case hex are refused before any join; a symlinked `AUDIO_DIR` or role folder is refused; a group-writable folder is repaired or refused; modes are `0700` and `0600`; a torn last index line is skipped.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
+
+TC-0207: The disk guard stops writes and resumes
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0428
+Type: Functional
+Preconditions: A fake free-space probe.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: Under `AUDIO_MIN_FREE_MB` (or an unreadable measure) nothing is written, `store_stopped` and one alert follow, and writing resumes when space returns.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
+
+TC-0208: Only consented outcomes keep audio
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0429
+Type: Security
+Preconditions: A fake pipeline with accepted, `empty`, `stt_failed`, `paused`, `not_in_scene`, `failed`, `ended`, `not_started` and timeout outcomes.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: Exactly the allowlisted outcomes write a WAV (16 kHz mono 16-bit) and an index line; every other outcome and an opt-out or reissue during a pending segment writes nothing; a crash between the WAV and its index line is repaired.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
+
+TC-0209: The speech worker holds the store lock and keeps pending segments
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0430
+Type: Functional
+Preconditions: Fake lock and runtime answers.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: The `<logIdentity>.store.lock` is held through `SessionLock.acquire` with a suffix, a refused acquire retries and alerts, pending segments are capped and dropped at `gate.update`, and the speech import guard allows only `@acr/runtime/files`.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
+
+TC-0210: Control audits the store without keeping any content
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0431
+Type: Security
+Preconditions: A private audit directory.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: Alert codes and `store_stopped` reach `<logIdentity>.audio-audit.jsonl` under its own lock, with `v: 1` and `ts` only; a failed append is retried; no text, audio or transcript is ever written.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
+
+TC-0211: The sweep deletes only what it may
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0432
+Type: Functional
+Preconditions: Directories for live, dead, foreign and malformed identities and a fake clock.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: Only expired audio and crash orphans under hex-32 identities with no live store lock are deleted, atomically; a live worker's directory, a symlink and a non-hex name are left alone; the sweep runs with `VOICE_ENABLED=0`; the audit log is pruned by retention.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
+
+TC-0212: Audio retention works end to end and is documented
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0433
+Type: Regression
+Preconditions: The fake-ingest stack and the branch's documents.
+Steps:
+  1. Run the tests the plan names for this group (docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md).
+Expected Result: Write, index and sweep work end to end; each Review Focus failure mode has a test that fails under its mutation; the threat model, `.env.example`, memory files, changelog and progress describe A2a; `VOICE_ENABLED` stays `0` by default.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story.
