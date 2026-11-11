@@ -1,6 +1,6 @@
 import path from "node:path";
 import { isSafeId } from "@acr/events";
-import { EXIT_LIVEKIT_LOST, WorkerMessageSchema, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
+import { EXIT_LIVEKIT_LOST, WorkerMessageSchema, isLowerHex, type ControlToWorker, type WorkerMessage } from "@acr/speech/protocol";
 import type { ControlConfig } from "../config.js";
 import type { ChildMessage, ParentMessage, VoiceAlertCode } from "../protocol.js";
 import type { SetTimer } from "../supervisor.js";
@@ -37,13 +37,15 @@ type Seats = Extract<ChildMessage, { type: "voice_seats" }>;
 
 /** `stable` cancels the RESTART_STABLE_MS timer armed at `worker_ready` (it resets the session's failure count). */
 type Pending = { cancel: () => void; startMs: number; endMs: number };
-type Worker = { handle: WorkerHandle; ready: boolean; exited: boolean; stopping: boolean; stable?: () => void };
+type Worker = { handle: WorkerHandle; /** US-0073: the log identity it was spawned with (undefined: no audio). */ identity?: string; ready: boolean; exited: boolean; stopping: boolean; stable?: () => void };
 type Session = {
   worker?: Worker;
   /** US-0071 (A1b Task 8): unexpected worker exits (and failed spawns) in a row; reset after a worker was ready for RESTART_STABLE_MS. */
   failures: number;
   /** US-0071: voice is off for the session after RESTART_TRIES failed restarts in a row: no worker is ever started again. */
   voiceOff: boolean;
+  /** US-0073: the session's audio-store identity (exactly 32 lower-case hex), from the runtime's `ready`; absent: no audio is recorded. */
+  logIdentity?: string;
   /** US-0071: the player roles of the last attach (a timer respawn uses them). */
   roles: string[];
   /** US-0071: cancels the pending restart timer; absent when none is pending. */
@@ -149,10 +151,25 @@ export class VoiceHost {
     return s;
   }
 
-  attach(sessionId: string, ready: { voice?: true; roles: string[] }): void {
+  /**
+   * US-0073: the runtime's `ready.logIdentity`, handed over synchronously at `ready` (before the supervisor's async player lookup), so a
+   * `voice_choice` or `voice_seats` arriving before `attach` already has it. Kept only when exactly 32 lower-case hex, else cleared.
+   * May create the session's entry, as a `voice_seats` can. Never throws.
+   */
+  setIdentity(sessionId: string, logIdentity: unknown): void {
+    try {
+      if (this.closed) return;
+      const s = this.session(sessionId);
+      if (isLowerHex(logIdentity, 32)) s.logIdentity = logIdentity as string;
+      else delete s.logIdentity;
+    } catch (err) { this.failed(sessionId, err); }
+  }
+
+  attach(sessionId: string, ready: { voice?: true; roles: string[]; logIdentity?: string }): void {
     if (this.closed) return;
     const s = this.session(sessionId);
     s.runtimeUp = true;
+    this.setIdentity(sessionId, ready.logIdentity); // the same validation as at `ready`, so both paths agree
     if (ready.voice === true && !s.ended && this.o.tokens) {
       try {
         this.o.tokens.openSession(sessionId);
@@ -165,7 +182,10 @@ export class VoiceHost {
     // else voice can reach it.
     this.tellAvailability(sessionId, s, true);
     // US-0071 (Task 8): the worker re-attaches without the runtime's help: a ready worker gets the current state at every runtime ready.
-    if (s.worker) { this.pushState(sessionId, s); return; }
+    if (s.worker) {
+      if (s.worker.identity === s.logIdentity) { this.pushState(sessionId, s); return; }
+      this.retireWorker(sessionId, s); // US-0073: the new runtime has another log identity: the kept worker would record into the old one
+    }
     if (s.voiceOff || s.restart) return; // off for good, or a restart is already waiting for its backoff (it uses these roles)
     // US-0072 (A1c Task 11): during a LiveKit outage (or while the probe that decides one is out) nothing is spawned: the recovery
     // spawns with these roles. The runtime was told `available: false` just above.
@@ -199,18 +219,37 @@ export class VoiceHost {
     else if (healthy && was === false) this.alert(sessionId, "stt_recovered");
   }
 
+  /**
+   * US-0073: stops the session's kept worker because the new runtime's log identity differs (a clean stop, not a failure: nothing
+   * counts toward RESTART_TRIES and no alert). The worker is detached from the session at once (its messages are ignored, its slots and
+   * pending lines go), told to stop, and forced after graceMs; the caller then spawns the new one.
+   */
+  private retireWorker(sessionId: string, s: Session): void {
+    const w = s.worker;
+    if (!w) return;
+    w.stopping = true;
+    w.stable?.();
+    delete s.worker;
+    this.slots.releaseAll(sessionId);
+    this.failPending(s);
+    try { w.handle.kill(); } catch { /* already gone */ }
+    this.o.setTimer(() => { if (!w.exited) { try { w.handle.forceKill(); } catch { /* already gone */ } } }, this.o.config.graceMs);
+    this.tellAvailability(sessionId, s);
+  }
+
   /** Forks the session's worker with the last attach's roles; a spawn that throws counts as a failure (US-0071, Task 8). */
   private spawnWorker(sessionId: string, s: Session): void {
     let handle: WorkerHandle;
+    const identity = s.logIdentity; // US-0073: absent or invalid: the worker records no audio
     try {
-      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
+      handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles, identity === undefined ? {} : { logIdentity: identity, sessionsDir: this.o.config.sessionsDir }), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
     } catch (err) {
       this.o.log(`session ${sessionId} speech worker could not start (${err instanceof Error ? err.name : "error"})`);
       this.tellAvailability(sessionId, s);
       this.workerFailed(sessionId, s);
       return;
     }
-    const w: Worker = { handle, ready: false, exited: false, stopping: false };
+    const w: Worker = { handle, ready: false, exited: false, stopping: false, ...(identity === undefined ? {} : { identity }) };
     s.worker = w;
     handle.onMessage((raw) => { try { this.fromWorker(sessionId, w, raw); } catch (err) { this.failed(sessionId, err); } });
     handle.onExit((code) => { try { this.workerExited(sessionId, w, code); } catch (err) { this.failed(sessionId, err); } });

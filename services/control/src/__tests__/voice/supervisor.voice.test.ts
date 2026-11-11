@@ -216,7 +216,7 @@ describe("Supervisor and LiveKit tokens (US-0071, A1b Task 5)", () => {
     const calls: string[] = [];
     let answer: () => Promise<{ token: string; expiresAt: number }> = async () => ({ token: "jwt", expiresAt: 5 });
     const link = {
-      attach: () => {}, fromRuntime: () => {}, detach: () => {}, end: () => {}, shutdown: async () => {},
+      attach: () => {}, setIdentity: () => {}, fromRuntime: () => {}, detach: () => {}, end: () => {}, shutdown: async () => {},
       voiceToken: (id: string, roleId: string, participantId: string) => { calls.push(`token ${id === "" ? "?" : "id"} ${roleId} ${participantId}`); return answer(); },
       roleReissued: (_id: string, roleId: string) => { calls.push(`reissued ${roleId}`); },
     };
@@ -312,5 +312,26 @@ describe("Supervisor and a LiveKit outage (US-0072, A1c Task 11)", () => {
     workers[1]!.emit({ type: "worker_ready", stt: "ok" });
     expect(c.voice.filter((m) => m.type === "voice_availability").at(-1)).toEqual({ type: "voice_availability", available: true, off: false });
     expect(workers[1]!.sent.at(-1)).toMatchObject({ type: "voice_state", holders: [{ roleId: "cfo", participantId: "p1" }] });
+  });
+});
+
+describe("Supervisor hands the runtime's logIdentity to the VoiceHost (US-0073, A2a Task 3)", () => {
+  it("setIdentity is called at ready, before attach (which carries the same identity)", async () => {
+    const calls: string[] = [];
+    const link = {
+      setIdentity: (_id: string, v: unknown) => { calls.push(`identity ${String(v)}`); },
+      attach: (_id: string, r: { logIdentity?: string }) => { calls.push(`attach ${r.logIdentity}`); },
+      fromRuntime: () => {}, detach: () => {}, end: () => {}, shutdown: async () => {},
+      voiceToken: async () => ({ token: "j", expiresAt: 1 }), roleReissued: () => {},
+    };
+    const sup = new Supervisor({ config, list, scenarios: async () => [{ id: "other", title: "Other" }], spawn, setTimer, now: () => 1234, log: () => {}, voice: () => link } as ConstructorParameters<typeof Supervisor>[0]);
+    const p = sup.create("other");
+    await settle();
+    const c = children.at(-1)!;
+    c.emit({ type: "codes", codes: CODES });
+    c.emit({ ...READY, voice: true, logIdentity: "0123456789abcdef0123456789abcdef" });
+    await p;
+    await settle();
+    expect(calls).toEqual(["identity 0123456789abcdef0123456789abcdef", "attach 0123456789abcdef0123456789abcdef"]);
   });
 });

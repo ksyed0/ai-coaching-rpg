@@ -781,3 +781,79 @@ describe("the room-test timing record (US-0072, A1c Task 12)", () => {
     expect(logs.join("\n")).not.toContain("/secret/path");
   });
 });
+
+describe("VoiceHost log identity hand-off (US-0073, A2a Task 3)", () => {
+  const IDENT = "0123456789abcdef0123456789abcdef";
+  const OTHER = "fedcba9876543210fedcba9876543210";
+  const makeAudio = () => new VoiceHost({
+    spawn, config: { ...config, ...AI_CONFIG, sessionsDir: "/data/sessions" }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", AUDIO_DIR: "/data/audio", SPEECH_LOG_IDENTITY: "e".repeat(32) }, log: (m) => logs.push(m),
+    setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+    toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
+  });
+
+  it("a valid identity from attach reaches the worker env with the sessions dir; AUDIO_DIR comes from the parent env", () => {
+    const v = makeAudio();
+    v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: IDENT });
+    expect(workers[0]!.env.SPEECH_LOG_IDENTITY).toBe(IDENT);
+    expect(workers[0]!.env.SPEECH_SESSIONS_DIR).toBe("/data/sessions");
+    expect(workers[0]!.env.AUDIO_DIR).toBe("/data/audio");
+  });
+
+  it("the identity set at ready (before attach) is used by the spawn", () => {
+    const v = makeAudio();
+    v.setIdentity(ID, IDENT);
+    v.attach(ID, { voice: true, roles: ["tech_lead"] , logIdentity: IDENT });
+    expect(workers).toHaveLength(1);
+    expect(workers[0]!.env.SPEECH_LOG_IDENTITY).toBe(IDENT);
+  });
+
+  it.each([["../x"], ["A".repeat(32)], ["a".repeat(31)], ["a".repeat(33)], [""], [42], [undefined]])("an invalid identity (%j) records no audio: no SPEECH_LOG_IDENTITY, voice still attaches", (bad) => {
+    const v = makeAudio();
+    v.setIdentity(ID, bad);
+    v.attach(ID, { voice: true, roles: ["tech_lead"], ...(typeof bad === "string" ? { logIdentity: bad } : {}) });
+    expect(workers).toHaveLength(1);
+    expect(workers[0]!.env.SPEECH_LOG_IDENTITY).toBeUndefined();
+    expect(workers[0]!.env.SPEECH_SESSIONS_DIR).toBeUndefined();
+    ready(workers[0]!);
+    expect(v.workerPid(ID)).toBe(4242);
+  });
+
+  it("a voice_choice (and voice_seats) between ready and attach does not lose the identity (it is stored at ready, before attach)", () => {
+    const v = makeAudio();
+    v.setIdentity(ID, IDENT);
+    v.fromRuntime(ID, { type: "voice_choice", roleId: "tech_lead", participantId: "p-secret-1", choice: "voice", at: 5 });
+    v.fromRuntime(ID, seats());
+    expect(workers).toEqual([]); // nothing spawns before attach
+    v.attach(ID, { voice: true, roles: ["tech_lead"] , logIdentity: IDENT });
+    expect(workers[0]!.env.SPEECH_LOG_IDENTITY).toBe(IDENT);
+  });
+
+  it("a runtime restart with the SAME identity keeps the worker", () => {
+    const v = makeAudio();
+    v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: IDENT });
+    const w = workers[0]!; ready(w);
+    v.detach(ID);
+    v.setIdentity(ID, IDENT);
+    v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: IDENT });
+    expect(workers).toHaveLength(1);
+    expect(w.killed).toBe(0);
+  });
+
+  it("a runtime restart with a DIFFERENT identity stops the kept worker and respawns it with the new one, without counting a failure", () => {
+    const v = makeAudio();
+    v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: IDENT });
+    const w1 = workers[0]!; ready(w1);
+    v.detach(ID);
+    v.setIdentity(ID, OTHER);
+    v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: OTHER });
+    expect(w1.killed).toBe(1);
+    expect(workers).toHaveLength(2);
+    expect(workers[1]!.env.SPEECH_LOG_IDENTITY).toBe(OTHER);
+    w1.exit(0); // the old worker's exit is a clean stop: no restart, no alert
+    expect(workers).toHaveLength(2);
+    expect(toRuntime.some((x) => x.m.type === "voice_alert")).toBe(false);
+    // no failure was counted: RESTART_TRIES + 1 failures are still needed to turn voice off
+    for (let i = 0; i < 6; i++) { workers.at(-1)!.exit(1); for (const t of timers.filter((x) => !x.cancelled && x.ms !== 700)) { t.cancelled = true; t.fn(); } }
+    expect(toRuntime.filter((x) => x.m.type === "voice_alert" && (x.m as { code: string }).code === "voice_off")).toHaveLength(1);
+  });
+});
