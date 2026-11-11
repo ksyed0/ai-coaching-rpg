@@ -110,6 +110,11 @@ const StoreStopped = z.strictObject({ type: z.literal("store_stopped"), reason: 
 
 /** The runtime must answer a voice line within this; otherwise control tells the worker `refused: "failed"`. */
 export const VOICE_LINE_TIMEOUT_MS = 10_000;
+/**
+ * At most this many voice lines wait for the runtime per session: control refuses a line beyond it at once (the runtime is far behind),
+ * and the worker (US-0073) holds at most this many segments' audio waiting for an answer, dropping the oldest unwritten beyond it.
+ */
+export const MAX_PENDING_LINES = 256;
 
 export const WorkerMessageSchema = z.discriminatedUnion("type", [
   WorkerReady, VoiceLine, SpeechActivity, SegmentFailed, LiveKitTokenRequest, LiveKitStatus, SttHealth, SttSlotRequest, SttSlotRelease, StoreStopped,
