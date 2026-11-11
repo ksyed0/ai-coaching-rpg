@@ -78,7 +78,7 @@ function makeLevel(dir: string): void {
 }
 
 /** Checks `audioDir` itself: `lstat`ed BEFORE `ensurePrivateDir`, because that helper follows links and chmods a group-writable folder. */
-function ensureAudioDir(audioDir: string): void {
+export function ensureAudioRoot(audioDir: string): void {
   let st;
   try { st = lstatSync(audioDir); } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new StorePathError("audio directory unreadable");
@@ -94,7 +94,7 @@ function ensureAudioDir(audioDir: string): void {
  */
 export function ensureSessionDir(audioDir: string, identity: string): string {
   const session = sessionDir(audioDir, identity);
-  ensureAudioDir(audioDir);
+  ensureAudioRoot(audioDir);
   makeLevel(session);
   return session;
 }

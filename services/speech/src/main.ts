@@ -7,6 +7,7 @@ import type { AudioIngest } from "./ingest/audio-ingest.js";
 import { LiveKitIngest, type LiveKitJoinInfo } from "./ingest/livekit-ingest.js";
 import type { RoomPort } from "./ingest/room-port.js";
 import { SlotSpeechToText, newSlotId } from "./slot-stt.js";
+import { openStore } from "./store/store-setup.js";
 import { startWorker, type RunningWorker } from "./worker.js";
 
 /** After the parent's IPC channel closes: exit this long later whatever happens (a hung stop must not leave an orphan). */
@@ -66,6 +67,11 @@ async function main(): Promise<void> {
     try { const fake = loadFakeScript(cfg.stt.scriptFile); stt = (roleId) => fake.sttFor(roleId); }
     catch (err) { console.error(`error: ${err instanceof Error ? err.message : "STT_FAKE_SCRIPT is not readable"}`); process.exit(2); }
   }
+  // US-0073 (A2a Task 7c): the audio store, behind its lock. Awaited BEFORE startWorker: after a control restart the old worker may hold
+  // the lock for up to ~35 s, and only then is readiness (sent by startWorker after the STT warm-up) delayed; a failed acquire never
+  // blocks the worker (it becomes transcript-only and `store_stopped` is sent). The lock is released only after the worker's last write.
+  const opened = cfg.store ? await openStore({ cfg: cfg.store, now: Date.now, send, sleep: realSleep }) : undefined;
+  const releaseStore = (): void => { opened?.release(); };
   let makeIngest: ((deps: { join: (roleId: string) => Promise<LiveKitJoinInfo> }) => AudioIngest) | undefined;
   let worker: RunningWorker | undefined;
   if (cfg.ingest.kind === "livekit") {
@@ -74,15 +80,16 @@ async function main(): Promise<void> {
     catch (err) { console.error(`error: the LiveKit client could not be loaded (${err instanceof Error ? err.name : "error"})`); process.exit(2); }
     const lost = (): void => {
       console.error("speech LiveKit ingest stopped; exiting for a restart");
-      void (worker?.stop() ?? Promise.resolve()).catch(() => undefined).finally(() => process.exit(EXIT_LIVEKIT_LOST));
+      void (worker?.stop() ?? Promise.resolve()).catch(() => undefined).finally(() => { releaseStore(); process.exit(EXIT_LIVEKIT_LOST); });
     };
     makeIngest = ({ join }) => new LiveKitIngest({
       room: port, join, setTimer: realSetTimer,
       onStatus: (state) => { send({ type: "livekit_status", state }); if (state !== "connected") lost(); },
     });
   }
-  worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}), ...(slots ? { onSlotGrant: slots.granted.bind(slots), healthPoll: true } : {}) });
+  worker = startWorker({ cfg, send, now: Date.now, stt, pace: realtimePace(Date.now), log: (m) => console.error(m), setTimer: realSetTimer, ...(makeIngest ? { makeIngest } : {}), ...(opened ? { store: opened.store } : {}), ...(slots ? { onSlotGrant: slots.granted.bind(slots), healthPoll: true } : {}) });
   const running = worker;
+  void running.done.then(releaseStore, releaseStore); // the end was handled: the last write and markEnded have happened
   process.on("message", (raw: unknown) => {
     const m = ControlToWorkerSchema.safeParse(raw);
     if (m.success) running.onControl(m.data);
@@ -92,9 +99,9 @@ async function main(): Promise<void> {
     if (leaving) return;
     leaving = true;
     setTimeout(() => process.exit(0), HARD_EXIT_MS).unref();
-    void running.stop().catch(() => undefined).finally(() => process.exit(0));
+    void running.stop().catch(() => undefined).finally(() => { releaseStore(); process.exit(0); });
   });
-  process.on("SIGTERM", () => { void running.stop().catch(() => undefined).finally(() => process.exit(0)); });
+  process.on("SIGTERM", () => { void running.stop().catch(() => undefined).finally(() => { releaseStore(); process.exit(0); }); });
 }
 
 // Only run when executed directly (tsx src/main.ts), never on import.

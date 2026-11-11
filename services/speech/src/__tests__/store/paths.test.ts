@@ -3,7 +3,7 @@ import { vi } from "vitest";
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { StorePathError, ensureRoleDir, ensureSessionDir, storeFsHooks, roleDir, segmentFile, sessionDir } from "../../store/paths.js";
+import { StorePathError, ensureAudioRoot, ensureRoleDir, ensureSessionDir, storeFsHooks, roleDir, segmentFile, sessionDir } from "../../store/paths.js";
 
 /** US-0073 (voice A2a, Task 4): path building validates every id and stays inside the audio directory; folders are private and never links. */
 const ID = "0123456789abcdef0123456789abcdef";
@@ -137,5 +137,14 @@ describe("ensureSessionDir", () => {
   it("test_a_bad_identity_throws_before_touching_the_disk", () => {
     expect(() => ensureSessionDir(audio, "NOPE")).toThrow(StorePathError);
     expect(() => lstatSync(audio)).toThrow();
+  });
+});
+
+describe("ensureAudioRoot", () => {
+  it("test_creates_the_audio_folder_0700_and_is_idempotent_and_refuses_a_link", () => {
+    ensureAudioRoot(audio); ensureAudioRoot(audio);
+    expect(lstatSync(audio).mode & 0o777).toBe(0o700);
+    const link = path.join(root, "link"); symlinkSync(audio, link);
+    expect(() => ensureAudioRoot(link)).toThrow(StorePathError);
   });
 });
