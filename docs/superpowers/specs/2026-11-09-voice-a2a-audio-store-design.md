@@ -1,6 +1,6 @@
 # Voice slice A2a: the audio store, disk guard and retention sweep (design)
 
-Status: Draft 2 (2026-11-09), after an independent Opus review of Draft 1 against the code (3 Critical, 10 Important findings, all incorporated below) and the owner's lock decision (section 3). Parent: `2026-11-08-voice-part-a-design.md` section 8 and the overview's contracts 1, 5 and 6. Proposed story: US-0073a (EPIC-0003), dark behind `VOICE_ENABLED`.
+Status: Draft 3 (2026-11-11; Draft 2 owner-approved 2026-11-09; Draft 3 narrows the keep-rule to an allowlist after the plan review), after an independent Opus review of Draft 1 against the code (3 Critical, 10 Important findings, all incorporated below) and the owner's lock decision (section 3). Parent: `2026-11-08-voice-part-a-design.md` section 8 and the overview's contracts 1, 5 and 6. Proposed story: US-0073a (EPIC-0003), dark behind `VOICE_ENABLED`.
 
 ## 1. Intent
 
@@ -18,11 +18,12 @@ One WAV per segment (16 kHz mono 16-bit PCM, at most about 200 KB: a segment is 
 | --- | --- | --- |
 | Line accepted (`seq`) | kept | `transcribed`, with `seq` |
 | Refused: `not_recording`, `not_holder`, `voice_off`, `ai_role`, `unknown_role` (consent or seat class) | **never written** | none |
-| Other refusal (for example paused or between scenes) | kept | `refused:<code>` |
+| `paused`, `not_in_scene` (a timing refusal; consent was shown) | kept | `refused:<code>` |
+| Every other refusal (`failed`, `ended`, `not_started`, any code added later; control turns its own timeout and a runtime exit into `failed`) | **never written** | none |
 | `empty`, `stt_failed` (no line sent; the worker's gate already passed) | kept | `empty`, `stt_failed` |
 | No answer by `VOICE_LINE_TIMEOUT_MS` | **never written** (consent cannot be shown) | none |
 
-The exact refusal codes are taken from `VOICE_REFUSALS` in `services/speech/src/protocol.ts:125`; the plan lists them and a test fails when a code is added without a row here. Parent spec section 7's "audio follows normal retention" for refused segments is narrowed to the non-consent refusals; recorded as a deviation.
+The exact refusal codes are taken from `VOICE_REFUSALS` in `services/speech/src/protocol.ts:125`; the plan lists them and a test fails when a code is added without a row here. Parent spec section 7's "audio follows normal retention" for refused segments is narrowed to an allowlist (`paused`, `not_in_scene`); recorded as a deviation. Audio written before a participant opts out stays until expiry or the A2b manual delete.
 
 ## 3. Components
 
