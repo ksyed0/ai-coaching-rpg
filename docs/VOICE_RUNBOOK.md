@@ -128,13 +128,20 @@ Push-to-talk comes with slice A3.
 
 ## 7. Backups
 
-Exclude the audio folder (`AUDIO_DIR`, used from A2; default `<CONTROL_DATA_DIR>/audio`) and `VOICE_STATE_DIR` from Time Machine and any other backup. The owner runs:
+Exclude the audio folder (`AUDIO_DIR`, written by the speech worker since slice A2a; default `<CONTROL_DATA_DIR>/audio`) and `VOICE_STATE_DIR` from Time Machine and any other backup. The owner runs:
 
 ```
 tmutil addexclusion <dir>
 ```
 
 `voice:check` reports whether each folder is excluded. Deleting a recording never reaches a backup, which is what the consent notice v3 says.
+
+### Where the audio lives, how long, and the disk floor
+
+- **Where.** `<AUDIO_DIR>/<logIdentity>/<role>/<segment>.wav` (16 kHz mono WAV), an `index.jsonl` per role and `<logIdentity>/ended.json`. Beside the folders: `<logIdentity>.store.lock`, `<logIdentity>.audio-audit.jsonl` (ids and labels only, never text) and `<logIdentity>.audio-audit.lock`. Everything is private to the user running the control service (folders 0700, files 0600). The index lines of accepted lines hold the transcript text, so treat the folder like the session log. Nothing in A2a plays or lists audio: replay and manual delete are slice A2b.
+- **What is kept.** A WAV is written only after the runtime has answered the line: for an accepted line, an empty or failed transcription, and a line refused only for timing (`paused`, `not_in_scene`). Nothing is written for any other refusal, for a line that gets no answer in time, or for a participant who opted out while the line waited. Audio recorded before someone opts out stays until it expires (there is no manual delete until A2b).
+- **How long.** The control service's sweep runs at start-up and then hourly, even with `VOICE_ENABLED=0`, and deletes a session's folder `AUDIO_MAX_RETENTION_DAYS` (1 to 30, default 30) after the session ended (the time in `ended.json`; with no marker, 24 hours after the last recorded segment). It skips a session whose speech worker is still running (the store lock) and writes one `audio.deleted` line to the audit file before removing a folder. The audit file is not deleted with the audio.
+- **The disk floor.** The worker stops recording when free space on the audio volume or on the sessions volume is not above `AUDIO_MIN_FREE_MB` (default 2048) plus the next file. `voice:check` reports free space for the audio folder and the state folder against the same floor; it does not look at the sessions volume.
 
 ## 8. When something fails
 
@@ -148,6 +155,10 @@ tmutil addexclusion <dir>
   - Known log noise while LiveKit is down: each seat room's periodic clean-up logs a failed call every 20 s (a follow-up; no fault).
 - **A LiveKit that keeps dying right after each recovery.** A loss within 60 s of a recovery counts as a fault. After five such cycles voice is off for the session ("Voice input is off for this session after repeated faults.").
 - **A stale LiveKit alert while LiveKit flaps faster than every 30 s.** The runtime raises each alert code at most once every 30 s, so a `livekit_lost` or `livekit_recovered` within 30 s of the previous one of the same code is dropped. The console can then show an out-of-date LiveKit message. Trust the voice availability on the pages, which is never rate limited.
+- **The facilitator console shows "Recording stopped: the disk is nearly full. The transcript continues." (`disk_low`).** Recording stopped for that session's speech worker and does not restart by itself, even when space returns; voice input and the transcript carry on. Free space on the audio volume and on the volume of `SESSION_DATA_DIR` (the guard watches both; `pnpm voice:check` reports the audio folder and the state folder only, not the sessions folder), then end the session: the next session's worker checks again. Each stop is a `voice.recording_stopped` line in the audit file. Audio already written stays and expires normally.
+- **The console shows "Recording stopped: audio could not be saved. The transcript continues." (`write_error`).** The audio folder could not be written (a permission, a link or a foreign owner in its place, a full or read-only volume, or the store lock was lost). Check that `AUDIO_DIR` is a real folder owned by the user running control and not writable by others, then end the session; a new worker tries again. Voice input and the transcript carry on.
+- **A voice session is slow to start after the control service restarts.** The previous speech worker may still hold the session's store lock for up to about 35 seconds; the new worker waits for it before it reports ready. Nothing to do.
+- **Audio is still there after 30 days.** The sweep only deletes a session whose lock it can take and whose end time is at least `AUDIO_MAX_RETENTION_DAYS` old. A session that never recorded an end is judged by its last segment plus 24 hours. A folder whose recorded times lie in the future never expires (a known limit). The service log says "audio sweep could not remove a folder" when a removal fails; the next run retries it.
 - **Voice off after repeated faults.** Voice stays off for that session; start a new session.
 - **The certificate expires soon.** `voice:check` warns under 21 days. Renew the files, then run `pnpm voice:down` and `pnpm voice:up`.
 - **"the node address changed since voice:up".** Run `pnpm voice:down`, then `pnpm voice:up`.
@@ -260,7 +271,8 @@ Run on the pilot laptop, in this order. Ask before each item marked **approval**
    - try `cap_drop: [ALL]` and `read_only: true` on LiveKit once, in a scratch copy of `voice.yml`.
 
 9. **Real timing numbers.** One short room-test run (section 9) with `VOICE_TIMING_LOG=1`, read with `pnpm voice:timings`.
-10. **Clean-up.**
+10. **Audio (A2a).** With one person joined by voice and the owner's approval to record: say two sentences, end the session, then in `AUDIO_DIR` check with `ls -lR` that the identity folder, the role folder and the index and WAV files are 0700 and 0600, that `ended.json` exists, and that `<logIdentity>.audio-audit.jsonl` holds an opt-in line and no text. Restart the control service during a second session and confirm the first session's audio is untouched. On a throwaway session folder only (with approval), set `endedAtMs` in its `ended.json` more than `AUDIO_MAX_RETENTION_DAYS` days back, restart control and confirm the folder is removed and the audit file gains exactly one `audio.deleted` line. Read the notice wording against the opt-out behaviour (audio recorded before an opt-out stays until expiry). Record the results (TC-0218).
+11. **Clean-up.**
     - Run `pnpm voice:down`.
     - Run `docker compose -p scenecoach-voice ps -a`; it must show nothing.
     - Confirm the state directory holds no `livekit.env`.

@@ -73,7 +73,7 @@ Read by `services/voice-ops` only (from the root `.env` merged UNDER the real en
 | `VOICE_TLS_MODE` | voice-ops (`lan`) | `files` | `files` (with `VOICE_TLS_CERT_FILE`, `VOICE_TLS_KEY_FILE`, absolute) or `dns` (with `VOICE_DNS_PROVIDER`; refused by `voice:up` in A1c: plan Task 13 skipped) |
 | `AUDIO_MIN_FREE_MB` | voice-ops (`voice:check`), control and the speech worker (US-0073) | 2048 | 512 to 1 000 000; invalid stops control and the worker |
 | `AUDIO_DIR` | voice-ops (`voice:check`), control and the speech worker (US-0073) | `<CONTROL_DATA_DIR>/audio` | absolute; control's config refuses a relative path (variable named, never the value) |
-| `AUDIO_MAX_RETENTION_DAYS` | control only (US-0073) | 30 | 1 to 30, whole number; the sweep (a later A2a task) deletes older recordings. Not in the worker's environment |
+| `AUDIO_MAX_RETENTION_DAYS` | control only (US-0073) | 30 | 1 to 30, whole number; control's sweep (at start-up and hourly, whatever `VOICE_ENABLED` is) deletes a session's recordings that long after it ended. Not in the worker's environment |
 | `LIVEKIT_HOST` | control and voice-ops | `http://127.0.0.1:7880` | `voice:up` requires exactly the default (voice.yml publishes the API there) |
 | `VOICE_TIMING_LOG` | control only | 0 | exactly 0 or 1; anything else stops control. 1 appends `<CONTROL_LOG_DIR>/voice-timing.log` |
 

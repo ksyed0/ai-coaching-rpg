@@ -3232,48 +3232,48 @@
       "title": "As the facilitator running a voice pilot, I want the voice audio of each session kept briefly, privately and only where consent allows, so that a disputed line can be checked later without keeping more than needed.",
       "priority": "Medium",
       "estimate": "L",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0003-US-0073-voice-audio-store",
       "acs": [
         {
           "id": "AC-0426",
-          "text": "`AUDIO_DIR`, `AUDIO_MIN_FREE_MB` and `AUDIO_MAX_RETENTION_DAYS` are validated in control's and the speech worker's settings (absolute directory, 512 to 1 000 000 MB, 1 to 30 days; defaults `<CONTROL_DATA_DIR>/audio`, 2048 and 30), and the runtime's `ready` hands the speech worker the session's 32-hex `logIdentity`, which every later path uses (TC-0205)",
-          "done": false
+          "text": "`AUDIO_DIR`, `AUDIO_MIN_FREE_MB` and `AUDIO_MAX_RETENTION_DAYS` are validated in control's and the speech worker's settings (absolute directory, 512 to 1 000 000 MB, 1 to 30 days; defaults `<CONTROL_DATA_DIR>/audio`, 2048 and 30), and the runtime's `ready` hands the speech worker the session's 32-hex `logIdentity`, which every later path uses (TC-0205) ; ticked 2026-11-11: services/control audio-settings.test.ts (defaults, ranges, absolute path, the name-only errors) and config tests; services/speech config.test.ts (`a SPEECH_LOG_IDENTITY that is not 32 lower-case hex is a config error naming the variable only`, `no AUDIO_DIR: no store, voice still works`); control voice-host.test.ts (`VoiceHost log identity hand-off`: valid, set at ready, invalid, restart with the same and with a different identity); speech-env.test.ts (R10: from `extra` only)",
+          "done": true
         },
         {
           "id": "AC-0427",
-          "text": "audio lives under `<AUDIO_DIR>/<logIdentity>/<roleId>/<segment>.wav` with an `index.jsonl` of `v: 1` lines; every id passes `isFileSafeId` and the resolved path stays inside the session directory; directories are `0700`, files `0600` and created exclusively; a symlinked or group-writable `AUDIO_DIR` or role folder is refused or repaired; a torn last index line is tolerated (TC-0206)",
-          "done": false
+          "text": "audio lives under `<AUDIO_DIR>/<logIdentity>/<roleId>/<segment>.wav` with an `index.jsonl` of `v: 1` lines; every id passes `isFileSafeId` and the resolved path stays inside the session directory; directories are `0700`, files `0600` and created exclusively; a symlinked or group-writable `AUDIO_DIR` or role folder is refused or repaired; a torn last index line is tolerated (TC-0206) ; ticked 2026-11-11: speech store/paths.test.ts (layout, bad ids, symlinked, dangling, file-for-folder, repairs 0777, refused when repair fails), paths-containment.test.ts (containment alone), index-file.test.ts (modes, torn line, symlinked index), wav.test.ts, audio-store.test.ts (`test_an_accepted_segment_writes_a_private_wav_and_one_index_line`, `test_an_existing_wav_is_never_overwritten_or_removed`)",
+          "done": true
         },
         {
           "id": "AC-0428",
-          "text": "the store writes nothing when free space is under `AUDIO_MIN_FREE_MB` (or cannot be measured), stops with `store_stopped` and one alert, and starts again when space returns (TC-0207)",
-          "done": false
+          "text": "the store writes nothing when free space is under `AUDIO_MIN_FREE_MB` (or cannot be measured), stops with `store_stopped` and one alert; the worker stays stopped for the rest of its life (no restart inside the same worker) and a respawned worker checks the guard again (TC-0207) ; ticked 2026-11-11: speech store/disk-guard.test.ts (both volumes, the floor, next file, fail closed), audio-store.test.ts (`test_a_failing_guard_stops_with_disk_low_and_writes_nothing`, `test_the_default_guard_watches_both_volumes_with_minFreeMb`), control audio-store.e2e.test.ts (scenario 4: low disk with the real guard sends `store_stopped disk_low` once, no audio, voice lines still go), voice-host.test.ts (`store_stopped %s raises the facilitator alert and audits voice.recording_stopped`)",
+          "done": true
         },
         {
           "id": "AC-0429",
-          "text": "audio is written only for an accepted line, `empty`, `stt_failed` and a runtime refusal of `paused` or `not_in_scene` (an allowlist: `failed`, `ended`, `not_started`, any later code and every timeout write nothing); no file appears when a participant opts out or the seat is reissued while a segment waits; the WAV is 16 kHz mono 16-bit PCM, written before its index line (TC-0208)",
-          "done": false
+          "text": "audio is written only for an accepted line, `empty`, `stt_failed` and a runtime refusal of `paused` or `not_in_scene` (an allowlist: `failed`, `ended`, `not_started`, any later code and every timeout write nothing); no file appears when a participant opts out or the seat is reissued while a segment waits; the WAV is 16 kHz mono 16-bit PCM, written before its index line (TC-0208) ; ticked 2026-11-11: speech store/consent-rule.test.ts (the keep set is exactly `paused` and `not_in_scene`, every other code, an unknown future code and a timeout are not kept), worker-audio.test.ts (answer-first write, each refusal, no answer in time, Review Focus 1: opt-out, reissue and pause while waiting, the 256 cap, `empty` and `stt_failed` at once), control audio-store.e2e.test.ts scenarios 2, 3 and 3b",
+          "done": true
         },
         {
           "id": "AC-0430",
-          "text": "the speech worker holds the store lock `<logIdentity>.store.lock` (made by `SessionLock.acquire` with a `suffix`, via `@acr/runtime/files`), retries and alerts when it cannot, keeps bounded `pending` segments until the runtime answers, drops them at `gate.update`, and the shared lock export keeps the speech import guard to exactly that one subpath (TC-0209)",
-          "done": false
+          "text": "the speech worker holds the store lock `<logIdentity>.store.lock` (made by `SessionLock.acquire` with a `suffix`, via `@acr/runtime/files`), retries and alerts when it cannot, keeps bounded `pending` segments until the runtime answers, drops them at `gate.update`, and the shared lock export keeps the speech import guard to exactly that one subpath (TC-0209) ; ticked 2026-11-11: runtime files-export.test.ts (`test_two_suffixes_for_one_id_coexist`, `test_default_lock_name_unchanged`, `test_files_reexports_the_same_SessionLock`); speech main-store.test.ts (retry window, `store_stopped` once, symlinked folder, `onLost`, two real stores one identity, abort during the wait), main-store.process.test.ts (a real forked worker exits 0 promptly when the parent's channel closes during the lock wait and holds no lock afterwards), imports.test.ts and control bots/imports.test.ts (the speech guard allows exactly `@acr/runtime/files`; control allows exactly six subpaths)",
+          "done": true
         },
         {
           "id": "AC-0431",
-          "text": "control records the store's alerts and `store_stopped` in `<logIdentity>.audio-audit.jsonl` (lines `v: 1` with `ts`, never any text, audio or transcript) under its own lock `<logIdentity>.audio-audit.lock`, retried on failure, and raises the alert codes (TC-0210)",
-          "done": false
+          "text": "control records the store's alerts and `store_stopped` in `<logIdentity>.audio-audit.jsonl` (lines `v: 1` with `ts`, never any text, audio or transcript) under its own lock `<logIdentity>.audio-audit.lock`, retried on failure, and raises the alert codes (TC-0210) ; ticked 2026-11-11: control audit-log.test.ts (one line per event, no text key even when smuggled, order, lock retry 3 times 50 ms, one fixed sentence, malformed identity, symlinked directory, permissions), voice-host.test.ts (`VoiceHost audit log and store alerts`: opted_in with notice v3 and opted_out, R1 before attach, `store_stopped` under the sending worker's identity including a retired worker, no identity no audit), protocol.drift.test.ts and the runtime and web copies tests for `disk_low` and `write_error`",
+          "done": true
         },
         {
           "id": "AC-0432",
-          "text": "a sweep that runs regardless of `VOICE_ENABLED` deletes audio older than `AUDIO_MAX_RETENTION_DAYS` and orphans of a crash, only under identities (32 lower-case hex) whose store lock proves no live worker, atomically and never under a worker that is still flushing after a control restart, and prunes the audit log by the same retention (TC-0211)",
-          "done": false
+          "text": "a sweep that runs regardless of `VOICE_ENABLED` deletes audio older than `AUDIO_MAX_RETENTION_DAYS` and orphans of a crash, only under identities (32 lower-case hex) whose store lock proves no live worker, atomically and never under a worker that is still flushing after a control restart, ; the audit log is never deleted by the sweep (kept as long as the session's log; corrected 2026-11-11: the filed text said it was pruned, contrary to spec section 7) (TC-0211) ; ticked 2026-11-11: control sweep.test.ts (inclusive boundary at 1 and 30 days; the clock: marker, last `endMs` plus 24 h, newest file time, a future time counts as now; refused lock skips, a live worker's lock; rename then audit then remove; one audit line across a failed removal; leftovers finished silently; symlinks never followed; non-hex names and links untouched; runs with `VOICE_ENABLED=0`; orphan cleanup incl. an unreadable, linked or over-64-MiB index removing nothing; the scheduler single-flight, `stop()` and `stopWithin`), main.test.ts (the sweep runs at start with `VOICE_ENABLED=0` and stops at close), audio-store.e2e.test.ts scenarios 5, 5b, 6, 7 and audio-store.e2e.real.test.ts (the forked worker's live lock blocks the sweep)",
+          "done": true
         },
         {
           "id": "AC-0433",
-          "text": "the fake-ingest stack writes, indexes and sweeps audio end to end with every failure mode of the plan's Review Focus covered and mutation-checked, and the threat model, `.env.example`, memory files, changelog and progress describe A2a; voice stays dark behind `VOICE_ENABLED=0` (TC-0212)",
-          "done": false
+          "text": "the fake-ingest stack writes, indexes and sweeps audio end to end with every failure mode of the plan's Review Focus covered and mutation-checked, and the threat model, `.env.example`, memory files, changelog and progress describe A2a; voice stays dark behind `VOICE_ENABLED=0` (TC-0212) ; ticked 2026-11-11: control audio-store.e2e.test.ts (real worker, store, sweep and audit in one process) and audio-store.e2e.real.test.ts (a real runtime child and a real forked speech worker); eight mutation checks each failed a named test and were reverted (the allowlist keeping `failed` or every refusal, the guard skipped, the path containment removed (a test gap, closed by `paths-containment.test.ts`), the id check removed, the sweep treating a refused lock as acquired, the opt-out drop removed); THREAT_MODEL \"Voice audio store, slice A2a\", `.env.example`, `docs/memory`, VOICE_RUNBOOK, CHANGELOG and progress describe A2a; `VOICE_ENABLED` stays `0` by default",
+          "done": true
         }
       ],
       "dependencies": [
@@ -4318,9 +4318,9 @@
       "title": "Build the voice audio store and its sweep (slice A2a)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "Planned",
+      "status": "Done",
       "branch": "feature/EPIC-0003-US-0073-voice-audio-store",
-      "notes": "Plan: docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md (Tasks 1 to 11: the shared lock export with the `suffix` option, settings, the identity hand-off, paths and the index file, the disk guard, the consent rule and `AudioStore`, the pipeline hook, worker `pending` segments, the store and lock wiring, control's alerts and audit log, the sweep core, orphans and scheduler, end to end and mutation checks, documents and close-out). Covers AC-0426 to AC-0433 (TC-0205 to TC-0212)."
+      "notes": "Plan: docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md (Tasks 1 to 11: the shared lock export with the `suffix` option, settings, the identity hand-off, paths and the index file, the disk guard, the consent rule and `AudioStore`, the pipeline hook, worker `pending` segments, the store and lock wiring, control's alerts and audit log, the sweep core, orphans and scheduler, end to end and mutation checks, documents and close-out). Covers AC-0426 to AC-0433 (TC-0205 to TC-0212). Done 2026-11-11 on feature/EPIC-0003-US-0073-voice-audio-store (all ten code tasks and the documents task); the PR into `develop` is not yet opened. Test cases TC-0205 to TC-0212 Pass; TC-0213 to TC-0217 are the edge cases; the owner-run real check (TC-0218) is Not Run."
     }
   ],
   "testCases": [
@@ -6361,7 +6361,7 @@
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0426",
       "type": "Unit",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6371,17 +6371,17 @@
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0427",
       "type": "Security",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
       "id": "TC-0207",
-      "title": "The disk guard stops writes and resumes",
+      "title": "The disk guard stops writes",
       "relatedStory": "US-0073",
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0428",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6391,7 +6391,7 @@
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0429",
       "type": "Security",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6401,7 +6401,7 @@
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0430",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6411,7 +6411,7 @@
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0431",
       "type": "Security",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6421,7 +6421,7 @@
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0432",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6431,6 +6431,66 @@
       "relatedTask": "TASK-0109",
       "relatedAC": "AC-0433",
       "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0213",
+      "title": "The store survives faults at every file step",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0427, AC-0429",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0214",
+      "title": "The consent and containment rules fail the named tests when removed (mutation checks)",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0429, AC-0433",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0215",
+      "title": "Identity change, retired workers and the order of stops",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0426, AC-0431",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0216",
+      "title": "The sweep leaves unsafe and live entries alone, and finishes interrupted deletions",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0432",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0217",
+      "title": "The segment WAV name rule is the shared id rule",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0427, AC-0432",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0218",
+      "title": "Audio retention on the real stack (owner-approved run; not in CI)",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0427, AC-0428, AC-0432",
+      "type": "Functional",
       "status": "Not Run",
       "defect": "None"
     }
@@ -8468,9 +8528,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-11T18:08:18.512Z",
-  "commitSha": "f5e3abc",
-  "buildNumber": "563",
+  "generatedAt": "2026-11-11T19:47:52.521Z",
+  "commitSha": "cc7149d",
+  "buildNumber": "583",
   "branch": "feature/EPIC-0003-US-0073-voice-audio-store",
   "sessionTimeline": [
     {
@@ -8613,7 +8673,7 @@
     }
   },
   "budget": {
-    "totalBudget": 808.4862,
+    "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
     "totalProjected": 13655.8,
     "percentUsed": 99,
@@ -8649,6 +8709,14 @@
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0003",
+        "title": "Slice 3 — voice over LiveKit",
+        "budget": 43.807464,
+        "spent": 43.807464,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
         "budget": 153.32612399999996,
@@ -8663,14 +8731,6 @@
         "spent": 164.27798999999996,
         "remaining": 0,
         "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0003",
-        "title": "Slice 3 — voice over LiveKit",
-        "budget": 44.707464,
-        "spent": 43.807464,
-        "remaining": 0.8999999999999986,
-        "percentUsed": 98
       },
       {
         "id": "EPIC-0007",
@@ -8708,9 +8768,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Sep 23",
+    "likelyDate": "Sep 24",
     "rangeStart": "Jul 22",
-    "rangeEnd": "Nov 25",
+    "rangeEnd": "Nov 26",
     "velocityWeeks": 6,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.1
@@ -8718,46 +8778,57 @@
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-11T18:08:18.602Z"
+      "2026-11-11T18:08:18.602Z",
+      "2026-11-11T19:47:52.607Z"
     ],
     "doneCounts": [
       0,
+      6,
       6
     ],
     "totalStories": [
       13,
+      73,
       73
     ],
     "aiCosts": [
       54.2322,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null
     ],
     "velocity": [
       0,
+      29,
       29
     ],
     "openBugs": [
       0,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0
     ],
     "inputTokens": [
       3089930,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
+      1.135820895522388,
       1.135820895522388
     ],
     "velocityByWeek": {

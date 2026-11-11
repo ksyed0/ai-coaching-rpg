@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0073               | US-0072           |
-| TASK         | TASK-0109             | TASK-0108         |
-| AC           | AC-0426               | AC-0425           |
-| TC           | TC-0205               | TC-0204           |
+| US           | US-0074               | US-0073           |
+| TASK         | TASK-0110             | TASK-0109         |
+| AC           | AC-0434               | AC-0433           |
+| TC           | TC-0219               | TC-0218           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0044                | L-0043            |
 
@@ -105,3 +105,5 @@ Assigned 2026-11-09 (EPIC-0003 voice A1c, feature/EPIC-0003-US-0072-voice-operat
 Assigned 2026-11-09 (EPIC-0003 voice A1c close-out, feature/EPIC-0003-US-0072-voice-operations): TC-0198..TC-0204 (US-0072 edge cases: the `.env` refusal table, rollback on failure and interrupt, the foreign pid, the outage table, the LAN bind and the proxy pins, the wrapper and the environment, and TC-0204 the owner-run real stack, Not Run); L-0042..L-0043 (lessons: pnpm built-ins before scripts; fetch and the global agent follow an environment proxy).
 
 Assigned 2026-11-11 (EPIC-0003 voice A2a, feature/EPIC-0003-US-0073-voice-audio-store): US-0073 (voice audio store); TASK-0109 (US-0073); AC-0426..AC-0433 (all under US-0073, in the A2a plan's order AC-a to AC-h); TC-0205..TC-0212 (one per AC, in order; edge cases of the plan's Task 10 get the next free ids then). A2b and A3 are not filed. The next US is US-0074, the next AC is AC-0434, the next TC is TC-0213, the next TASK is TASK-0110.
+
+Assigned 2026-11-11 (EPIC-0003 voice A2a close-out, feature/EPIC-0003-US-0073-voice-audio-store): TC-0213..TC-0218 (US-0073 edge and negative cases: faults at every file step of the store, the mutation checks, identity change and retired workers, the sweep's unsafe and live entries, the shared segment-name rule, and TC-0218 the owner-run real stack, Not Run). No new US, TASK, AC or BUG. A2b (replay, manual delete, `audio.played`, `deleted` index lines, the console panel) and A3 (facilitator voice tools) are not filed and their story numbers are not reserved: the next US is US-0074, the next AC is AC-0434, the next TC is TC-0219, the next TASK is TASK-0110, the next L is L-0044.
