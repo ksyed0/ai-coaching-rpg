@@ -93,16 +93,16 @@ function makeLevel(dir: string): void {
 }
 
 /**
- * Checks `audioDir` itself, opening it first: missing, it is created (0700, with its parents) and opened again; a link or a file at
- * that name fails the open and is refused (nothing is ever created through a link).
+ * Checks `audioDir` itself: created first when missing (0700, with its parents; an existing folder is left alone), then opened ONCE
+ * with O_DIRECTORY|O_NOFOLLOW, so a link or a file at that name fails the open and is refused (the path is never probed and then used).
  */
 export function ensureAudioRoot(audioDir: string): void {
-  let fd: number;
-  try { fd = openSync(audioDir, DIR_FLAGS); } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw openError(err, "audio directory");
-    try { mkdirSync(audioDir, { recursive: true, mode: 0o700 }); } catch { throw new StorePathError("audio directory could not be created"); }
-    fd = openRealDir(audioDir, "audio directory");
+  // Create-if-missing first (idempotent: an existing folder, or a link to one, is left alone), then ONE open that refuses a link:
+  // the path is never probed and then used.
+  try { mkdirSync(audioDir, { recursive: true, mode: 0o700 }); } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw new StorePathError("audio directory could not be created");
   }
+  const fd = openRealDir(audioDir, "audio directory");
   try { requireRealOwnDirFd(fd, "audio directory"); } finally { closeSync(fd); }
 }
 

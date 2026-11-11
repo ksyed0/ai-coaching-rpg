@@ -56,12 +56,13 @@ function openError(err: unknown): AuditPathError {
  * (a fixed sentence) on anything unsafe.
  */
 export function ensureAuditRoot(audioDir: string): void {
-  let fd: number;
-  try { fd = openSync(audioDir, DIR_FLAGS); } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw openError(err);
-    try { mkdirSync(audioDir, { recursive: true, mode: 0o700 }); } catch { throw new AuditPathError("audio directory could not be created"); }
-    try { fd = openSync(audioDir, DIR_FLAGS); } catch (again) { throw openError(again); }
+  // Create-if-missing first (idempotent: an existing folder, or a link to one, is left alone), then ONE open that refuses a link:
+  // the path is never probed and then used.
+  try { mkdirSync(audioDir, { recursive: true, mode: 0o700 }); } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw new AuditPathError("audio directory could not be created");
   }
+  let fd: number;
+  try { fd = openSync(audioDir, DIR_FLAGS); } catch (err) { throw openError(err); }
   try {
     let st = fstatSync(fd);
     if (!st.isDirectory()) throw new AuditPathError("audio directory is not a directory");
