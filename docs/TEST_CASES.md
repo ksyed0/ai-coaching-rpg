@@ -3328,3 +3328,117 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-11 (Task 11). Not run by the agents: no real room, real hardware, real disk near the floor or wall-clock retention run exists for A2a. The owner runs it with the room test.
+
+## US-0074: voice audio listing and audited replay (EPIC-0003 voice A2b-1a)
+
+TC-0219: The audio folder records its session before the first WAV
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0434
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/session-marker.test.ts src/__tests__/store/audio-store.test.ts`.
+Expected Result: The first kept segment of a process writes `session.json` `{ v: 1, sessionId }` (0600) before its WAV and a second write does not rewrite it; a skipped or refused segment and a disk-guard stop leave no folder and no marker; a failure at the temp create, the fsync, the rename or the folder fsync stops the store once with `write_error`, leaves no WAV and no temp file; a symlink planted at `session.json` is replaced, never followed.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0434 is done.
+
+TC-0220: The worker requires a valid session id when it stores audio
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0435
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/config.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/speech-env.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: A store configured without `SPEECH_SESSION_ID`, or with `../x`, 65 characters or a NUL, is refused with an error that names only the variable; control sets it from `extra` only and never inherits it from the parent environment.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0435 is done.
+
+TC-0221: The audit log reports success and records audio.played
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0436
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audit-log.test.ts`.
+Expected Result: `append` resolves true after a successful write and false on every failure path (lock, write, bad identity) without rejecting; an `audio.played` line holds exactly `role`, `segment`, `by` plus the common fields, and a smuggled extra key is never written.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0436 is done.
+
+TC-0222: The catalog finds every folder of a session and trusts no bad marker
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0437
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp audio directory.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts`.
+Expected Result: `find` returns every identity whose marker names the session, rescans on each call, and ignores a marker that is missing, torn, a link, of another `v`, larger than 4 KB or naming another session.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0437 is done.
+
+TC-0223: The listing covers every identity and falls back for old folders
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0438
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp store with two identities for one session.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: The listing has the documented shape, never carries `raw`, marks each segment `available`, `deleted` or `missing`, covers both identities, falls back to the session log's `logIdentity` for a folder without a marker, and answers 404 for a session with no audio.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0438 is done.
+
+TC-0224: The segment read is safe, whole and audited before any byte
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0439
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp store.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.test.ts`.
+Expected Result: The exact bytes are returned and exactly one `audio.played` line is written after the read and before the bytes are returned; a failing audit returns `audit_unavailable` and no bytes; a role folder or WAV that is a link, `nlink` 2, a size of 43 or 524289, a segment with no index line, a bad id and a missing WAV are refused with nothing outside the audio directory read and no audit line; a deleted segment returns `audio_deleted`.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0439 is done.
+
+TC-0225: The HTTP routes answer the right status for every case
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0440
+Type: Functional
+Preconditions: A checkout with dependencies installed; `createApi` over a real temp store.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: Replay answers 200 with the whole file and the documented headers whatever `Range` says; no token is 401 before any file call; a bad `X-Acr-By` is 400 with no file call and no audit line; a deleted segment is 410; an audit failure is 503 with an empty body; the ninth of nine concurrent replays is 503 `busy`; one `audio.played` line per 200.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0440 is done.
+
+TC-0226: Replay works end to end and survives the mutation checks
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0441
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.e2e.test.ts`, then apply each of the five mutations of plan Task 8 one at a time and run the same file.
+Expected Result: The real worker store and the real control API list and replay a segment, write one `audio.played` line with no content keys, cover two identities, answer 404 after the sweep and keep working with `VOICE_ENABLED=0`; each mutation fails a named test and is reverted.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run when the task that builds AC-0441 is done.

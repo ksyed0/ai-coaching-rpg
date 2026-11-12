@@ -2179,3 +2179,31 @@ Status: Done
 Branch: feature/EPIC-0003-US-0073-voice-audio-store
 Notes: Plan: docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md (Tasks 1 to 11: the shared lock export with the `suffix` option, settings, the identity hand-off, paths and the index file, the disk guard, the consent rule and `AudioStore`, the pipeline hook, worker `pending` segments, the store and lock wiring, control's alerts and audit log, the sweep core, orphans and scheduler, end to end and mutation checks, documents and close-out). Covers AC-0426 to AC-0433 (TC-0205 to TC-0212). Done 2026-11-11 on feature/EPIC-0003-US-0073-voice-audio-store (all ten code tasks and the documents task); the PR into `develop` is not yet opened. Test cases TC-0205 to TC-0212 Pass; TC-0213 to TC-0217 are the edge cases; the owner-run real check (TC-0218) is Not Run.
 ```
+
+```
+US-0074 (EPIC-0003): As the facilitator running a voice pilot, I want to list and replay a participant's recorded audio through the control API, with every play audited before any audio leaves, so that a disputed line can be checked without the audio leaking.
+Priority: Medium
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0003-US-0074-voice-audio-replay
+Dependencies: US-0073
+Acceptance Criteria:
+  - [ ] AC-0434: each audio folder records its session: the speech worker writes `<AUDIO_DIR>/<logIdentity>/session.json` `{ v: 1, sessionId }` (0600, temp file, rename, directory fsync, no link followed) once, before the first WAV of the process, and never for a skipped or refused segment or a guard stop; a marker failure stops the store with `write_error` (TC-0219)
+  - [ ] AC-0435: control hands the session id to the worker: `SPEECH_SESSION_ID` is set by `buildSpeechEnv` from `extra` only (never inherited, never on the allowlist), the worker requires a valid one (`isValidSessionId`) whenever the store is configured, and a bad value is a config error naming the variable only (TC-0220)
+  - [ ] AC-0436: `AuditLog.append` reports success: it returns `Promise<boolean>` (true on success, false on every failure path, still never rejecting) and accepts `audio.played { role, segment, by }`, with every line rebuilt field by field so no extra key is written (TC-0221)
+  - [ ] AC-0437: `AudioCatalog.find(sessionId)` returns every identity whose marker names the session by scanning the audio directory on every request (markers read `O_NOFOLLOW`, at most 4 KB); a marker that is missing, torn, a link, of another `v` or naming another session is ignored (TC-0222)
+  - [ ] AC-0438: listing: `GET /sessions/:id/audio` returns the identities, `recordingStopped` and each segment with `audio: available | deleted | missing` and never `raw`, over the index files of every identity (64 MiB cap, torn lines skipped); a folder recorded before the marker existed is found through the session log's `logIdentity`; a session with no audio is 404 (TC-0223)
+  - [ ] AC-0439: safe whole-file read: a segment's WAV is opened with `O_NOFOLLOW` under real directories of this user, judged on the descriptor (regular file, own uid, `nlink` 1, 44 to 524288 bytes), read whole, required to have an index line that is not marked deleted, and only then is `audio.played` appended; a failed audit returns `audit_unavailable` with no bytes (TC-0224)
+  - [ ] AC-0440: HTTP routes: `GET /sessions/:id/audio` and `GET /sessions/:id/audio/:role/:segment` answer 200 with the whole file (`Accept-Ranges: none`, any `Range` ignored, exact `Content-Length`, `no-store`, `nosniff`), 400 for a missing or bad `X-Acr-By`, 401 before any file call, 404, 410 `audio_deleted`, 503 `audit_unavailable` (empty body) or `busy` (at most 8 in flight); nothing logs a path, id or name (TC-0225)
+  - [ ] AC-0441: a real store and a real control API work end to end (list, replay, one `audio.played` line with no content keys, two identities for one session, 404 after the sweep, routes alive with `VOICE_ENABLED=0`), and five mutation checks (audit after the bytes, no `nlink` check, no index-line requirement, audit result ignored, any `by` accepted) each fail a named test and are reverted (TC-0226)
+Notes: Slice A2b-1a of EPIC-0003 part A (spec docs/superpowers/specs/2026-11-12-voice-a2b1-audio-replay-delete-design.md, sections 2 to 5, 7 and 8; plan docs/superpowers/plans/2026-11-12-voice-a2b1a-audio-replay.md, ACs in the plan's task-group order: marker, session id hand-off, audit boolean and `audio.played`, catalog find, listing and fallback, safe whole-file read, HTTP routes and `X-Acr-By`, end to end and mutation checks). Filed 2026-11-12 from the registry. Control API only, dark behind `VOICE_ENABLED`; delete, the `deleted` index writer and the sweep change are A2b-1b; the web BFF routes and the console AudioPanel are A2b-2. Replay is whole-file with no Range support (a deviation from parent spec section 8, to be recorded in Task 9).
+```
+
+```
+TASK-0110 (US-0074): Build the audio listing and audited replay routes (slice A2b-1a)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0003-US-0074-voice-audio-replay
+Notes: Plan: docs/superpowers/plans/2026-11-12-voice-a2b1a-audio-replay.md (Tasks 1 to 9: the marker writer in the speech store, control hands over the session id, the audit boolean and `audio.played`, the audio catalog, listing and the pre-marker fallback, the safe whole-file read, the HTTP routes with `X-Acr-By`, wiring and end to end with mutation checks, documents and close-out). Covers AC-0434 to AC-0441 (TC-0219 to TC-0226). Filed 2026-11-12; Task 1 (the marker) built the same day.
+```
