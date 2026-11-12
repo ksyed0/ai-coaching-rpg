@@ -11,7 +11,7 @@ import { createApi } from "./api.js";
 import type { EvalSpawnFn } from "./eval-child.js";
 import { ModerationService } from "./moderation.js";
 import { ReportJobService } from "./report-job.js";
-import { loadControlConfig, loadControlEnv } from "./config.js";
+import { loadControlConfig, loadControlEnv, type ControlConfig } from "./config.js";
 import { ReportAccessStore } from "./report-access.js";
 import { createParticipantWriteService, warnIfReportsNotWritable } from "./participant-writes.js";
 import { createReportService } from "./reports.js";
@@ -23,7 +23,10 @@ import { speechSpawn } from "./voice/speech-spawn.js";
 import { randomBytes } from "node:crypto";
 import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
 import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
+import { AudioCatalog } from "./voice/audio-catalog.js";
+import { AudioService } from "./voice/audio-routes.js";
 import { AuditLog } from "./voice/audit-log.js";
+import { makeFallbackIdentity } from "./voice/log-identity.js";
 import { startAudioSweep, stopWithin } from "./voice/sweep.js";
 import { livekitProbe } from "./voice/livekit-probe.js";
 import { timingLogSink } from "./voice/timing-log.js";
@@ -41,6 +44,16 @@ const MARGIN_MS = 10_000;
 export const BFF_SAFE_OPERATION_MS = 110_000;
 
 const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
+
+/**
+ * US-0074 (voice A2b-1a, Task 8): the facilitator's audio listing and replay. Built whenever control runs, independent of VOICE_ENABLED and
+ * of the voice host (audio recorded before a rollback to VOICE_ENABLED=0 stays replayable until the sweep removes it). The catalog falls
+ * back to the session log's identity (`<sessionsDir>/<id>.jsonl`) for folders recorded before session markers existed.
+ */
+export function buildAudioService(config: Pick<ControlConfig, "audioDir" | "sessionsDir">, deps: { audit: Pick<AuditLog, "append"> }): AudioService {
+  const catalog = new AudioCatalog({ audioDir: config.audioDir, fallbackIdentity: makeFallbackIdentity(config.sessionsDir) });
+  return new AudioService({ catalog, audit: deps.audit, audioDir: config.audioDir });
+}
 
 export type RunningControl = {
   port: number;
@@ -117,6 +130,8 @@ export async function startControl(
   // US-0073 (A2a Task 9b): the audio retention sweep runs whenever control runs, NOT only with voice hosting: a rollback to VOICE_ENABLED=0
   // must not strand recordings the notice promises to delete. Stopped in close().
   const sweep = startAudioSweep(config, { audit, setTimer: realSetTimer, log });
+  // US-0074: the audio routes, under the same rule (and the same audit log, so a replay's line sits with the sweep's).
+  const audio = buildAudioService(config, { audit });
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
   const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
   const secrets = collectSecrets(env);
@@ -142,7 +157,7 @@ export async function startControl(
   // US-0068: the overview's "AI player, not scored" rows read the same source as the link guard (one reader of the log, no shared memo).
   moderation = new ModerationService({ config, jobs, secrets, aiRoles: (id) => aiRolesFor(config, list, id) });
 
-  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation }));
+  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
   // are at most 64 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default
