@@ -1,6 +1,6 @@
 # Voice slice A2b-1: facilitator audio replay and delete, control API (design)
 
-Status: Draft 1 (2026-11-12), after an independent Opus review of the in-chat design against the code (4 Critical, 7 Important findings, all incorporated; the ones that change an owner choice are marked **Owner to confirm** in section 11). Parents: `2026-11-08-voice-part-a-design.md` sections 7 to 9 and 16, `2026-11-09-voice-a2a-audio-store-design.md`, `docs/THREAT_MODEL.md` (voice audio store, slice A2a). Proposed stories (not yet filed): A2b-1a and A2b-1b (EPIC-0003), dark behind `VOICE_ENABLED`. A2b-2 (web BFF routes and the console AudioPanel) is a separate later spec.
+Status: Draft 2 (2026-11-12): after an independent Opus review of the in-chat design against the code (4 Critical, 7 Important findings, all incorporated), the owner CONFIRMED all six changes of section 11 on 2026-11-12. Parents: `2026-11-08-voice-part-a-design.md` sections 7 to 9 and 16, `2026-11-09-voice-a2a-audio-store-design.md`, `docs/THREAT_MODEL.md` (voice audio store, slice A2a). Proposed stories (not yet filed): A2b-1a and A2b-1b (EPIC-0003), dark behind `VOICE_ENABLED`. A2b-2 (web BFF routes and the console AudioPanel) is a separate later spec.
 
 ## 1. Intent
 
@@ -70,7 +70,7 @@ Path containment and no check-then-use (open first, check the descriptor); `nlin
 
 Unit and real-HTTP tests; a real-store end-to-end (worker writes, control lists, replays, deletes, the sweep finishes a half-delete). Required cases: two identities for one session; marker missing, torn, linked, wrong `v`, naming another session; delete and sweep at the same time in one process gives 503 not 409; delete refused during a respawn backoff and during `mediaLost`; crash injection after each delete step then a sweep run; a deleted segment gives 410 and its WAV is removed by the orphan pass; an audit failure gives 503 and zero body bytes (a mutation that writes before the audit must fail); a role folder that is a symlink, and a WAV with `nlink > 1`; an unauthenticated GET gives 401 before any file-system call; the body schema is strict with exactly one scope kind; extra audit keys are dropped. Mutation checks: audit before bytes, the live check, path containment, the deleted marker.
 
-## 11. Decisions for the owner to confirm (changes from the in-chat design)
+## 11. Owner decisions (changes from the in-chat design; ALL SIX CONFIRMED 2026-11-12)
 
 1. **Whole-file replay, no Range** (deviation from parent spec section 8). Replaces "audit on a Range starting at byte 0", which leaves a hole for clients that never send it. Fallback if Range must stay: audit the first request per (identity, segment, facilitator) inside a 120 s window, whatever range it asks for.
 2. **Slicing:** A2b-1a = marker, catalog, listing, replay, `audio.played`, `append: boolean`; A2b-1b = delete, the deleted-aware sweep, the mutex and acquirer. Two plans, two PRs.
