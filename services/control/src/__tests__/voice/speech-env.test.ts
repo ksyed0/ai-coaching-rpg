@@ -34,6 +34,29 @@ describe("the speech worker's environment (US-0070)", () => {
     for (const k of ["SPEECH_LOG_IDENTITY", "SPEECH_SESSIONS_DIR", "AUDIO_DIR", "AUDIO_MIN_FREE_MB"]) expect(isAllowedSpeechVar(k), k).toBe(false);
   });
 
+  describe("SPEECH_SESSION_ID (US-0074, A2b-1a)", () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    const sid = "s-1_Session";
+    it("is set from extra.sessionId with a valid identity", () => {
+      expect(buildSpeechEnv(parent, ["pm"], { logIdentity: id, sessionId: sid }).SPEECH_SESSION_ID).toBe(sid);
+    });
+    it("an inherited SPEECH_SESSION_ID is ignored and overridden by extra", () => {
+      const p = { ...parent, SPEECH_SESSION_ID: "evil" };
+      expect(buildSpeechEnv(p, ["pm"], { logIdentity: id, sessionId: sid }).SPEECH_SESSION_ID).toBe(sid);
+      expect(buildSpeechEnv(p, ["pm"], { logIdentity: id })).not.toHaveProperty("SPEECH_SESSION_ID");
+    });
+    it("no identity means no store variables, SPEECH_SESSION_ID included", () => {
+      const none = buildSpeechEnv({ ...parent, SPEECH_SESSION_ID: "evil" }, ["pm"], { sessionId: sid, audioDir: "/a" });
+      for (const k of ["SPEECH_SESSION_ID", "SPEECH_LOG_IDENTITY", "AUDIO_DIR"]) expect(none, k).not.toHaveProperty(k);
+    });
+    it.each([["../x"], ["a".repeat(65)], ["a\0b"], ["a/b"], [""]])("an invalid session id (%j) omits only SPEECH_SESSION_ID", (bad) => {
+      const env = buildSpeechEnv(parent, ["pm"], { logIdentity: id, audioDir: "/a", sessionId: bad });
+      expect(env).not.toHaveProperty("SPEECH_SESSION_ID");
+      expect(env).toMatchObject({ SPEECH_LOG_IDENTITY: id, AUDIO_DIR: "/a" });
+    });
+    it("is never on the allowlist", () => { expect(isAllowedSpeechVar("SPEECH_SESSION_ID")).toBe(false); });
+  });
+
   it("LIVEKIT_*, provider keys, LAUNCHER_TOKEN, FACILITATOR_SECRET and HOME are never copied", () => {
     const env = buildSpeechEnv(parent, []);
     // US-0071 (R26): LIVEKIT_HOST, RUST_LOG (rtc-node's native log filter) and LIVEKIT_DEBUG_LOG_ROOM_EVENTS (rtc-node prints every room

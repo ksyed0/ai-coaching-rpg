@@ -801,6 +801,16 @@ describe("VoiceHost log identity hand-off (US-0073, A2a Task 3)", () => {
     expect(workers[0]!.env.AUDIO_MIN_FREE_MB).toBe("4096");
   });
 
+  it("US-0074: the worker env carries SPEECH_SESSION_ID equal to the session id the host keys it by; an inherited one is overridden", () => {
+    const v = new VoiceHost({
+      spawn, config: { ...config, ...AI_CONFIG, sessionsDir: "/data/sessions", audioDir: "/data/audio", audioMinFreeMb: 4096 }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake", SPEECH_SESSION_ID: "evil" }, log: (m) => logs.push(m),
+      setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
+      toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
+    });
+    v.attach(ID, { voice: true, roles: ["tech_lead"], logIdentity: IDENT });
+    expect(workers[0]!.env.SPEECH_SESSION_ID).toBe(ID);
+  });
+
   it("the identity set at ready (before attach) is used by the spawn", () => {
     const v = makeAudio();
     v.setIdentity(ID, IDENT);
