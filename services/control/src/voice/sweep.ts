@@ -42,7 +42,8 @@ export function segmentIdOf(name: string): string | null {
   return isFileSafeId(id) ? id : null;
 }
 const MAX_MARKER_BYTES = 4_096;
-const MAX_INDEX_BYTES = 64 * 1024 * 1024;
+/** The largest role `index.jsonl` read (64 MiB); a larger one is never trusted. Shared with the audio catalog (US-0074). */
+export const MAX_INDEX_BYTES = 64 * 1024 * 1024;
 /** The layout is two levels deep; a deeper tree is still removed, but the walk stops descending somewhere sane. */
 const MAX_DEPTH = 32;
 
