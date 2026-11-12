@@ -16,8 +16,10 @@ import { isLowerHex } from "@acr/speech/protocol";
  *   with exactly the keys `v` (1) and `sessionId` (the requested id); anything else ignores that folder.
  * - Node cannot list a directory through a descriptor, so `audioDir` is listed by path while its verified descriptor is held open and
  *   re-opened afterwards: a different directory under that path (same device and inode required) gives `[]`.
+ * - `audioDir` must be a directory of this user with no group or other write bit (0700 or 0750; ruling R3), or the answer is `[]`.
  * - The fallback (`fallbackIdentity`, the session log's identity for folders recorded before markers existed) is asked only when no
- *   marker matched; its answer must be 32 lower-case hex and name a real directory of this user. A rejection counts as no answer.
+ *   marker matched; its answer must be 32 lower-case hex and name a real directory of this user that holds NO `session.json` (any
+ *   marker there, valid or not, refuses it). A rejection counts as no answer.
  * - No cache (every call scans), never throws, logs nothing (so no path, id or content can leak).
  */
 export const MAX_SESSION_MARKER_BYTES = 4_096;
@@ -93,16 +95,36 @@ function folderMatches(audioDir: string, name: string, sessionId: string): boole
   } finally { closeSync(d.fd); }
 }
 
+/**
+ * The fallback's folder is accepted only as a folder recorded BEFORE markers existed: a real directory of this user with NO `session.json`
+ * at all (ENOENT on the O_NOFOLLOW open). Any marker, even a torn, oversized, linked or foreign one, is the folder's own binding and the
+ * session log's answer never overrides it (a stale or wrong logIdentity must not hand out another session's audio).
+ */
+function preMarkerFolder(dirPath: string): boolean {
+  const d = openOwnDir(dirPath);
+  if (d === null) return false;
+  try {
+    let fd: number;
+    try { fd = openSync(path.join(dirPath, MARKER_NAME), FILE_FLAGS); } catch (err) {
+      return (err as NodeJS.ErrnoException).code === "ENOENT" && stillOwnDir(dirPath, d.st);
+    }
+    closeSync(fd); // something is there: refused
+    return false;
+  } finally { closeSync(d.fd); }
+}
+
 export class AudioCatalog {
   constructor(private readonly o: AudioCatalogOptions) {}
 
-  /** Every identity folder of the session, sorted; else the fallback's identity when its folder is real; else `[]`. Never rejects. */
+  /** Every identity folder of the session, sorted; else the fallback's identity when it is a pre-marker folder; else `[]`. Never rejects. */
   async find(sessionId: string): Promise<string[]> {
     if (!isValidSessionId(sessionId)) return [];
     const audioDir = this.o.audioDir;
     const rootDir = openOwnDir(audioDir);
     if (rootDir === null) return []; // missing, a link, not a directory or another user's: nothing is read through it
     try {
+      // Ruling R3: in a root others can write to, entries could be renamed or planted under watched names between our checks.
+      if ((rootDir.st.mode & 0o022) !== 0) return [];
       let names: string[];
       try { names = readdirSync(audioDir); } catch { return []; }
       const found: string[] = [];
@@ -111,10 +133,7 @@ export class AudioCatalog {
       }
       if (found.length === 0) {
         const answer = await this.askFallback(sessionId);
-        if (answer !== undefined && isLowerHex(answer, 32)) {
-          const d = openOwnDir(path.join(audioDir, answer));
-          if (d !== null) { closeSync(d.fd); found.push(answer); }
-        }
+        if (answer !== undefined && isLowerHex(answer, 32) && preMarkerFolder(path.join(audioDir, answer))) found.push(answer);
       }
       // The listing and every folder were reached through the path `audioDir`: it must still be the directory judged at the start.
       if (!stillOwnDir(audioDir, rootDir.st)) return [];

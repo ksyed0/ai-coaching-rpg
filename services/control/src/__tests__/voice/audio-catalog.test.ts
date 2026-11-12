@@ -291,5 +291,44 @@ describe("AudioCatalog.find fallback (US-0074, spec section 3)", () => {
     rmSync(audioDir, { recursive: true });
     const fallback = vi.fn(async () => A);
     expect(await catalog(fallback).find(S)).toEqual([]);
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a marker for another session", { v: 1, sessionId: OTHER }],
+    ["a torn marker", '{"v":1,"sessionId":'],
+    ["a marker of another v", { v: 2, sessionId: S }],
+    ["a marker with an extra key", { v: 1, sessionId: S, extra: 1 }],
+    ["an oversized marker", JSON.stringify({ v: 1, sessionId: S }) + " ".repeat(5000)],
+  ])("is refused when its folder holds %s (only a folder with NO marker is a pre-marker folder)", async (_l, marker) => {
+    mkIdentity(A, marker);
+    expect(await catalog(async () => A).find(S)).toEqual([]);
+  });
+
+  it("is refused when its folder's marker is a symlink (even to a valid marker of this session) or a directory", async () => {
+    const elsewhere = path.join(root, "elsewhere.json");
+    writeFileSync(elsewhere, JSON.stringify({ v: 1, sessionId: S }), { mode: 0o600 });
+    symlinkSync(elsewhere, path.join(mkIdentity(A, null), "session.json"));
+    mkdirSync(path.join(mkIdentity(B, null), "session.json"));
+    expect(await catalog(async () => A).find(S)).toEqual([]);
+    expect(await catalog(async () => B).find(S)).toEqual([]);
+  });
+});
+
+describe("AudioCatalog.find needs a private audio directory (ruling R3)", () => {
+  it.skipIf(isRoot).each([0o770, 0o777, 0o720, 0o702])("a root with mode %o (group or other writable) returns [] even with a valid marker folder", async (mode) => {
+    mkIdentity(A);
+    mkIdentity(B, null);
+    fs.chmodSync(audioDir, mode);
+    try {
+      expect(await catalog().find(S)).toEqual([]);
+      expect(await catalog(async () => B).find(OTHER)).toEqual([]);
+    } finally { fs.chmodSync(audioDir, 0o700); }
+  });
+
+  it.skipIf(isRoot).each([0o700, 0o750, 0o755])("a root with mode %o works as before", async (mode) => {
+    mkIdentity(A);
+    fs.chmodSync(audioDir, mode);
+    expect(await catalog().find(S)).toEqual([A]);
   });
 });
