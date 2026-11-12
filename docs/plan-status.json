@@ -3286,48 +3286,48 @@
       "title": "As the facilitator running a voice pilot, I want to list and replay a participant's recorded audio through the control API, with every play audited before any audio leaves, so that a disputed line can be checked without the audio leaking.",
       "priority": "Medium",
       "estimate": "L",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
       "acs": [
         {
           "id": "AC-0434",
-          "text": "each audio folder records its session: the speech worker writes `<AUDIO_DIR>/<logIdentity>/session.json` `{ v: 1, sessionId }` (0600, temp file, rename, directory fsync, no link followed) once, before the first WAV of the process, and never for a skipped or refused segment or a guard stop; a marker failure stops the store with `write_error` (TC-0219)",
-          "done": false
+          "text": "each audio folder records its session: the speech worker writes `<AUDIO_DIR>/<logIdentity>/session.json` `{ v: 1, sessionId }` (0600, temp file, rename, directory fsync, no link followed) once, before the first WAV of the process, and never for a skipped or refused segment or a guard stop; a marker failure stops the store with `write_error` (TC-0219) ; ticked 2026-11-12: speech store/session-marker.test.ts and audio-store.test.ts (`AudioStore: session marker`: written before the first WAV, not rewritten, none when nothing is written, `write_error` at each of the four file steps, a planted link never followed)",
+          "done": true
         },
         {
           "id": "AC-0435",
-          "text": "control hands the session id to the worker: `SPEECH_SESSION_ID` is set by `buildSpeechEnv` from `extra` only (never inherited, never on the allowlist), the worker requires a valid one (`isValidSessionId`) whenever the store is configured, and a bad value is a config error naming the variable only (TC-0220)",
-          "done": false
+          "text": "control hands the session id to the worker: `SPEECH_SESSION_ID` is set by `buildSpeechEnv` from `extra` only (never inherited, never on the allowlist), the worker requires a valid one (`isValidSessionId`) whenever the store is configured, and a bad value is a config error naming the variable only (TC-0220) ; ticked 2026-11-12: speech config.test.ts (`test_store_needs_a_valid_session_id`), control speech-env.test.ts (`SPEECH_SESSION_ID`: from `extra` only, never inherited, invalid omitted) and voice-host.test.ts",
+          "done": true
         },
         {
           "id": "AC-0436",
-          "text": "`AuditLog.append` reports success: it returns `Promise<boolean>` (true on success, false on every failure path, still never rejecting) and accepts `audio.played { role, segment, by }`, with every line rebuilt field by field so no extra key is written (TC-0221)",
-          "done": false
+          "text": "`AuditLog.append` reports success: it returns `Promise<boolean>` (true on success, false on every failure path, still never rejecting) and accepts `audio.played { role, segment, by }`, with every line rebuilt field by field so no extra key is written (TC-0221) ; ticked 2026-11-12: control audit-log.test.ts (`AuditLog.append reports success; audio.played`: true on success, false on every failure path, exact `audio.played` shape, older events unchanged)",
+          "done": true
         },
         {
           "id": "AC-0437",
-          "text": "`AudioCatalog.find(sessionId)` returns every identity whose marker names the session by scanning the audio directory on every request (markers read `O_NOFOLLOW`, at most 4 KB); a marker that is missing, torn, a link, of another `v` or naming another session is ignored (TC-0222)",
-          "done": false
+          "text": "`AudioCatalog.find(sessionId)` returns every identity whose marker names the session by scanning the audio directory on every request (markers read `O_NOFOLLOW`, at most 4 KB); a marker that is missing, torn, a link, of another `v` or naming another session is ignored (TC-0222) ; ticked 2026-11-12: control audio-catalog.test.ts (`AudioCatalog.find by marker`, the root-mode cases of ruling R3, the fallback cases)",
+          "done": true
         },
         {
           "id": "AC-0438",
-          "text": "listing: `GET /sessions/:id/audio` returns the identities, `recordingStopped` and each segment with `audio: available | deleted | missing` and never `raw`, over the index files of every identity (64 MiB cap, torn lines skipped); a folder recorded before the marker existed is found through the session log's `logIdentity`; a session with no audio is 404 (TC-0223)",
-          "done": false
+          "text": "listing: `GET /sessions/:id/audio` returns the identities, `recordingStopped` and each segment with `audio: available | deleted | missing` and never `raw`, over the index files of every identity (64 MiB cap, torn lines skipped); a folder recorded before the marker existed is found through the session log's `logIdentity`; a session with no audio is 404 (TC-0223) ; ticked 2026-11-12: control audio-catalog.test.ts (`AudioCatalog.list`, `find fallback`, `readSegmentIndex`), log-identity.test.ts, audio-routes.test.ts (the listing) and audio-replay.e2e.test.ts; `available` means only that the WAV opens as a regular own file with one link",
+          "done": true
         },
         {
           "id": "AC-0439",
-          "text": "safe whole-file read: a segment's WAV is opened with `O_NOFOLLOW` under real directories of this user, judged on the descriptor (regular file, own uid, `nlink` 1, 44 to 524288 bytes), read whole, required to have an index line that is not marked deleted, and only then is `audio.played` appended; a failed audit returns `audit_unavailable` with no bytes (TC-0224)",
-          "done": false
+          "text": "safe whole-file read: a segment's WAV is opened with `O_NOFOLLOW` under real directories of this user, judged on the descriptor (regular file, own uid, `nlink` 1, 44 to 524288 bytes), read whole, required to have an index line that is not marked deleted, and only then is `audio.played` appended; a failed audit returns `audit_unavailable` with no bytes (TC-0224) ; ticked 2026-11-12: control audio-replay.test.ts (whole read, audit after the read and before the bytes, `audit_unavailable`, every refusal, the race cases)",
+          "done": true
         },
         {
           "id": "AC-0440",
-          "text": "HTTP routes: `GET /sessions/:id/audio` and `GET /sessions/:id/audio/:role/:segment` answer 200 with the whole file (`Accept-Ranges: none`, any `Range` ignored, exact `Content-Length`, `no-store`, `nosniff`), 400 for a missing or bad `X-Acr-By`, 401 before any file call, 404, 410 `audio_deleted`, 503 `audit_unavailable` (empty body) or `busy` (at most 8 in flight); nothing logs a path, id or name (TC-0225)",
-          "done": false
+          "text": "HTTP routes: `GET /sessions/:id/audio` and `GET /sessions/:id/audio/:role/:segment` answer 200 with the whole file (`Accept-Ranges: none`, any `Range` ignored, exact `Content-Length`, `no-store`, `nosniff`), 400 for a missing or bad `X-Acr-By`, 401 before any file call, 404, 410 `audio_deleted`, 503 `audit_unavailable` (no audio; a JSON body with only the code) or `busy` (at most 8 in flight); nothing logs a path, id or name (TC-0225) ; ticked 2026-11-12: control audio-routes.test.ts (200 headers, `Range` ignored, 400, 401, 404, 410, 503 `audit_unavailable` and `busy`, `X-Acr-By` on both routes)",
+          "done": true
         },
         {
           "id": "AC-0441",
-          "text": "a real store and a real control API work end to end (list, replay, one `audio.played` line with no content keys, two identities for one session, 404 after the sweep, routes alive with `VOICE_ENABLED=0`), and five mutation checks (audit after the bytes, no `nlink` check, no index-line requirement, audit result ignored, any `by` accepted) each fail a named test and are reverted (TC-0226)",
-          "done": false
+          "text": "a real store and a real control API work end to end (list, replay, one `audio.played` line with no content keys, two identities for one session, 404 after the sweep, routes alive with `VOICE_ENABLED=0`), and mutation checks (the plan named five: audit after the bytes, no `nlink` check, no index-line requirement, audit result ignored, any `by` accepted; eleven were run, adding `Range` honoured, the deleted-mark checks, the token check, the fallback ignoring a marker and two wiring mutations) each fail a named test and are reverted (TC-0226) ; ticked 2026-11-12: control audio-replay.e2e.test.ts (real store, real API, real sweep; two identities; `VOICE_ENABLED=0`) and eleven mutation checks from the Task 8 report, each failing a named test and reverted (prior evidence, not re-run)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -4382,9 +4382,9 @@
       "title": "Build the audio listing and audited replay routes (slice A2b-1a)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
-      "notes": "Plan: docs/superpowers/plans/2026-11-12-voice-a2b1a-audio-replay.md (Tasks 1 to 9: the marker writer in the speech store, control hands over the session id, the audit boolean and `audio.played`, the audio catalog, listing and the pre-marker fallback, the safe whole-file read, the HTTP routes with `X-Acr-By`, wiring and end to end with mutation checks, documents and close-out). Covers AC-0434 to AC-0441 (TC-0219 to TC-0226). Filed 2026-11-12; Task 1 (the marker) built the same day."
+      "notes": "Plan: docs/superpowers/plans/2026-11-12-voice-a2b1a-audio-replay.md (Tasks 1 to 9: the marker writer in the speech store, control hands over the session id, the audit boolean and `audio.played`, the audio catalog, listing and the pre-marker fallback, the safe whole-file read, the HTTP routes with `X-Acr-By`, wiring and end to end with mutation checks, documents and close-out). Covers AC-0434 to AC-0441 (TC-0219 to TC-0226). Filed 2026-11-12; Tasks 1 to 8 built the same day and Task 9 (the documents) closed it. Done 2026-11-12 on feature/EPIC-0003-US-0074-voice-audio-replay; the PR into `develop` is not yet opened. Test cases TC-0219 to TC-0226 Pass (TC-0226's mutation checks are prior evidence); TC-0227 to TC-0231 are the edge cases (Pass); the owner-run real check TC-0232 is Not Run."
     }
   ],
   "testCases": [
@@ -6565,7 +6565,7 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0434",
       "type": "Unit",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6575,7 +6575,7 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0435",
       "type": "Unit",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6585,7 +6585,7 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0436",
       "type": "Unit",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6595,7 +6595,7 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0437",
       "type": "Unit",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6605,7 +6605,7 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0438",
       "type": "Unit",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6615,7 +6615,7 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0439",
       "type": "Unit",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6625,7 +6625,7 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0440",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -6635,6 +6635,66 @@
       "relatedTask": "TASK-0110",
       "relatedAC": "AC-0441",
       "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0227",
+      "title": "The catalog refuses a writable root and a fallback folder that has any marker",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0437, AC-0438",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0228",
+      "title": "The session-log identity reader only trusts the first line",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0438",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0229",
+      "title": "The replay holds when files or folders change under it",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0439",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0230",
+      "title": "The routes refuse odd requests before any file call",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0440",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0231",
+      "title": "The listing's index reader skips what it cannot trust",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0438",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0232",
+      "title": "Replay and its audit line on a real recorded session (owner-run)",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0439, AC-0440",
+      "type": "Manual",
       "status": "Not Run",
       "defect": "None"
     }
@@ -8685,9 +8745,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-12T20:37:55.789Z",
-  "commitSha": "1e4645e",
-  "buildNumber": "562",
+  "generatedAt": "2026-11-12T21:44:46.434Z",
+  "commitSha": "e1942d3",
+  "buildNumber": "573",
   "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
   "sessionTimeline": [
     {
@@ -8830,7 +8890,7 @@
     }
   },
   "budget": {
-    "totalBudget": 808.4862,
+    "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
     "totalProjected": 13656.699999999999,
     "percentUsed": 99,
@@ -8866,6 +8926,14 @@
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0003",
+        "title": "Slice 3 — voice over LiveKit",
+        "budget": 54.01934,
+        "spent": 54.01934,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
         "budget": 151.25415199999995,
@@ -8880,14 +8948,6 @@
         "spent": 162.05801999999994,
         "remaining": 0,
         "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0003",
-        "title": "Slice 3 — voice over LiveKit",
-        "budget": 54.91934,
-        "spent": 54.01934,
-        "remaining": 0.8999999999999986,
-        "percentUsed": 98
       },
       {
         "id": "EPIC-0007",
@@ -8927,7 +8987,7 @@
   "completion": {
     "likelyDate": "Oct 10",
     "rangeStart": "Aug 5",
-    "rangeEnd": "Dec 15",
+    "rangeEnd": "Dec 16",
     "velocityWeeks": 6,
     "storiesPerWeek": 1,
     "pointsPerWeek": 5
@@ -8937,10 +8997,12 @@
       "2026-10-03T02:24:51.406Z",
       "2026-11-11T18:08:18.602Z",
       "2026-11-11T19:47:52.607Z",
-      "2026-11-12T20:37:55.878Z"
+      "2026-11-12T20:37:55.878Z",
+      "2026-11-12T21:44:46.494Z"
     ],
     "doneCounts": [
       0,
+      6,
       6,
       6,
       6
@@ -8949,15 +9011,18 @@
       13,
       73,
       73,
+      74,
       74
     ],
     "aiCosts": [
       54.2322,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -8967,15 +9032,18 @@
       0,
       29,
       29,
+      29,
       29
     ],
     "openBugs": [
       0,
       1,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8985,10 +9053,12 @@
       3089930,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518
@@ -8997,6 +9067,7 @@
       1.0999999999999999,
       1.135820895522388,
       1.135820895522388,
+      1.1352941176470586,
       1.1352941176470586
     ],
     "velocityByWeek": {
