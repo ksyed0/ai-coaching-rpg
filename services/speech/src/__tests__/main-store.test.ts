@@ -12,7 +12,7 @@ let root: string; let audio: string; let sessions: string;
 beforeEach(() => { root = mkdtempSync(path.join(tmpdir(), "acr-mainstore-")); audio = path.join(root, "audio"); sessions = path.join(root, "sessions"); mkdirSync(sessions, { mode: 0o700 }); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 
-const cfg = () => ({ audioDir: audio, minFreeMb: 512, logIdentity: ID, sessionsDir: sessions });
+const cfg = () => ({ audioDir: audio, minFreeMb: 512, logIdentity: ID, sessionId: "sess-1", sessionsDir: sessions });
 const seg = { roleId: "coach", participantId: "p1", segmentId: "s1", startMs: 0, endMs: 10, pcm: new Int16Array(160), outcome: { kind: "no_text" as const, status: "empty" as const } };
 function clock() {
   let t = 1_000_000;

@@ -66,7 +66,7 @@ async function session(o: { id?: string; bursts?: number; at?: number; statfs?: 
   writeFileSync(path.join(ingestDir, `${ROLE}.wav`), encodeWav(concat(...Array.from({ length: o.bursts ?? 1 }, () => BURST)), 16_000));
   const sent: WorkerMessage[] = [];
   const send = (m: WorkerMessage): boolean => { sent.push(m); return true; };
-  const storeCfg = { audioDir: audioDir(), minFreeMb: 512, logIdentity: id, sessionsDir };
+  const storeCfg = { audioDir: audioDir(), minFreeMb: 512, logIdentity: id, sessionId: "sess-1", sessionsDir };
   const statfs = o.statfs;
   const opened = await openStore({
     cfg: storeCfg, now: () => clock.t, send, sleep: async () => {},

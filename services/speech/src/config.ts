@@ -1,6 +1,6 @@
 import path from "node:path";
 import { DEFAULT_STT_COLD_TIMEOUT_MS, DEFAULT_STT_IDLE_COLD_MS, parseSttUrl } from "@acr/adapters";
-import { isFileSafeId, isReservedRoleId, isSafeId, isScenarioId } from "@acr/events";
+import { isFileSafeId, isReservedRoleId, isSafeId, isScenarioId, isValidSessionId } from "@acr/events";
 import { MAX_HOLDERS, isLowerHex } from "./protocol.js";
 import { DEFAULT_SEGMENTER, HANGOVER_RANGE, MAX_SEGMENT_RANGE, type SegmenterSettings } from "./segmenter.js";
 
@@ -10,7 +10,7 @@ export type WorkerConfig = {
   /** US-0071: `livekit` listens to the seat rooms (control sends a token per connect); `roles` still names the session's player roles. */
   ingest: { kind: "file"; dir: string; roles: string[] } | { kind: "livekit"; roles: string[] };
   /** US-0073: the audio store; absent when control offered none (no AUDIO_DIR), and voice still works. */
-  store?: { audioDir: string; minFreeMb: number; logIdentity: string; sessionsDir: string };
+  store?: { audioDir: string; minFreeMb: number; logIdentity: string; sessionId: string; sessionsDir: string };
 };
 
 const COLD_RANGE = [1000, 300_000] as const;
@@ -78,8 +78,13 @@ export function parseWorkerConfig(env: NodeJS.ProcessEnv): { ok: true; cfg: Work
     if (isLowerHex(identity, 32)) logIdentity = identity;
     else errors.push("SPEECH_LOG_IDENTITY must be 32 lower-case hexadecimal characters");
   }
+  // US-0074: the marker names the session; required whenever the store is configured. The error names the variable only.
+  const rawSession = env.SPEECH_SESSION_ID;
+  let sessionId: string | undefined;
+  if (rawSession !== undefined && rawSession !== "" && isValidSessionId(rawSession)) sessionId = rawSession;
+  else if (audioDir !== undefined) errors.push("SPEECH_SESSION_ID must be a valid session id when AUDIO_DIR is set");
   const minFreeMb = whole("AUDIO_MIN_FREE_MB", [512, 1_000_000], 2048);
-  const store = audioDir !== undefined && sessionsDir !== undefined && logIdentity !== undefined ? { audioDir, minFreeMb, logIdentity, sessionsDir } : undefined;
+  const store = audioDir !== undefined && sessionsDir !== undefined && logIdentity !== undefined && sessionId !== undefined ? { audioDir, minFreeMb, logIdentity, sessionId, sessionsDir } : undefined;
 
   if (errors.length > 0 || !stt) return { ok: false, errors };
   const ingest: WorkerConfig["ingest"] = ingestKind === "livekit" ? { kind: "livekit", roles } : { kind: "file", dir: dir!, roles };

@@ -261,7 +261,7 @@ describe("worker pending segments with the real AudioStore (US-0073, A2a Task 7b
     const audio = path.join(root, "audio");
     const onStopped = vi.fn();
     const store = new AudioStore({
-      audioDir: audio, logIdentity: ID, sessionsDir: path.join(root, "sessions"), minFreeMb: 512, now: () => 1, lock: { lost: false }, onStopped,
+      audioDir: audio, logIdentity: ID, sessionId: "sess-1", sessionsDir: path.join(root, "sessions"), minFreeMb: 512, now: () => 1, lock: { lost: false }, onStopped,
       guard: new DiskGuard({ volumes: [audio, path.join(root, "sessions")], minFreeMb: 512, statfs: () => ({ bavail: 10n ** 12n, bsize: 4096n }) }),
     });
     const h = harness({ store });

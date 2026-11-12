@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SessionLock } from "@acr/runtime/files";
@@ -26,7 +26,7 @@ type Opts = ConstructorParameters<typeof AudioStore>[0];
 function make(extra: Partial<Opts> = {}) {
   const onStopped = vi.fn();
   const lock = { lost: false };
-  const store = new AudioStore({ audioDir: audio, logIdentity: ID, sessionsDir: sessions, minFreeMb: 512, now: () => 1_700_000_000_000, lock, guard: roomy(), onStopped, ...extra });
+  const store = new AudioStore({ audioDir: audio, logIdentity: ID, sessionId: "sess-1", sessionsDir: sessions, minFreeMb: 512, now: () => 1_700_000_000_000, lock, guard: roomy(), onStopped, ...extra });
   return { store, onStopped, lock };
 }
 const pcm = Int16Array.from([1, -1, 2, -2, 300]);
@@ -199,6 +199,8 @@ describe("AudioStore.write: faults", () => {
     const { fs, calls } = faulty(null);
     const { store } = make({ fs });
     store.write(seg());
+    calls.length = 0; // the first write also wrote the session marker; judge the plain path of the second
+    store.write(seg({ segmentId: "seg-2" }));
     const order = calls.filter((c) => ["openSync", "fsyncSync", "closeSync", "fsyncDir", "appendIndex"].includes(c));
     expect(order).toEqual(["openSync", "fsyncSync", "closeSync", "fsyncDir", "appendIndex"]);
   });
@@ -293,5 +295,63 @@ describe("AudioStore.markEnded", () => {
     const { store } = make({ logIdentity: "NOT-HEX" });
     expect(() => store.markEnded()).not.toThrow();
     expect(existsSync(audio)).toBe(false);
+  });
+});
+
+describe("AudioStore: session marker (US-0074)", () => {
+  const markerPath = () => path.join(audio, ID, "session.json");
+  it("test_marker_written_before_the_first_wav", () => {
+    const { store } = make();
+    const order: string[] = [];
+    const spy = { ...nodeStoreFs, renameSync: (a: string, b: string) => { order.push(`rename:${path.basename(b)}`); nodeStoreFs.renameSync(a, b); }, openSync: (f: string, fl: number, m: number) => { if (f.endsWith(".wav")) order.push("wav"); return nodeStoreFs.openSync(f, fl, m); } };
+    const s2 = make({ fs: spy }).store;
+    expect(s2.write(seg())).toBe("written");
+    expect(order).toEqual(["rename:session.json", "wav"]);
+    expect(JSON.parse(readFileSync(markerPath(), "utf8"))).toEqual({ v: 1, sessionId: "sess-1" });
+    expect(lstatSync(markerPath()).mode & 0o777).toBe(0o600);
+    expect(readdirSync(path.join(audio, ID)).sort()).toEqual(["coach", "session.json"]);
+    void store;
+  });
+  it("a second write does not rewrite the marker", () => {
+    const { fs, calls } = faulty(null);
+    const { store } = make({ fs });
+    store.write(seg());
+    const renames = calls.filter((c) => c === "renameSync").length;
+    store.write(seg({ segmentId: "seg-2" }));
+    expect(calls.filter((c) => c === "renameSync").length).toBe(renames);
+    expect(renames).toBe(1);
+  });
+  it("test_no_marker_when_nothing_is_written", () => {
+    const { store, onStopped } = make();
+    expect(store.write(seg({ outcome: { kind: "refused", code: "ended" } }))).toBe("skipped");
+    expect(existsSync(path.join(audio, ID))).toBe(false);
+    const g = make({ guard: full() });
+    expect(g.store.write(seg())).toBe("stopped");
+    expect(g.onStopped).toHaveBeenCalledWith("disk_low");
+    expect(existsSync(path.join(audio, ID))).toBe(false);
+    expect(onStopped).not.toHaveBeenCalled();
+  });
+  it.each([["openSync", 1], ["fsyncSync", 1], ["renameSync", 1], ["fsyncDir", 1]] as const)("test_marker_failure_stops_the_store_with_write_error (%s)", (method, nth) => {
+    const { fs } = faulty(method, nth);
+    const { store, onStopped } = make({ fs });
+    expect(store.write(seg())).toBe("stopped");
+    expect(onStopped).toHaveBeenCalledTimes(1);
+    expect(onStopped).toHaveBeenCalledWith("write_error");
+    expect(existsSync(wavPath())).toBe(false);
+    expect(existsSync(roleDir())).toBe(false);
+    expect(readdirSync(path.join(audio, ID)).filter((n) => n.endsWith(".tmp"))).toEqual([]); // no temp file left behind
+    expect(store.write(seg({ segmentId: "seg-2" }))).toBe("stopped");
+    expect(onStopped).toHaveBeenCalledTimes(1);
+  });
+  it("test_marker_never_follows_a_link", () => {
+    const outside = path.join(root, "outside.txt");
+    writeFileSync(outside, "untouched");
+    mkdirSync(path.join(audio, ID), { recursive: true, mode: 0o700 });
+    symlinkSync(outside, markerPath());
+    const { store } = make();
+    expect(store.write(seg())).toBe("written");
+    expect(readFileSync(outside, "utf8")).toBe("untouched");
+    expect(lstatSync(markerPath()).isSymbolicLink()).toBe(false);
+    expect(JSON.parse(readFileSync(markerPath(), "utf8"))).toEqual({ v: 1, sessionId: "sess-1" });
   });
 });

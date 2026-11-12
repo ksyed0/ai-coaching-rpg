@@ -30,7 +30,7 @@ afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
 function start(identity: string): { child: ChildProcess; messages: { type?: string }[]; exited: Promise<number | null> } {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH, STT_PROVIDER: "fake", STT_FAKE_SCRIPT: path.join(dir, "script.json"), SPEECH_INGEST: "file", SPEECH_INGEST_DIR: dir,
-    SPEECH_INGEST_ROLES: "tech_lead", AUDIO_DIR: path.join(dir, "audio"), SPEECH_SESSIONS_DIR: path.join(dir, "sessions"), SPEECH_LOG_IDENTITY: identity, AUDIO_MIN_FREE_MB: "512",
+    SPEECH_INGEST_ROLES: "tech_lead", AUDIO_DIR: path.join(dir, "audio"), SPEECH_SESSIONS_DIR: path.join(dir, "sessions"), SPEECH_LOG_IDENTITY: identity, SPEECH_SESSION_ID: "sess-1", AUDIO_MIN_FREE_MB: "512",
   };
   const child = fork(ENTRY, [], { execArgv: ["--import", "tsx"], cwd: PKG, env, stdio: ["ignore", "ignore", "ignore", "ipc"] });
   const messages: { type?: string }[] = [];
