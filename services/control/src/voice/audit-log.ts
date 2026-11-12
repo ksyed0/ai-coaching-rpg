@@ -12,7 +12,8 @@ export type AuditEvent =
   | { type: "voice.recording_stopped"; reason: "disk_low" | "write_error" }
   | { type: "voice.opted_in"; role: string; participant: string; noticeVersion: "v3" }
   | { type: "voice.opted_out"; role: string; participant: string }
-  | { type: "audio.deleted"; scope: { kind: "session" }; reason: "expired"; by: "system"; segments: number };
+  | { type: "audio.deleted"; scope: { kind: "session" }; reason: "expired"; by: "system"; segments: number }
+  | { type: "audio.played"; role: string; segment: string; by: string };
 
 /** The one sentence a failed append logs (never a path, an identity or an event). */
 export const AUDIT_APPEND_FAILED = "audit append failed";
@@ -82,6 +83,7 @@ function lineOf(ts: number, e: AuditEvent): Record<string, unknown> {
     case "voice.opted_in": return { v: 1, ts, type: e.type, role: e.role, participant: e.participant, noticeVersion: e.noticeVersion };
     case "voice.opted_out": return { v: 1, ts, type: e.type, role: e.role, participant: e.participant };
     case "audio.deleted": return { v: 1, ts, type: e.type, scope: { kind: e.scope.kind }, reason: e.reason, by: e.by, segments: e.segments };
+    case "audio.played": return { v: 1, ts, type: e.type, role: e.role, segment: e.segment, by: e.by };
     default: throw new AuditPathError("unknown audit event"); // only reachable past the type system: nothing is written
   }
 }
@@ -105,7 +107,8 @@ function appendLine(file: string, line: string): void {
  * The audit log. `append` never throws and its promise never rejects: it resolves once the line is written, or after logging
  * AUDIT_APPEND_FAILED once when it could not be (a malformed identity, an unsafe or missing-and-uncreatable audio directory, a held lock
  * after AUDIT_LOCK_ATTEMPTS tries, a write error). Callers may fire and forget it. Appends for one identity run one after another in call
- * order, so lines never interleave; each holds the identity's audit lock (`<id>.audio-audit.lock`) only while it writes its line.
+ * order, so lines never interleave; it resolves `true` when the line was written and `false` on every failure path (so a caller that
+ * must not proceed without the audit line, such as a replay, can check it; fire-and-forget callers ignore it); each holds the identity's audit lock (`<id>.audio-audit.lock`) only while it writes its line.
  */
 export class AuditLog {
   private readonly chains = new Map<string, Promise<void>>();
@@ -126,36 +129,40 @@ export class AuditLog {
     this.log = o.log ?? (() => {});
   }
 
-  append(logIdentity: string, e: AuditEvent): Promise<void> {
+  append(logIdentity: string, e: AuditEvent): Promise<boolean> {
     try {
-      if (!isLowerHex(logIdentity, 32)) { this.failed(); return Promise.resolve(); }
+      if (!isLowerHex(logIdentity, 32)) { this.failed(); return Promise.resolve(false); }
       const line = `${JSON.stringify(lineOf(this.o.now(), e))}\n`; // the time of the call, so ts follows the call order
       const prev = this.chains.get(logIdentity) ?? Promise.resolve();
-      const next = prev.then(() => this.write(logIdentity, line)).catch(() => { this.failed(); });
+      let written = false; // this call's own result; the chain itself stays Promise<void> and never rejects
+      const next = prev.then(async () => { written = await this.write(logIdentity, line); }).catch(() => { written = false; this.failed(); });
       this.chains.set(logIdentity, next);
       void next.then(() => { if (this.chains.get(logIdentity) === next) this.chains.delete(logIdentity); });
-      return next;
+      return next.then(() => written);
     } catch {
       this.failed();
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
   }
 
-  private async write(logIdentity: string, line: string): Promise<void> {
+  /** True when the line was written; false (after logging once) on every failure. */
+  private async write(logIdentity: string, line: string): Promise<boolean> {
     const dir = this.o.audioDir;
-    try { ensureAuditRoot(dir); } catch { this.failed(); return; }
+    try { ensureAuditRoot(dir); } catch { this.failed(); return false; }
     for (let attempt = 1; attempt <= AUDIT_LOCK_ATTEMPTS; attempt++) {
       let lock: { release(): void };
       try { lock = this.acquireLock(dir, logIdentity, { suffix: LOCK_SUFFIX }); } catch {
         if (attempt < AUDIT_LOCK_ATTEMPTS) await this.sleep(AUDIT_RETRY_MS);
         continue;
       }
-      try { appendLine(auditFile(dir, logIdentity), line); } catch { this.failed(); } finally {
+      let ok = false;
+      try { appendLine(auditFile(dir, logIdentity), line); ok = true; } catch { this.failed(); } finally {
         try { lock.release(); } catch { /* best effort: a leftover lock goes stale */ }
       }
-      return;
+      return ok;
     }
     this.failed();
+    return false;
   }
 
   private failed(): void {

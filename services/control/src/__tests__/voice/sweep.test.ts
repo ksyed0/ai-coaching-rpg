@@ -16,7 +16,7 @@ const A = id(0xa), B = id(0xb), C = id(0xc);
 let root: string, audioDir: string, logs: string[];
 type Call = { id: string; e: AuditEvent; onDisk: string[] };
 let calls: Call[];
-const fakeAudit = { append: async (logIdentity: string, e: AuditEvent): Promise<void> => { calls.push({ id: logIdentity, e, onDisk: readdirSync(audioDir).sort() }); } };
+const fakeAudit = { append: async (logIdentity: string, e: AuditEvent): Promise<boolean> => { calls.push({ id: logIdentity, e, onDisk: readdirSync(audioDir).sort() }); return true; } };
 
 type Session = { ended?: number | string; index?: Record<string, Array<Record<string, unknown> | string>>; wavs?: Record<string, number>; mtime?: number };
 /** A session folder as the speech worker leaves it: `<id>/<role>/<n>.wav`, `<id>/<role>/index.jsonl`, `<id>/ended.json`. */
@@ -198,6 +198,7 @@ describe("sweepAudio (US-0073, A2a Task 9a)", () => {
         expect(aside[0]).toMatch(new RegExp(`^${A}\\.deleting-[0-9a-f]{8,}$`));
         expect(existsSync(path.join(audioDir, aside[0]!, "r", "seg0.wav"))).toBe(true); // removal comes after the audit
         seenAside = true;
+        return true;
       } };
       expect(await run({ now: T0 + 60 * DAY, audit })).toEqual({ deleted: 1, skipped: 0, orphans: 0 });
       expect(seenAside).toBe(true);

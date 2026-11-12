@@ -879,7 +879,7 @@ describe("VoiceHost audit log and store alerts (US-0073, A2a Task 8)", () => {
     spawn, config: { ...config, ...AI_CONFIG }, parentEnv: { PATH: "/bin", STT_PROVIDER: "fake" }, log: (m) => logs.push(m),
     setTimer: (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
     toRuntime: (id, m) => { if (!runtimeUp) return false; toRuntime.push({ id, m }); return true; },
-    audit: { append: async (id, e) => { audited.push({ id, e }); } },
+    audit: { append: async (id, e) => { audited.push({ id, e }); return true; } },
   });
   const liveWith = (v: VoiceHost, logIdentity?: string) => {
     v.attach(ID, { voice: true, roles: ["tech_lead"], ...(logIdentity ? { logIdentity } : {}) });
