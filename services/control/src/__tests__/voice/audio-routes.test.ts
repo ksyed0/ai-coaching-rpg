@@ -460,12 +460,33 @@ describe("refusals before any file call", () => {
     expect((await get(`/sessions/${S}/audio/..%2Fx/s1`, {})).status).toBe(404);
   });
 
-  it.each(["POST", "PUT", "DELETE"])("%s on these paths falls through to not found with no file call", async (method) => {
-    twoIdentities();
+  it("positive control: the fs-call seam is live (a 200 replay and a 200 listing record file calls), so the empty-call assertions mean something", async () => {
+    const { s1 } = twoIdentities();
     const { get } = await boot();
     hooks.calls = [];
-    for (const p of routes) expect((await get(p, by(), { method })).status, p).toBe(404);
+    const r = await get(`/sessions/${S}/audio/alpha/s1`, by());
+    expect(r.status).toBe(200);
+    expect(r.body.equals(s1)).toBe(true);
+    expect(hooks.calls.length).toBeGreaterThan(0);
+    expect(hooks.calls.some((c) => c.startsWith("openSync ") && c.endsWith(path.join(A, "alpha", "s1.wav")))).toBe(true);
+    hooks.calls = [];
+    expect((await get(`/sessions/${S}/audio`, by())).status).toBe(200);
+    expect(hooks.calls.length).toBeGreaterThan(0);
+  });
+
+  it.each(["HEAD", "POST", "PUT", "DELETE"])("%s on these paths falls through to not found with no file call, no audit line and no audio bytes", async (method) => {
+    const { s1 } = twoIdentities();
+    const { get, append } = await boot();
+    hooks.calls = [];
+    for (const p of routes) {
+      const r = await get(p, by(), { method });
+      expect(r.status, p).toBe(404);
+      expect(r.headers["content-type"], p).not.toBe("audio/wav");
+      expect(r.body.includes(s1.subarray(0, 16)), p).toBe(false);
+    }
     expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+    expect(playedLines(A)).toEqual([]);
   });
 
   it("with no audio dep both routes are 404", async () => {
