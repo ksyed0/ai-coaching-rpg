@@ -869,6 +869,8 @@ Slice A2b-1a gives the facilitator two routes on the control service: a listing 
 
 **Resource bounds.** Every file call is synchronous. A replay reads the role index of each identity up to the owner, **the owner's twice** (before and after the WAV; each read up to the 64 MiB index cap) plus one WAV of at most 512 KiB; a listing reads every role index of every identity. **Replay has an in-flight cap of 8 (the ninth gets 503 `busy` with `Retry-After: 1`; the slot is freed on every path); the listing has the 64 MiB caps only.** A large index can therefore block control's event loop for the length of a read; the cap bounds the number of overlapping replays, not the time of one.
 
+**Expiry and renames.** Expired audio stays playable until the next sweep (up to the hourly interval). A folder renamed away mid-replay gives 404; a rename after the final checks serves those bytes once, and that play is audited. **The in-flight cap of 8 bounds memory, not event-loop time:** every index and audit read is synchronous up to the 64 MiB cap and the listing is not capped; asynchronous reads or a smaller cap are follow-up work for A2b-1b.
+
 **Rollback.** Control-side only: an earlier build has no audio routes (404) and never reads `session.json` (a plain file in the identity folder). `VOICE_ENABLED=0` does not switch the routes off. The audit lines of earlier replays stay in the audit file.
 
 **Residual risks (accepted for a slice with no browser surface).**
