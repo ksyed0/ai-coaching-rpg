@@ -34,7 +34,7 @@ export const MAX_SESSION_MARKER_BYTES = 4_096;
 const MARKER_NAME = "session.json";
 // O_NONBLOCK: a FIFO planted under a watched name must fail or open at once, never hang the open (fstat then refuses it).
 const DIR_FLAGS = fc.O_RDONLY | fc.O_DIRECTORY | fc.O_NOFOLLOW | fc.O_NONBLOCK;
-const FILE_FLAGS = fc.O_RDONLY | fc.O_NOFOLLOW | fc.O_NONBLOCK;
+export const FILE_FLAGS = fc.O_RDONLY | fc.O_NOFOLLOW | fc.O_NONBLOCK;
 
 export type AudioCatalogOptions = {
   audioDir: string;
@@ -43,11 +43,11 @@ export type AudioCatalogOptions = {
 };
 
 const ownUid = (): number | null => (typeof process.getuid === "function" ? process.getuid() : null);
-const isOwn = (st: Stats): boolean => { const uid = ownUid(); return uid === null || st.uid === uid; };
+export const isOwn = (st: Stats): boolean => { const uid = ownUid(); return uid === null || st.uid === uid; };
 const sameIdent = (a: Stats, b: Stats): boolean => a.dev === b.dev && a.ino === b.ino;
 
 /** Opens `p` as a real directory of this user: the descriptor and its Stats, or null (missing, a link, not a directory, foreign). */
-function openOwnDir(p: string): { fd: number; st: Stats } | null {
+export function openOwnDir(p: string): { fd: number; st: Stats } | null {
   let fd: number;
   try { fd = openSync(p, DIR_FLAGS); } catch { return null; }
   try {
@@ -59,7 +59,7 @@ function openOwnDir(p: string): { fd: number; st: Stats } | null {
 }
 
 /** True when `p` still opens as a real directory of this user with the identity `expected` (opened, never stat'ed by path). */
-function stillOwnDir(p: string, expected: Stats): boolean {
+export function stillOwnDir(p: string, expected: Stats): boolean {
   const d = openOwnDir(p);
   if (d === null) return false;
   try { return sameIdent(d.st, expected); } finally { closeSync(d.fd); }
@@ -263,7 +263,7 @@ function recordingStoppedIn(audioDir: string, identity: string, rootSt: Stats): 
 }
 
 /** Opens `audioDir` as a private directory of this user (ruling R3: no group or other write bit), or null. The caller closes it. */
-function openPrivateRoot(audioDir: string): { fd: number; st: Stats } | null {
+export function openPrivateRoot(audioDir: string): { fd: number; st: Stats } | null {
   const d = openOwnDir(audioDir);
   if (d === null) return null;
   if ((d.st.mode & 0o022) === 0) return d;
