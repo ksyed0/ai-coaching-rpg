@@ -188,6 +188,8 @@ Minted in control through `packages/adapters/src/livekit/token.ts` (`livekit-ser
 
 **A2:** create `services/speech/src/store/` (`audio-store.ts`, `index-file.ts`, `store-lock.ts`, `disk-guard.ts`), `services/control/src/voice/` (`audit-log.ts`, `sweep.ts`, `replay-routes.ts`, `delete.ts`), web console routes and `AudioPanel.tsx`; modify the worker pipeline (write audio and index), `voice-host.ts` (seq back-fill, audit events from `voice_choice`).
 
+**A2 replay contract change (recorded 2026-11-12, A2b-1a, US-0074; owner confirmed):** the replay route answers the **whole file** (`200`, `Accept-Ranges: none`, any `Range` header ignored), not range requests as spec section 8 said, so that every byte that leaves is covered by exactly one `audio.played` audit line written before the bytes. A2 is split: A2a (US-0073, the store, built), A2b-1a (US-0074, the control API listing and audited replay, built; the file names above became `audio-catalog.ts`, `audio-replay.ts`, `audio-routes.ts` and `log-identity.ts`, there is no `replay-routes.ts`), A2b-1b (delete) and A2b-2 (the web BFF routes and `AudioPanel.tsx`), the last two not yet filed. Spec: `docs/superpowers/specs/2026-11-12-voice-a2b1-audio-replay-delete-design.md`.
+
 **A3:** modify the worker (partials, capacity switch), control (partials relay, mute), web console (`LivePartials.tsx`, mute control) and participant page (push-to-talk).
 
 ---
