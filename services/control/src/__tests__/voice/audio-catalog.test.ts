@@ -455,6 +455,16 @@ describe("AudioCatalog.list (US-0074, Task 5)", () => {
     expect((await segsOf()).map((s) => [s.segment, s.startMs])).toEqual([["s1", 1]]);
   });
 
+  it("a deleted line placed BEFORE its segment line still marks the segment deleted", async () => {
+    mkRole(A, "r", [delLine("s1"), segLine("s1", 1), segLine("s2", 2)], ["s1", "s2"]);
+    expect((await segsOf()).map((s) => [s.segment, s.audio])).toEqual([["s1", "deleted"], ["s2", "available"]]);
+  });
+
+  it("a later duplicate segment line after a deleted line does not clear the mark, and the first line's fields are kept", async () => {
+    mkRole(A, "r", [segLine("s1", 1), delLine("s1"), segLine("s1", 99)], ["s1"]);
+    expect((await segsOf()).map((s) => [s.segment, s.startMs, s.audio])).toEqual([["s1", 1, "deleted"]]);
+  });
+
   it("an index over 64 MiB (sparse) contributes nothing for that role only; one of exactly 64 MiB is read", async () => {
     const big = mkRole(A, "big", [segLine("b1", 1)], ["b1"]);
     truncateSync(path.join(big, "index.jsonl"), MAX_SEGMENT_INDEX_BYTES + 1);
