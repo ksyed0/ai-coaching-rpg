@@ -3,6 +3,7 @@ import { closeSync, constants as fc, fstatSync, lstatSync, openSync, readSync, r
 import path from "node:path";
 import { isFileSafeId } from "@acr/events";
 import { assertInside } from "@acr/runtime/files";
+import { isDeletedLine } from "@acr/speech/protocol";
 import type { SetTimer } from "../supervisor.js";
 import type { AuditLog } from "./audit-log.js";
 import { IdentityMutex, acquireStoreLock } from "./store-lock.js";
@@ -256,10 +257,14 @@ function removeTree(audioDir: string, p: string, depth = 0): void {
   }
 }
 
-/** The segment ids a role's index names (`kind:"segment"` lines; torn or foreign lines ignored); null when the index cannot be trusted. */
+/**
+ * The segment ids a role's index names (`kind:"segment"` lines) minus the ids a valid deleted line names (`isDeletedLine`), so a WAV whose
+ * delete was marked but not unlinked (a crash between the two) is an orphan. Torn or foreign lines are ignored; null when the index cannot be trusted.
+ */
 function indexedSegments(role: string): Set<string> | null {
   const file = path.join(role, "index.jsonl");
   const ids = new Set<string>();
+  const deleted = new Set<string>();
   const text = readRegularOrCode(file, MAX_INDEX_BYTES);
   // Only ENOENT means "no index at all" (every WAV in the folder is an orphan); a link, EIO, EACCES, an oversized file and the rest mean
   // "cannot tell": remove nothing on a guess.
@@ -270,8 +275,10 @@ function indexedSegments(role: string): Set<string> | null {
     try {
       const v = JSON.parse(line) as unknown;
       if (v && typeof v === "object" && (v as { kind?: unknown }).kind === "segment" && typeof (v as { segment?: unknown }).segment === "string") ids.add((v as { segment: string }).segment);
+      else if (isDeletedLine(v)) deleted.add(v.segment);
     } catch { /* a torn line */ }
   }
+  for (const d of deleted) ids.delete(d);
   return ids;
 }
 
