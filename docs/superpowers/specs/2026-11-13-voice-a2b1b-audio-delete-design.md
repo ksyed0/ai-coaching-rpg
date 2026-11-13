@@ -47,7 +47,7 @@ Steps 5 and 6 run back to back with nothing awaited between them except the audi
 
 **Live after a crash (owner, 2026-11-13):** when a runtime crashes without the session ending, VoiceHost keeps the entry (`Supervisor.onChildExit` detaches the voice but the session is not ended), so delete answers 409 until the session is ended or restarted. Accepted: VOICE_RUNBOOK says "end or restart the session first".
 
-Error codes: 400 bad id, body or `by`; 401 no token; 404 no audio for the session; 409 `session_live`; 503 (the worst reason, with the partial body); a delete in flight cap of 4 returns 503 `busy` at once. Nothing logs a path, an id or a name.
+Error codes: 400 bad body or `by`; 401 no token; 404 bad session id or no audio for the session; 409 `session_live`; 503 (the worst reason, with the partial body); a delete in flight cap of 4 returns 503 `busy` at once. Nothing logs a path, an id or a name.
 
 ## 5. Lock acquirer, mutex and index writer
 
