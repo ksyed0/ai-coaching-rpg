@@ -86,6 +86,7 @@ export function SessionList({ fetch: fetchImpl }: SessionListProps) {
         <CodesPanel
           key={shown.seq}
           codes={shown.codes}
+          sessionId={shown.sessionId}
           heading={`New join codes for session ${shortId(shown.sessionId)}`}
           onDismiss={() => setShown(null)}
         />

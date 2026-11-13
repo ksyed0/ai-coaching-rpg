@@ -271,11 +271,12 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
             <p className="muted">The roster could not be read. Open the session to see which roles are AI players.</p>
           ) : null}
         </section>
-        <CodesPanel key={`codes-${codesSeq}`} codes={codes} onDismiss={() => setCodes([])} />
+        <CodesPanel key={`codes-${codesSeq}`} codes={codes} sessionId={created.sessionId} onDismiss={() => setCodes([])} />
         {fresh ? (
           <CodesPanel
             key={`fresh-${fresh.seq}`}
             codes={fresh.codes}
+            sessionId={created.sessionId}
             heading={fresh.codes.length === 1 ? `New code for ${roleLabel(fresh.codes[0]!.roleId)}` : "New codes"}
             onDismiss={() => setFresh(null)}
           />

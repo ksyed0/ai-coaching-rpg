@@ -147,6 +147,8 @@ table.grid tbody th { font-weight: 600; }
 .codes { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .code-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .code-role { font-weight: 600; min-width: 8ch; }
+.code-link { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.code-url { word-break: break-all; user-select: all; }
 .code-value { font-size: 17px; letter-spacing: 0.04em; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: var(--gutter); background: rgba(0, 0, 0, 0.5); }
 .dialog { width: 100%; max-width: 480px; max-height: 100%; overflow-y: auto; }

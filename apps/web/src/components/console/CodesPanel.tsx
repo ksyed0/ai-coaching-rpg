@@ -12,6 +12,8 @@ export type CodesPanelProps = {
   /** Called after the codes were cleared, so the parent drops its own reference too. */
   onDismiss?: () => void;
   heading?: string;
+  /** The session the codes belong to. With it, each role also shows its join link (no code in it: the code is typed). */
+  sessionId?: string;
 };
 
 type CopyState = "copied" | "failed";
@@ -20,6 +22,7 @@ export function CodesPanel({
   codes: initial,
   onDismiss,
   heading = "Join codes",
+  sessionId,
 }: CodesPanelProps) {
   const headingId = useId();
   const [codes, setCodes] = useState<CodeEntry[]>(initial);
@@ -27,20 +30,26 @@ export function CodesPanel({
 
   if (codes.length === 0) return null;
 
-  async function copyCode(c: CodeEntry) {
+  async function copyText(key: string, text: string) {
     let state: CopyState = "failed";
     try {
       const clip =
         typeof navigator === "undefined" ? undefined : navigator.clipboard;
       if (clip && typeof clip.writeText === "function") {
-        await clip.writeText(c.code);
+        await clip.writeText(text);
         state = "copied";
       }
     } catch {
-      /* the clipboard may be blocked: the code stays selectable */
+      /* the clipboard may be blocked: the text stays selectable */
     }
-    setCopy((prev) => ({ ...prev, [c.roleId]: state }));
+    setCopy((prev) => ({ ...prev, [key]: state }));
   }
+  const copyCode = (c: CodeEntry) => copyText(c.roleId, c.code);
+  /** The player's join link: the page's own origin, the session and the role. It holds no secret (the code is typed by the player). */
+  const joinUrl = (c: CodeEntry): string | null =>
+    sessionId && typeof window !== "undefined"
+      ? `${window.location.origin}/join?session=${encodeURIComponent(sessionId)}&role=${encodeURIComponent(c.roleId)}`
+      : null;
 
   function dismiss() {
     setCodes([]);
@@ -76,6 +85,27 @@ export function CodesPanel({
                   ? "Could not copy. Select the code and copy it by hand."
                   : ""}
             </span>
+            {joinUrl(c) !== null ? (
+              <span className="code-link">
+                <span className="small muted">Join link</span>
+                <code className="mono small code-url">{joinUrl(c)}</code>
+                <button
+                  className="btn"
+                  type="button"
+                  aria-label={`Copy join link for ${roleLabel(c.roleId)}`}
+                  onClick={() => void copyText(`${c.roleId}:link`, joinUrl(c)!)}
+                >
+                  Copy link
+                </button>
+                <span className="small muted" role="status">
+                  {copy[`${c.roleId}:link`] === "copied"
+                    ? "Copied."
+                    : copy[`${c.roleId}:link`] === "failed"
+                      ? "Could not copy. Select the link and copy it by hand."
+                      : ""}
+                </span>
+              </span>
+            ) : null}
           </li>
         ))}
       </ul>
