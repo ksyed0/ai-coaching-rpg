@@ -6,6 +6,8 @@ import { collectSecrets } from "@acr/runtime/reports";
 import { loadScenario, type Scenario } from "@acr/script";
 import { BotHost } from "./bots/bot-host.js";
 import { IntentLog } from "./bots/intent-log.js";
+import { FileAccountStore } from "./accounts/store.js";
+import { AccountService } from "./accounts/service.js";
 import { aiRolesFor } from "./ai-roles.js";
 import { createApi } from "./api.js";
 import type { EvalSpawnFn } from "./eval-child.js";
@@ -175,7 +177,19 @@ export async function startControl(
   // US-0068: the overview's "AI player, not scored" rows read the same source as the link guard (one reader of the log, no shared memo).
   moderation = new ModerationService({ config, jobs, secrets, aiRoles: (id) => aiRolesFor(config, list, id) });
 
-  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio }));
+  // US-0083: the accounts, with the default admin created (or reset) BEFORE listening. The bootstrap password is never logged.
+  const accounts = new AccountService({
+    store: new FileAccountStore(config.accountsFile), now: Date.now, bootstrapPassword: config.adminBootstrapPassword, reset: config.adminReset, log,
+  });
+  try {
+    await accounts.ensureDefaultAdmin();
+    if (accounts.list().some((a) => a.login === "admin" && a.mustChange)) log("accounts: the default admin must still change its password");
+  } catch {
+    await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]);
+    throw new Error("the accounts file cannot be used; fix or move it and start again");
+  }
+
+  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio, accounts }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
   // are at most 64 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default

@@ -136,3 +136,25 @@ describe("loadControlEnv", () => {
     expect(m).not.toContain(r);
   });
 });
+
+describe("loadControlConfig accounts settings (US-0083)", () => {
+  it("derives accountsFile and defaults the bootstrap password and reset", () => {
+    const c = loadControlConfig(base());
+    expect(c.accountsFile).toBe(path.join(DATA, "accounts.json"));
+    expect(c.adminBootstrapPassword).toBe("ChangeMe-Admin-1");
+    expect(c.adminReset).toBe(false);
+  });
+  it("reads ADMIN_BOOTSTRAP_PASSWORD at 10 and 200 characters", () => {
+    expect(loadControlConfig({ ...base(), ADMIN_BOOTSTRAP_PASSWORD: "p".repeat(10) }).adminBootstrapPassword).toBe("p".repeat(10));
+    expect(loadControlConfig({ ...base(), ADMIN_BOOTSTRAP_PASSWORD: "p".repeat(200) }).adminBootstrapPassword).toHaveLength(200);
+  });
+  it.each(["short", "p".repeat(9), "p".repeat(201), ""])("refuses a bootstrap password of the wrong length and never prints it", (v) => {
+    const m = problems({ ...base(), ADMIN_BOOTSTRAP_PASSWORD: v });
+    expect(m).toContain("ADMIN_BOOTSTRAP_PASSWORD must be 10 to 200 characters");
+    if (v !== "") expect(m).not.toContain(v);
+  });
+  it("sets adminReset only for exactly 1", () => {
+    expect(loadControlConfig({ ...base(), ADMIN_RESET: "1" }).adminReset).toBe(true);
+    for (const v of ["0", "true", "", "yes"]) expect(loadControlConfig({ ...base(), ADMIN_RESET: v }).adminReset).toBe(false);
+  });
+});

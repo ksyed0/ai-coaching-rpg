@@ -6,6 +6,7 @@ import { ParticipantIdSchema, RoleIdSchema } from "./protocol.js";
 import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse, send, sendBytes } from "./http-util.js";
 import { parseBy, type AudioService } from "./voice/audio-routes.js";
 import type { DeleteOutcome, PendingReason } from "./voice/audio-delete.js";
+import { AccountError, type AccountErrorCode, type AccountService } from "./accounts/service.js";
 import type { ControlConfig } from "./config.js";
 import type { ParticipantWriteService, WriteOutcome } from "./participant-writes.js";
 import { handleReportRoute } from "./moderation-routes.js";
@@ -25,6 +26,8 @@ const STATUS: Record<ControlErrorCode, number> = {
   ai_busy: 409, ai_budget: 409, ai_absent: 409, ai_expired: 409,
   voice_refused: 409, voice_off: 409, voice_unavailable: 503,
 };
+/** US-0083: AccountError codes to statuses. */
+const ACCOUNT_STATUS: Record<AccountErrorCode, number> = { not_found: 404, conflict: 409, state: 409, invalid: 400 };
 export { MAX_BODY_BYTES };
 const UNAUTHORIZED = "Unauthorized.";
 const INTERNAL = "Something went wrong.";
@@ -86,6 +89,17 @@ const deleteBody = (o: DeleteOutcome) => ({
   pending: o.pending.map((p) => ({ identity: p.identity, reason: p.reason })),
 });
 
+/** US-0083: the account routes. Every string is length-limited here (the service has none); a password is at most 200 characters. */
+const AccountId = z.string().min(1).max(64);
+const Epoch = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const LoginBody = z.strictObject({ login: z.string().max(MAX_FIELD), password: z.string().max(MAX_FIELD) });
+const CheckBody = z.strictObject({ accountId: AccountId, epoch: Epoch });
+const PasswordBody = z.strictObject({ accountId: AccountId, epoch: Epoch, current: z.string().max(MAX_FIELD), next: z.string().max(MAX_FIELD) });
+const CreateAccountBody = z.strictObject({
+  login: z.string().max(MAX_FIELD), name: z.string().max(MAX_FIELD), role: z.enum(["admin", "facilitator"]), by: z.string().min(1).max(MAX_FIELD).nullable(),
+});
+const ACCOUNT_REFUSED = "That account is not allowed.";
+
 const digest = (s: string): Buffer => createHash("sha256").update(s).digest();
 
 /** Constant time: both sides are hashed to the same length first, so neither the length nor the content leaks through timing. */
@@ -116,9 +130,49 @@ export function createApi(deps: {
   moderation?: ModerationService;
   /** The facilitator's audio listing and replay (US-0074) and delete (US-0075). Optional: the routes answer 404 when it is absent. */
   audio?: AudioService;
+  /** Facilitator and admin accounts (US-0083). Optional: the routes answer 404 when it is absent. */
+  accounts?: AccountService;
 }): RequestListener {
-  const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation, audio } = deps;
+  const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation, audio, accounts } = deps;
   const log = deps.log ?? (() => {});
+
+  /** US-0083. A bad token is 401 `unauthorized` (checked before this); a bad account is 401 `account_refused`. Nothing here logs a body. */
+  async function accountRoute(seg: string[], method: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!accounts) throw new HttpError(404, "not_found", "Not found.");
+    const refused = (): void => fail(res, 401, "account_refused", ACCOUNT_REFUSED);
+    if (seg.length === 1 && method === "GET") return ok(res, { accounts: accounts.list() });
+    if (seg.length === 1 && method === "POST") {
+      const b = parse(CreateAccountBody, await jsonBody(req));
+      return ok(res, await accounts.create({ login: b.login, name: b.name, role: b.role }, b.by));
+    }
+    if (seg.length === 2 && seg[1] === "legacy" && method === "GET") return ok(res, { allowed: accounts.legacySecretAllowed() });
+    if (seg.length === 2 && seg[1] === "login" && method === "POST") {
+      const b = parse(LoginBody, await jsonBody(req));
+      const r = await accounts.login(b.login, b.password);
+      if (r.ok) return ok(res, { account: r.account });
+      return fail(res, 401, r.reason === "expired" ? "login_expired" : "login_refused", "That login is not allowed.");
+    }
+    if (seg.length === 2 && seg[1] === "check" && method === "POST") {
+      const b = parse(CheckBody, await jsonBody(req));
+      const a = accounts.check(b.accountId, b.epoch);
+      return a === null ? refused() : ok(res, { account: a });
+    }
+    if (seg.length === 2 && seg[1] === "password" && method === "POST") {
+      const b = parse(PasswordBody, await jsonBody(req));
+      const r = await accounts.changePassword(b.accountId, b.epoch, b.current, b.next);
+      if (r.ok) return ok(res, { account: r.account });
+      return r.reason === "weak" ? fail(res, 400, "weak_password", "Choose a longer password that differs from the current one.") : refused();
+    }
+    if (seg.length === 3 && method === "POST" && (seg[2] === "resend" || seg[2] === "reset" || seg[2] === "reinstate" || seg[2] === "revoke")) {
+      let id: string;
+      try { id = decodeURIComponent(seg[1]!); } catch { throw new HttpError(404, "not_found", "Not found."); }
+      if (!AccountId.safeParse(id).success) throw new HttpError(404, "not_found", "Not found.");
+      parse(NoBody, (await jsonBody(req)) ?? {});
+      if (seg[2] === "revoke") { accounts.revoke(id); return ok(res, {}); }
+      return ok(res, await (seg[2] === "resend" ? accounts.resend(id) : seg[2] === "reset" ? accounts.resetPassword(id) : accounts.reinstate(id)));
+    }
+    throw new HttpError(404, "not_found", "Not found.");
+  }
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = req.method ?? "";
@@ -145,6 +199,7 @@ export function createApi(deps: {
       const found = await reports.exchange(parsed.data.token);
       return found === null ? neutral() : ok(res, found);
     }
+    if (seg[0] === "accounts") return accountRoute(seg, method, req, res);
     if (seg[0] !== "sessions") return notFound();
     if (seg.length === 1) {
       if (method === "GET") return ok(res, supervisor.list());
@@ -324,6 +379,7 @@ export function createApi(deps: {
         await route(req, res);
       } catch (err) {
         if (err instanceof HttpError) { fail(res, err.status, err.code, err.message, err.closeConnection); return; }
+        if (err instanceof AccountError) { fail(res, ACCOUNT_STATUS[err.code], err.code, err.message); return; }
         if (err instanceof ControlError && err.code in STATUS) { fail(res, STATUS[err.code], err.code, err.message); return; }
         log(`request failed (${errorName(err)})`);
         fail(res, 500, "internal", INTERNAL);

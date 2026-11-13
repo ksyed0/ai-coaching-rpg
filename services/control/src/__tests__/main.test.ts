@@ -339,3 +339,25 @@ describe("startControl", () => {
     } finally { rmSync(draft.root, { recursive: true, force: true }); }
   });
 });
+
+describe("startControl accounts (US-0083)", () => {
+  it("creates the default admin before listening, serves the account routes, and logs no password", async () => {
+    const logs: string[] = [];
+    running = await startControl({ ...env, ADMIN_BOOTSTRAP_PASSWORD: "Boot-Secret-12345" }, { log: (m) => logs.push(m), port: 0 });
+    const file = readFileSync(path.join(root, "data", "accounts.json"), "utf8");
+    expect(file).toContain('"login":"admin"');
+    expect(file).not.toContain("Boot-Secret-12345");
+    const res = await fetch(`http://127.0.0.1:${running.port}/accounts/login`, {
+      method: "POST", headers: { "x-service-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ login: "admin", password: "Boot-Secret-12345" }),
+    });
+    expect(res.status).toBe(200);
+    expect(logs.some((l) => l.includes("default admin must still change"))).toBe(true);
+    expect(logs.join("\n")).not.toContain("Boot-Secret-12345");
+  });
+  it("refuses to start on an unusable accounts file and leaves it untouched", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    writeFileSync(path.join(root, "data", "accounts.json"), "{not json", { mode: 0o600 });
+    await expect(startControl(env, { port: 0 })).rejects.toThrow(/accounts file/);
+    expect(readFileSync(path.join(root, "data", "accounts.json"), "utf8")).toBe("{not json");
+  });
+});
