@@ -3,6 +3,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { playerRoleCapError } from "./host/limits.js";
+import { parseVoiceConfig, type VoiceConfig } from "./host/voice-config.js";
 import { loadScenario, validateScenario } from "@acr/script";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
 import { NOTICE_VERSION_RULE_TEXT, SESSION_ID_RULE_TEXT, isNoticeVersion, isValidSessionId } from "@acr/events";
@@ -10,7 +11,7 @@ import { SessionStoreError, openSession, parseLockStaleMs, parseStartMode, type 
 import { SystemClock } from "./engine/clock.js";
 import { loadConsentNotice } from "./engine/consent-notice.js";
 import type { ConsentNotice } from "./engine/consent.js";
-import { SessionHost } from "./host/session-host.js";
+import { SessionHost, VoiceRefusedError } from "./host/session-host.js";
 import { startServer } from "./host/ws-server.js";
 import { parseNpcTimeouts } from "./agents/timeouts.js";
 import { parseTokenBudgets } from "./agents/token-budgets.js";
@@ -126,6 +127,10 @@ export async function bootstrap(opts: {
   if (errors.length) return { ok: false, errors };
   // US-0060: a managed session has a player-role cap; refused before the session is opened, so no file is written.
   if (managed) { const capError = playerRoleCapError(scenario); if (capError) return { ok: false, errors: [capError] }; }
+  // US-0070: VOICE_ENABLED=1 needs a managed runtime and a notice that describes voice; refused before the session is opened (no file written).
+  const voiceCfg = parseVoiceConfig(env, { managed, noticeVersion });
+  if (!voiceCfg.ok) return { ok: false, errors: voiceCfg.errors };
+  const voice: VoiceConfig = voiceCfg.enabled ? { enabled: true, turnEndMs: voiceCfg.turnEndMs } : { enabled: false };
 
   // US-0058: SESSION_DATA_DIR (set by the control service, from the merged env like the other settings) names the data directory; it must be absolute, and a refusal never echoes it.
   const sessionDataDir = env.SESSION_DATA_DIR;
@@ -169,7 +174,7 @@ export async function bootstrap(opts: {
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmAutoRelease: gmCfg.autoRelease, gmTranscriptWindow: gmCfg.transcriptWindow, gmTrace, seats: store.seats });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmAutoRelease: gmCfg.autoRelease, gmTranscriptWindow: gmCfg.transcriptWindow, gmTrace, seats: store.seats, voice });
     if (store.resume) host.resumeFrom(store.resume);
     // Fail-stop (US-0018): a lost lock stops the engine too; one log line (no paths or values), then the owner's onFatal.
     let fatalSeen = false;
@@ -223,6 +228,7 @@ export async function bootstrap(opts: {
     if (notes && notes.repairs.length > 0) log(`the restart completed what the crash cut short: ${notes.repairs.join(", ")}`);
   }
   let unsubscribeEnded: (() => void) | undefined;
+  let unsubscribeVoice: (() => void) | undefined;
   // BUG-0016: the host's own session.ended subscriber is registered after a repair-to-ended already happened; a failure is reported, not thrown.
   const revokeEndedSeats = (): void => { try { host.endSeats(); } catch (err) { warn(`end of session revoke: ${err instanceof Error ? err.name : "error"}`); } };
   if (!parent && host.engine.state.status === "ended") revokeEndedSeats();
@@ -232,13 +238,23 @@ export async function bootstrap(opts: {
     const aiRoleIds = host.aiRoleIds(); // US-0060: from the AI-role file (lobby) or the started log (resume)
     // US-0060: the AI-player calls already in the log (the control service seeds a session budget from it); never above the schema's cap, and absent when 0.
     const aiCalls = Math.min(store.resume?.aiCalls ?? 0, MAX_READY_AI_CALLS);
-    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}), ...(store.aiRolesReset && store.aiRolesReset.length > 0 ? { aiRolesReset: store.aiRolesReset } : {}), ...(host.includeInGroup() ? {} : { includeInGroup: false as const }), ...(store.includeInGroupReset === false && (store.aiRolesReset?.length ?? 0) > 0 ? { includeInGroupReset: false as const } : {}), ...(aiCalls > 0 ? { aiCalls } : {}) });
+    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}), ...(store.aiRolesReset && store.aiRolesReset.length > 0 ? { aiRolesReset: store.aiRolesReset } : {}), ...(host.includeInGroup() ? {} : { includeInGroup: false as const }), ...(store.includeInGroupReset === false && (store.aiRolesReset?.length ?? 0) > 0 ? { includeInGroupReset: false as const } : {}), ...(aiCalls > 0 ? { aiCalls } : {}), ...(host.voiceEnabled ? { voice: true as const } : {}) });
     if (!sent) {
       // A start failure, but the join codes are deliberately NOT withdrawn: the parent already holds them (they were sent first), and
       // withdrawing would make them stale. The parent reissues them if it restarts this session. Nothing may stay running or locked.
       host.stopTicker(); await server.close(); gmTrace?.close();
       await store.close();
       return { ok: false, errors: ["could not report the session as ready to the control service (the start was stopped; start again)"] };
+    }
+    // US-0070: the seats the speech worker may record, right after `ready` and then on every change (coalesced by the host), and each
+    // saved voice choice. Control forwards the seats to the worker as voice_state; nothing here carries a transcript or a path.
+    if (host.voiceEnabled) {
+      parent.send({ type: "voice_seats", ...host.voiceSeats() });
+      const offSeats = host.onVoiceSeatsChanged((v) => { parent.send({ type: "voice_seats", ...v }); });
+      const offChoice = host.onVoiceChoice((c) => { parent.send({ type: "voice_choice", ...c }); });
+      // AC-0400: control's AI players wake once per voice turn: each open and close is reported, in order.
+      const offTurn = host.onVoiceTurn((open) => { parent.send({ type: "voice_turn", open }); });
+      unsubscribeVoice = () => { offSeats(); offChoice(); offTurn(); };
     }
     let endedSent = false;
     unsubscribeEnded = host.subscribe((e) => { if (e.type === "session.ended" && !endedSent) { endedSent = true; parent.send({ type: "ended" }); } });
@@ -259,13 +275,36 @@ export async function bootstrap(opts: {
     });
     // US-0060: a failure reply is chosen by the message's own type; nothing but a fixed string ever reaches the parent.
     const fail = (m: ParentMessage, reason: string) => {
-      if (m.type === "bot_alert") return; // no requestId, so no reply is possible
+      if (m.type === "bot_alert" || m.type === "speech_activity" || m.type === "voice_notice" || m.type === "voice_alert" || m.type === "voice_availability") return; // fire-and-forget: no requestId, so no reply is possible
+      if (m.type === "voice_line") { parent.send({ type: "voice_line_refused", segmentId: m.segmentId, code: "failed" }); return; } // US-0070: every voice line gets exactly one answer
       if (m.type === "set_ai_roles") parent.send({ type: "ai_roles_failed", requestId: m.requestId, reason });
       else parent.send({ type: "reissue_failed", requestId: m.requestId, reason });
     };
     const answer = (m: ParentMessage) => {
       // US-0060: a bot alert is fire-and-forget: never answered (no requestId), and botAlert never rejects, so nothing here can reply.
       if (m.type === "bot_alert") { void host.botAlert(m.roleId, m.message).catch(() => undefined); return; }
+      // US-0070: fire-and-forget. A speech edge feeds the host's turn timer (ignored unless the role is a recording holder).
+      if (m.type === "speech_activity") { host.onSpeechActivity(m.roleId, m.active, m.silentMs); return; }
+      // The speaker's private notice of a failed or empty segment, and the facilitator's alert (both rate-limited by the host; never answered).
+      if (m.type === "voice_notice") { host.voiceNotice(m.roleId, m.participantId, m.code); return; }
+      if (m.type === "voice_alert") {
+        // F2: a worker that died mid-speech will send no "speech stopped" edge: the open voice turn closes now. US-0071: on every way a
+        // worker goes (down, restarting, off), before and independent of the alert, which stays rate limited. US-0072 (A1c Task 10): a
+        // LiveKit outage (`livekit_lost`) too: its worker has exited and none runs until LiveKit answers again.
+        if (m.code === "worker_down" || m.code === "worker_restarting" || m.code === "voice_off" || m.code === "livekit_lost") host.voiceWorkerDown();
+        void host.voiceAlert(m.code);
+        return;
+      }
+      // US-0071 (K7): fire-and-forget, never answered. Applied at once, with no rate limit (the alerts are separate and rate limited).
+      if (m.type === "voice_availability") { host.voiceAvailability(m.available, m.off); return; }
+      if (m.type === "voice_line") {
+        // US-0070: exactly one answer per line: the seq, the host's refusal code, or "failed" for anything else (never a message or a path).
+        host.onVoiceUtterance(m.roleId, m.participantId, m.text).then(
+          ({ seq }) => { parent.send({ type: "voice_line_ack", segmentId: m.segmentId, seq }); },
+          (err) => { parent.send({ type: "voice_line_refused", segmentId: m.segmentId, code: err instanceof VoiceRefusedError ? err.code : "failed" }); },
+        );
+        return;
+      }
       if (!current || !seats) { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "this session has no join codes to reissue"); return; }
       if (m.type === "set_ai_roles") {
         setAiRoles(deps(), m.roles, m.includeInGroup).then(
@@ -282,7 +321,7 @@ export async function bootstrap(opts: {
     };
     parent.onMessage((m) => { try { answer(m); } catch { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "the code could not be reissued"); } });
   }
-  return { ok: true, runtime: { port: server.port, host, stop: async () => { unsubscribeEnded?.(); host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
+  return { ok: true, runtime: { port: server.port, host, stop: async () => { unsubscribeEnded?.(); unsubscribeVoice?.(); host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
 }
 
 /**

@@ -3,7 +3,7 @@ import type { WebSocket } from "ws";
 import { initPlayerView } from "@acr/events";
 import { RuntimeConnection } from "../runtime-connection";
 import { sseBody } from "../sse";
-import { AI_FILLED_MESSAGE, NoStreamError, REMOVED_MESSAGE, StreamHub, type SessionCookie } from "../stream-hub";
+import { AI_FILLED_MESSAGE, NoStreamError, REMOVED_MESSAGE, StreamHub, VOICE_NOTICE_CODES, type SessionCookie } from "../stream-hub";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "../wire";
 import { asConn, FakeConn, fakeRuntime, manualTimers, parseSse, sseRecorder, until } from "./fakes";
 
@@ -556,6 +556,144 @@ describe("StreamHub send", () => {
     const { conn } = opened(h);
     conn.closed = 1; // the socket went away; the close event has not arrived yet
     await expect(h.send(cookieFor(), { type: "leave" })).rejects.toBeInstanceOf(NoStreamError);
+  });
+});
+
+// US-0071 (A1b Task 11): the voice frames of a player's own stream. `joined.voice` and the named `voice_notice` event reach that player
+// only, picked field by field; a `voice` frame is only ever the answer to that player's own voice send; nothing else voice-shaped passes.
+describe("StreamHub voice (US-0071)", () => {
+  const noticeFrames = (rec: ReturnType<typeof sseRecorder>) => rec.frames().filter((f) => f.event === "voice_notice");
+
+  it("joined.voice is forwarded with its state and muted only (an extra nested key is dropped)", () => {
+    const { h } = hub();
+    const { rec } = opened(h, { joined: joinedFrame({ voice: { state: "voice", muted: true, participantId: "p-secret", room: "v0123" } as never }) });
+    const joined = rec.frames()[1]!;
+    expect(joined.data.voice).toEqual({ state: "voice", muted: true });
+    expect(rec.chunks.join("")).not.toContain("p-secret");
+    expect(rec.chunks.join("")).not.toContain("v0123");
+  });
+
+  it.each([
+    ["an unknown state", { state: "loud", muted: false }], ["a non-string state", { state: 1, muted: false }], ["not an object", "voice"], ["null", null],
+  ])("joined.voice with %s is not forwarded", (_n, voice) => {
+    const { h } = hub();
+    const { rec } = opened(h, { joined: joinedFrame({ voice: voice as never }) });
+    expect("voice" in rec.frames()[1]!.data).toBe(false);
+  });
+
+  it("joined.voice without a boolean muted keeps the state only", () => {
+    const { h } = hub();
+    const { rec } = opened(h, { joined: joinedFrame({ voice: { state: "text_only", muted: "yes" } as never }) });
+    expect(rec.frames()[1]!.data.voice).toEqual({ state: "text_only" });
+  });
+
+  it("a joined without voice has no voice key (a text-only session's joined frame is unchanged)", () => {
+    const { h } = hub();
+    const { rec } = opened(h);
+    expect(Object.keys(rec.frames()[1]!.data).sort()).toEqual(["brief", "consent", "logIdentity", "privateFacts", "replay", "roleId", "scenes", "state"]);
+  });
+
+  it.each(["stt_failed", "empty", "paused", "not_in_scene", "ended", "not_recording", "voice_unavailable", "voice_available"])("voice_notice %s becomes a voice_notice event with the code only", (code) => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({ type: "voice_notice", code, text: "SECRET transcript line", roleId: "tech_lead" } as never);
+    expect(noticeFrames(rec)).toEqual([{ event: "voice_notice", data: { code } }]);
+    expect(rec.chunks.join("")).not.toContain("SECRET");
+  });
+
+  it("a voice_notice with an unknown code, a non-string code or an inherited name is dropped", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    for (const code of ["nope", "STT_FAILED", "toString", "__proto__", "constructor", "", 7, null]) conn.emit({ type: "voice_notice", code } as never);
+    expect(noticeFrames(rec)).toEqual([]);
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+  });
+
+  it("the BFF's notice allowlist is exactly the eight codes", () => {
+    expect([...VOICE_NOTICE_CODES]).toEqual(["stt_failed", "empty", "paused", "not_in_scene", "ended", "not_recording", "voice_unavailable", "voice_available"]);
+  });
+
+  it("a voice frame without a pending send is dropped", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({ type: "voice", state: "voice", muted: false });
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+  });
+
+  it("voice_opt_in resolves with the voice frame, which is not also written to the stream", async () => {
+    const { h, timers } = hub();
+    const { conn, rec } = opened(h);
+    conn.answer = (m) => (m.type === "voice_opt_in" ? { type: "voice", state: "voice", muted: false } : null);
+    const r = await h.send(cookieFor(), { type: "voice_opt_in", noticeVersion: "v3" });
+    expect(r).toEqual({ type: "voice", state: "voice", muted: false });
+    expect(conn.sent).toEqual([{ type: "voice_opt_in", noticeVersion: "v3" }]);
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+    expect(timers.live().filter((t) => t.ms !== 15_000)).toEqual([]);
+  });
+
+  it("voice_opt_out and voice_mute resolve with their voice frame", async () => {
+    const { h } = hub();
+    const { conn } = opened(h);
+    conn.answer = (m) => (m.type === "voice_opt_out" ? { type: "voice", state: "text_only", muted: false } : m.type === "voice_mute" ? { type: "voice", state: "voice", muted: m.muted } : null);
+    expect(await h.send(cookieFor(), { type: "voice_opt_out" })).toEqual({ type: "voice", state: "text_only", muted: false });
+    expect(await h.send(cookieFor(), { type: "voice_mute", muted: true })).toEqual({ type: "voice", state: "voice", muted: true });
+  });
+
+  it.each(["voice_off", "forbidden", "not_joined", "consent_version", "voice_notice_required", "failed", "bad_message", "bad_json", "rate_limited", "internal"])(
+    "a %s error is the voice send's answer",
+    async (code) => {
+      const { h } = hub();
+      const { conn, rec } = opened(h);
+      conn.answer = () => ({ type: "error", code, message: "runtime text" });
+      expect(await h.send(cookieFor(), { type: "voice_opt_in", noticeVersion: "v3" })).toMatchObject({ type: "error", code });
+      expect(rec.chunks.join("")).not.toContain("runtime text");
+    },
+  );
+
+  it("voice_mute times out after 2000 ms to null (manual timer), not after the 300 ms of the other sends", async () => {
+    const { h, timers } = hub();
+    const { conn } = opened(h);
+    const p = h.send(cookieFor(), { type: "voice_mute", muted: true });
+    await until(() => conn.sent.length === 1);
+    timers.fire(300);
+    let settled = false;
+    void p.then(() => { settled = true; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(settled).toBe(false);
+    timers.fire(2_000);
+    expect(await p).toBeNull();
+  });
+
+  it("a say waiting for its answer never takes a voice frame", async () => {
+    const { h, timers } = hub();
+    const { conn, rec } = opened(h);
+    const p = h.send(cookieFor(), { type: "say", text: "hi" });
+    await until(() => conn.sent.length === 1);
+    conn.emit({ type: "voice", state: "voice", muted: false });
+    timers.fire(300);
+    expect(await p).toBeNull();
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+  });
+
+  it("send still refuses an unknown type (characterisation)", async () => {
+    const { h } = hub();
+    const { conn } = opened(h);
+    await expect(h.send(cookieFor(), { type: "voice_seats", holders: [] } as unknown as ClientMessage)).rejects.not.toBeInstanceOf(NoStreamError);
+    expect(conn.sent).toEqual([]);
+  });
+
+  it("peer roster frames keep only the peer fields even when the runtime adds voice and speaking (characterisation)", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({ type: "roster", audience: "peers", entries: [{ roleId: "tech_lead", ready: true, voice: "voice", speaking: true }] } as never);
+    expect(rec.frames()[2]).toEqual({ event: "roster", data: { audience: "peers", entries: [{ roleId: "tech_lead", ready: true }] } });
+  });
+
+  it("a facilitator roster carrying voice and speaking never reaches a player's stream (characterisation)", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({ type: "roster", audience: "facilitator", entries: [{ roleId: "tech_lead", joined: true, consented: true, connected: true, voice: "voice", speaking: true }] } as never);
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
   });
 });
 

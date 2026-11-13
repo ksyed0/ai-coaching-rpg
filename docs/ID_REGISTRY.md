@@ -3,12 +3,12 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0070               | US-0069           |
-| TASK         | TASK-0105             | TASK-0104         |
-| AC           | AC-0396               | AC-0395           |
-| TC           | TC-0158               | TC-0157           |
+| US           | US-0075               | US-0074           |
+| TASK         | TASK-0111             | TASK-0110         |
+| AC           | AC-0442               | AC-0441           |
+| TC           | TC-0233               | TC-0232           |
 | BUG          | BUG-0035              | BUG-0034          |
-| L            | L-0037                | L-0036            |
+| L            | L-0044                | L-0043            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
 
@@ -91,3 +91,23 @@ Reserved blocks (2026-11-06, AI player row follow-up): US-0068; AC-0389..AC-0391
 Reserved blocks (2026-11-07, hide response): US-0069; AC-0392..AC-0395 (all under US-0069; AC-0395 added in the PR 5 review fix wave). Planned; test cases are filed when the story moves to In Progress. Ids in a block that its story does not use stay unused.
 
 Assigned 2026-11-07 (bugfix/BUG-0025-throttle-resend-link-cap): TC-0155 (BUG-0025), TC-0156 (BUG-0029) and TC-0157 (BUG-0030), and the lesson on checking the credential before an address throttle. TC-0154 was filed by bugfix/BUG-0032-console-report (#121, merged) and is not used here. No new BUG, TASK or AC beyond the hide-response block.
+
+Assigned 2026-11-08 (EPIC-0003 voice A1a, feature/EPIC-0003-US-0070-voice-pipeline): US-0070 (voice pipeline on file ingest); TASK-0106 (US-0070); AC-0396..AC-0404 (all under US-0070, in the A1a plan's order AC-a to AC-i); TC-0162..TC-0170 (one per AC, in order). Only A1a is filed: the overview's proposed story numbers for A1b, A1c, A2 and A3 are not reserved and take whatever ids are free when each slice is filed.
+
+Assigned 2026-11-08 (EPIC-0003 voice A1b, feature/EPIC-0003-US-0071-voice-livekit-consent): US-0071 (LiveKit and the web consent flow); TASK-0107 (US-0071); AC-0405..AC-0416 (all under US-0071, in the A1b plan's order AC-a to AC-l); TC-0171..TC-0182 (one per AC, in order; the edge cases of the plan's last task get the next free ids then). Only A1b is filed: the overview's proposed story numbers for A1c, A2 and A3 are not reserved and take whatever ids are free when each slice is filed.
+
+Assigned 2026-11-09 (EPIC-0003 voice A1b close-out, feature/EPIC-0003-US-0071-voice-livekit-consent): TC-0183..TC-0188 (US-0071 edge and negative cases: the subscription gate and per-frame generation, the sweep of a reconnecting removed browser, insecure page, denied permission and no transport, the session page headers, the ten live-only LiveKit cases, the browser matrix). No new US, TASK, AC or BUG.
+
+Assigned 2026-11-09 (EPIC-0003 voice A1b close-out, lessons): L-0037..L-0041 (re-request subscriptions after a reconnect and bound every wait; per-item generation check; fakes must hang where the real thing hangs; no state on a rate-limited alert path; read the installed library source).
+
+Assigned 2026-11-09 (EPIC-0003 voice A1c, feature/EPIC-0003-US-0072-voice-operations): US-0072 (voice operations: `pnpm voice:up`, `voice:check`, `voice:down`, `voice:timings`); TASK-0108 (US-0072); AC-0417..AC-0425 (all under US-0072, in the A1c plan's order AC-a to AC-i; no AC-j: the DNS-challenge path waits for the owner); TC-0189..TC-0197 (one per AC, in order; the edge cases of the plan's Task 15 get the next free ids then). A2 and A3 are not filed: the overview's proposed story numbers for them are not reserved.
+
+Assigned 2026-11-09 (EPIC-0003 voice A1c close-out, feature/EPIC-0003-US-0072-voice-operations): TC-0198..TC-0204 (US-0072 edge cases: the `.env` refusal table, rollback on failure and interrupt, the foreign pid, the outage table, the LAN bind and the proxy pins, the wrapper and the environment, and TC-0204 the owner-run real stack, Not Run); L-0042..L-0043 (lessons: pnpm built-ins before scripts; fetch and the global agent follow an environment proxy).
+
+Assigned 2026-11-11 (EPIC-0003 voice A2a, feature/EPIC-0003-US-0073-voice-audio-store): US-0073 (voice audio store); TASK-0109 (US-0073); AC-0426..AC-0433 (all under US-0073, in the A2a plan's order AC-a to AC-h); TC-0205..TC-0212 (one per AC, in order; edge cases of the plan's Task 10 get the next free ids then). A2b and A3 are not filed. The next US is US-0074, the next AC is AC-0434, the next TC is TC-0213, the next TASK is TASK-0110.
+
+Assigned 2026-11-11 (EPIC-0003 voice A2a close-out, feature/EPIC-0003-US-0073-voice-audio-store): TC-0213..TC-0218 (US-0073 edge and negative cases: faults at every file step of the store, the mutation checks, identity change and retired workers, the sweep's unsafe and live entries, the shared segment-name rule, and TC-0218 the owner-run real stack, Not Run). No new US, TASK, AC or BUG. A2b (replay, manual delete, `audio.played`, `deleted` index lines, the console panel) and A3 (facilitator voice tools) are not filed and their story numbers are not reserved: the next US is US-0074, the next AC is AC-0434, the next TC is TC-0219, the next TASK is TASK-0110, the next L is L-0044.
+
+Assigned 2026-11-12 (EPIC-0003 voice A2b-1a, feature/EPIC-0003-US-0074-voice-audio-replay): US-0074 (voice audio listing and audited replay, control API); TASK-0110 (US-0074); AC-0434..AC-0441 (all under US-0074, in the A2b-1a plan's task-group order: marker, session id hand-off, audit boolean and `audio.played`, catalog find, listing and fallback, safe whole-file read, HTTP routes and `X-Acr-By`, end to end and mutation checks); TC-0219..TC-0226 (one per AC, in order; edge cases of the plan's last task get the next free ids then). A2b-1b (delete) and A2b-2 (web BFF and console panel) are not filed. The next US is US-0075, the next AC is AC-0442, the next TC is TC-0227, the next TASK is TASK-0111.
+
+Assigned 2026-11-12 (EPIC-0003 voice A2b-1a close-out, feature/EPIC-0003-US-0074-voice-audio-replay): TC-0227..TC-0232 (US-0074 edge and negative cases: the catalog's writable-root and fallback-marker rules, the session-log identity reader, the replay under file and folder changes, the routes' odd-request refusals, the listing's index reader, and TC-0232 the owner-run replay on a real recorded session, Not Run). No new US, TASK, AC or BUG. A2b-1b (delete) and A2b-2 (web BFF routes and console panel) are not filed and their story numbers are not reserved: the next US is US-0075, the next AC is AC-0442, the next TC is TC-0233, the next TASK is TASK-0111, the next L is L-0044.

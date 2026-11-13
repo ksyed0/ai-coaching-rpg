@@ -378,6 +378,20 @@ describe("FacilitatorHub", () => {
   });
 });
 
+describe("FacilitatorHub and voice (US-0071)", () => {
+  it("a voice answer or a voice notice never reaches the console stream; the roster keeps voice and speaking picked (characterisation for the frames)", () => {
+    const { open } = setup();
+    const { conn, rec } = open();
+    const before = rec.chunks.length;
+    conn.emit({ type: "voice", state: "voice", muted: false });
+    conn.emit({ type: "voice_notice", code: "stt_failed" });
+    conn.emit({ type: "voice_notice", code: "voice_unavailable" });
+    expect(rec.chunks.slice(before)).toEqual([]);
+    conn.emit({ type: "roster", audience: "facilitator", entries: [{ ...entries[0]!, voice: "voice", speaking: true, participantId: "P-SECRET" } as FacilitatorRosterEntry] });
+    expect(rec.frames().at(-1)).toEqual({ event: "roster", data: { entries: [{ ...entries[0], voice: "voice", speaking: true }] } });
+  });
+});
+
 describe("FacilitatorHub commands", () => {
   const PAUSE = { type: "command", command: { command: "pause" }, by: "Kim" } as const;
   const END = { type: "end_now", by: "Kim" } as const;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { contentSecurityPolicy, isPrivatePath, PRIVATE_PREFIXES, ROBOTS_TAG } from "../headers";
+import { contentSecurityPolicy, isPrivatePath, pageHeaders, PRIVATE_PREFIXES, ROBOTS_TAG } from "../headers";
 import { config, proxy } from "../../proxy";
 import nextConfig from "../../../next.config";
 import robots from "../../app/robots";
@@ -66,6 +66,31 @@ describe("security headers (src/proxy.ts)", () => {
     expect(directive(dev, "script-src")).toContain("'unsafe-eval'");
     expect(dev).not.toContain("upgrade-insecure-requests");
     expect(directive(dev, "script-src")).not.toContain("unsafe-inline");
+  });
+});
+
+// US-0071 (A1b Task 12): the pure parts; the proxy's choice of when to use them is in src/__tests__/proxy.test.ts.
+describe("the LiveKit options", () => {
+  it("contentSecurityPolicy adds a wss origin and its https twin to connect-src, a loopback ws origin and its http twin, and nothing else", () => {
+    expect(directive(contentSecurityPolicy("N", { dev: false, https: true, livekit: "wss://pilot.example:7443" }), "connect-src")).toBe("connect-src 'self' wss://pilot.example:7443 https://pilot.example:7443");
+    expect(directive(contentSecurityPolicy("N", { dev: false, https: false, livekit: "ws://127.0.0.1:7880" }), "connect-src")).toBe("connect-src 'self' ws://127.0.0.1:7880 http://127.0.0.1:7880");
+    const plain = contentSecurityPolicy("N", { dev: false, https: true });
+    const withLk = contentSecurityPolicy("N", { dev: false, https: true, livekit: "wss://pilot.example" });
+    // Every other directive is unchanged.
+    expect(withLk.split("; ").filter((d) => !d.startsWith("connect-src"))).toEqual(plain.split("; ").filter((d) => !d.startsWith("connect-src")));
+  });
+
+  it("contentSecurityPolicy refuses a livekit value that is not exactly an origin it validated", () => {
+    for (const bad of ["wss://pilot.example/", "wss://pilot.example; script-src *", "https://pilot.example", "*", "wss://pilot.example 'unsafe-eval'"]) {
+      expect(() => contentSecurityPolicy("N", { dev: false, https: true, livekit: bad }), bad).toThrow(RangeError);
+    }
+  });
+
+  it("pageHeaders sends microphone=(self) only when asked, camera and geolocation always off", () => {
+    const pp = (o: { microphone: boolean }) => new Map(pageHeaders("/session/x", "csp", o)).get("Permissions-Policy");
+    expect(pp({ microphone: true })).toBe("camera=(), microphone=(self), geolocation=()");
+    expect(pp({ microphone: false })).toBe("camera=(), microphone=(), geolocation=()");
+    expect(pageHeaders("/session/x", "csp", { microphone: true }).filter(([k]) => k === "Permissions-Policy")).toHaveLength(1);
   });
 });
 

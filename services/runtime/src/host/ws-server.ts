@@ -173,17 +173,30 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   /** US-0055: every joined connection that is still open, so a change can be told to the whole room. */
   type Live = { sessionId: string; h: SessionHost; facilitator: boolean; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
   const live = new Set<Live>();
+  // US-0070 (AC-0399): a speaker's voice notice goes to the socket that holds that role now, and to nobody else (never logged).
+  const unsubscribeNotice = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).onVoiceNotice?.((roleId, code) => {
+    const held = holders.get(`${sessionId}:${roleId}`);
+    if (!held) return;
+    for (const c of live) {
+      if (c.h !== h || c.facilitator || c.ws !== held.ws || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
+      c.send({ type: "voice_notice", code });
+    }
+  }) ?? (() => undefined));
   /**
    * Sends each live connection of the session the roster for its own audience (the facilitator's has consent and connection, a player's
-   * only who is ready), or just `only`. A closing socket gets nothing. The server log gets role ids and states, never a name.
+   * only who is ready), or just `only` (one connection, or "facilitator": the facilitator connections only). A closing socket gets
+   * nothing. The server log gets role ids and states, never a name. US-0071 (K6): with voice on, the facilitator's entries carry the
+   * voice state and who is speaking; the peers' never do.
    */
-  const broadcastRoster = (sessionId: string, h: SessionHost, only?: Live) => {
+  const broadcastRoster = (sessionId: string, h: SessionHost, only?: Live | "facilitator") => {
     if (typeof (h as Partial<SessionHost>).playerRoleIds !== "function") return; // (a stand-in host in a test)
     const playerRoles = h.playerRoleIds();
     const connected = new Set<string>();
     for (const role of playerRoles) { const held = holders.get(`${sessionId}:${role}`); if (held && held.ws.readyState === held.ws.OPEN) connected.add(role); }
-    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats, aiRoles: new Set(h.aiRoleIds()) });
-    for (const c of only ? [only] : live) {
+    const voice = (h as Partial<SessionHost>).voiceEnabled === true ? { stateOf: (r: string) => h.voiceStateOf(r), speaking: h.speakingRoles() } : undefined;
+    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats, aiRoles: new Set(h.aiRoleIds()), ...(voice ? { voice } : {}) });
+    for (const c of only === undefined || only === "facilitator" ? live : [only]) {
+      if (only === "facilitator" && !c.facilitator) continue;
       if (c.h !== h || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
       c.send(c.facilitator ? { type: "roster", audience: "facilitator", entries: roster.facilitator } : { type: "roster", audience: "peers", entries: roster.peers });
     }
@@ -191,6 +204,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const rosterChanged = (role: string, state: "joined" | "consented" | "connected" | "left" | "withdrew") => log(`roster: ${role} ${state}`);
   // The end of the session revokes every credential (and so every name) inside the host; the room is told once that has happened.
   const unsubscribeEnd = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).subscribe?.((e) => { if (e.type === "session.ended") broadcastRoster(sessionId, h); }) ?? (() => undefined));
+  // US-0071 (K6): who is speaking reaches the facilitator's roster only (a peer never learns who uses voice or when they speak).
+  const unsubscribeSpeaking = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).onSpeakingChanged?.(() => broadcastRoster(sessionId, h, "facilitator")) ?? (() => undefined));
 
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const ip = clientIp(req, trustProxy);
@@ -375,6 +390,9 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
               ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
+              // US-0070: only this seat's own voice state, only while voice is on (a text-only session's joined is unchanged). US-0071
+              // (F5): with its mute state (kept when the same holder rebinds without a release, e.g. a superseded socket).
+              ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId), muted: h.voiceMutedOf(m.roleId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -394,8 +412,11 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           // `joined` and its replayed events. The newcomer gets the current roster; everyone else hears the change.
           liveEntry = { sessionId: m.sessionId, h, facilitator: isFacilitator, ws, send, closing: () => closing };
           live.add(liveEntry);
-          if (!isFacilitator) { rosterChanged(viewer, "joined"); rosterChanged(viewer, "connected"); broadcastRoster(m.sessionId, h); }
-          else broadcastRoster(m.sessionId, h, liveEntry);
+          if (!isFacilitator) {
+            rosterChanged(viewer, "joined"); rosterChanged(viewer, "connected"); broadcastRoster(m.sessionId, h);
+            // US-0071 (K7): a voice holder who binds while voice is unavailable is told, after `joined` (never logged).
+            if (participantId) (h as Partial<SessionHost>).noteVoiceBound?.(viewer, participantId);
+          } else broadcastRoster(m.sessionId, h, liveEntry);
           return;
         }
         if (!host || !who) return fail("not_joined", "join first", ref);
@@ -422,6 +443,25 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           host.giveConsent(who, participantId, m.noticeVersion);
           // A repeat from a player who already agreed changes nothing, so it is neither logged nor broadcast.
           if (!had) { rosterChanged(who, "consented"); broadcastRoster(liveEntry!.sessionId, host); }
+          return;
+        }
+        if (m.type === "voice_opt_in" || m.type === "voice_opt_out") {
+          // US-0070: refusals (voice_off, forbidden, not_joined, consent_version, voice_notice_required) come back as HostError below.
+          if (isFacilitator || !participantId) return fail("forbidden", "only a player may choose voice");
+          if (m.type === "voice_opt_in") host.optInVoice(who, participantId, m.noticeVersion);
+          else host.optOutVoice(who, participantId);
+          // To this socket only. US-0071 (F5): every `voice` answer carries the seat's real mute state (it outlives an opt-out).
+          send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only", muted: host.voiceMutedOf(who) });
+          // US-0071 (K7, F3): an opt-in while voice is unavailable is told so right after its answer (a no-op unless unavailable).
+          if (m.type === "voice_opt_in") (host as Partial<SessionHost>).noteVoiceBound?.(who, participantId);
+          broadcastRoster(liveEntry!.sessionId, host, "facilitator"); // US-0071 (K6): the console's voice column
+          return;
+        }
+        if (m.type === "voice_mute") {
+          // US-0071 (K5): refusals (voice_off, forbidden, not_joined) come back as HostError below. In memory only, never logged.
+          if (isFacilitator || !participantId) return fail("forbidden", "only a player may mute their own voice");
+          host.muteVoice(who, participantId, m.muted);
+          send({ type: "voice", state: host.voiceStateOf(who), muted: host.voiceMutedOf(who) }); // to this socket only
           return;
         }
         if (m.type === "start") {
@@ -507,6 +547,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     close: () => new Promise<void>((resolve) => {
       for (const u of unsubscribeFatal) u();
       for (const u of unsubscribeEnd) u();
+      for (const u of unsubscribeNotice) u();
+      for (const u of unsubscribeSpeaking) u();
       clearInterval(heartbeat);
       for (const c of wss.clients) c.terminate();
       wss.close();

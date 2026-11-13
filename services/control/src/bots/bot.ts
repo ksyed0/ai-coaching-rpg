@@ -89,6 +89,10 @@ export class AiPlayerBot {
   private skipStreak = false;
   private nudgeFails = 0;
   private authRefusals = 0;
+  /** US-0070 (C8): a voice turn is open in the room (the runtime's voice_turn): no reply or nudge begins, human lines are coalesced. */
+  private voiceOpen = false;
+  /** US-0070: the speaker of the last human line seen while the voice turn was open; observed once when it closes. */
+  private deferred: string | null = null;
 
   constructor(private readonly d: BotDeps) {
     this.policy = new TurnPolicy({ roleId: d.roleId, settings: d.settings.turn, now: d.now });
@@ -153,6 +157,21 @@ export class AiPlayerBot {
     this.policy.reset();
   }
 
+  /**
+   * US-0070 (AC-0400, C8): the runtime opened or closed a voice turn. While open the bot begins no reply or nudge and a human line only
+   * joins the view; on close the last such line is observed once and the wake time asked again. Independent of the reservation hold
+   * (`setHeld`); a prompted turn still runs. Never throws.
+   */
+  setVoiceTurn(open: boolean): void {
+    if (open === this.voiceOpen) return;
+    this.voiceOpen = open;
+    if (open) { this.wake?.(); this.wake = null; return; }
+    const roleId = this.deferred;
+    this.deferred = null;
+    if (roleId !== null) this.observe({ kind: "line", roleId, ai: false });
+    this.arm();
+  }
+
   /** B17: while held, the policy begins no reply or nudge. Re-asks the wake time, since a release can make a pending reply due. */
   setHeld(held: boolean): void {
     this.policy.setHeld(held);
@@ -204,6 +223,7 @@ export class AiPlayerBot {
     this.current = null;
     this.resetPolicy();
     this.humans = false;
+    this.deferred = null;
     const pending = this.opening;
     this.opening = null;
     if (pending) this.closing = Promise.all([this.closing, pending.then((x) => x?.close()).catch(noop)]).then(noop);
@@ -278,9 +298,11 @@ export class AiPlayerBot {
         this.observe({ kind: "scene", sceneId: e.sceneId, participants: e.participants });
         break;
       case "scene.exited": return;
-      case "session.ended": this.observe({ kind: "ended" }); break;
+      case "session.ended": this.deferred = null; this.observe({ kind: "ended" }); break;
       case "session.resumed": this.observe({ kind: "resumed" }); break;
-      case "facilitator.command": this.observe({ kind: e.command === "pause" ? "paused" : "resumed" }); break;
+      case "facilitator.command":
+        if (e.command === "pause") this.deferred = null; // US-0070: a line deferred by an open voice turn is not answered after a pause
+        this.observe({ kind: e.command === "pause" ? "paused" : "resumed" }); break;
     }
     this.arm();
   }
@@ -290,6 +312,12 @@ export class AiPlayerBot {
     this.lines.push({ roleId: e.roleId, text: e.text });
     if (this.lines.length > BOT_MAX_VIEW_LINES) this.lines.shift();
     const ev: PolicyEvent = { kind: "line", roleId: e.roleId, ai: this.isAi(e.roleId), ...(replayed ? { replayed: true as const } : {}) };
+    // US-0070: during an open voice turn a human line is kept for the close (only the last one), not observed now.
+    if (!replayed && !ev.ai && this.voiceOpen) {
+      this.deferred = e.roleId;
+      if (this.d.scenario.roles[e.roleId]?.type === "player") this.nudgeFails = 0;
+      return;
+    }
     this.observe(ev);
     if (!replayed) {
       if (e.roleId === this.d.roleId) { if (this.awaiting) { this.settleSay("spoken"); return; } }
@@ -318,7 +346,7 @@ export class AiPlayerBot {
   /** The one timer: at `policy.wakeAt()`, re-armed after every event, finish and attach. */
   private arm(): void {
     this.wake?.(); this.wake = null;
-    if (this.dead || this.sock === null || this.current !== null) return;
+    if (this.dead || this.sock === null || this.current !== null || this.voiceOpen) return;
     const at = this.policy.wakeAt();
     if (at === null) return;
     this.wake = this.d.setTimer(() => this.onWake(), Math.max(0, at - this.d.now()));

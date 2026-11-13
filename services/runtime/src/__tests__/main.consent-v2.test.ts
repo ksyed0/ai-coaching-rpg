@@ -22,7 +22,7 @@ function fakeParent() {
   const sent: ChildMessage[] = [];
   let handler: ((m: ParentMessage) => void) | undefined;
   const parent: ParentChannel = { send(m) { sent.push(m); return true; }, onMessage(fn) { handler = fn; }, onDisconnect() {} };
-  const ask = async (m: Exclude<ParentMessage, { type: "bot_alert" }>) => {
+  const ask = async (m: Extract<ParentMessage, { requestId: string }>) => {
     handler!(m);
     const reply = () => sent.find((x) => "requestId" in x && x.requestId === m.requestId);
     await vi.waitFor(() => { if (!reply()) throw new Error("no reply yet"); }, { timeout: 30_000, interval: 10 });

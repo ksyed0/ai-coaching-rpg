@@ -1,5 +1,6 @@
-import { REPORT_SENTENCES } from "@acr/events";
+import { REPORT_SENTENCES, isFileSafeId } from "@acr/events";
 import { getJson, postForFile, postJson, type ApiResult } from "./api";
+import { pickVoice } from "./console-voice";
 import { MESSAGES, REPORT_CONSOLE, REPORT_REFUSALS, type ReportRefusal } from "./messages";
 
 // What the console pages know about the BFF's answers. Everything from the network is untrusted: shapes are checked here and text is
@@ -14,6 +15,9 @@ export type RosterEntry = {
   connected: boolean;
   /** US-0060: an AI player holds this seat (only ever the literal true). */
   ai?: true;
+  /** US-0071: with voice on, the seat's voice state and whether it speaks now (the BFF picks both; parseReadiness keeps valid values only). */
+  voice?: "none" | "voice" | "text_only" | "off";
+  speaking?: true;
 };
 export type Readiness = {
   launcherStatus: "running" | "stopped" | "ended";
@@ -104,6 +108,8 @@ export function parseReadiness(v: unknown): Readiness | null {
       consented: r.consented === true,
       connected: r.connected === true,
       ...(r.ai === true ? { ai: true as const } : {}),
+      // US-0071 (Task 16): the voice column; only valid values are kept, a text-only roster has neither key.
+      ...pickVoice(r),
     });
   }
   return {
@@ -245,7 +251,11 @@ export type ReportRunSummaryView = {
   byCharacter: { roleId: string; name: string; replies: number; fallbackReplies: number }[];
   alerts: { level: "info" | "warning"; role: string | null; fallback: boolean; reason: string }[];
 };
-export type ReportOverviewView = { stage: ReportStage; job: ReportJobView; upTo: number | null; orphan: boolean; summary: ReportRunSummaryView | null; subjects: ReportSubjectRow[] };
+export type ReportOverviewView = {
+  stage: ReportStage; job: ReportJobView; upTo: number | null; orphan: boolean; summary: ReportRunSummaryView | null; subjects: ReportSubjectRow[];
+  /** US-0068: the session's AI player roles, shown as "AI player, not scored" rows; always a list (empty when absent or malformed). */
+  aiRoles: string[];
+};
 export type ReportLevel = 1 | 2 | 3 | 4 | null;
 export type ReportCriterion = {
   id: string; name: string; current: ReportLevel | "invalid"; status: "needs_review" | "accepted" | "edited" | "clear"; rationale: string;
@@ -329,7 +339,15 @@ export function parseReportOverview(v: unknown): ReportOverviewView | null {
   if (o.summary !== null && summary === null) return null;
   const subjects = each(o.subjects, parseRow);
   if (!subjects) return null;
-  return { stage, job, upTo: c && count(c.upTo) ? c.upTo : null, orphan: o.orphan, summary, subjects };
+  return { stage, job, upTo: c && count(c.upTo) ? c.upTo : null, orphan: o.orphan, summary, subjects, aiRoles: aiRolesOf(o.aiRoles) };
+}
+
+/** The BFF forwards at most this many AI roles (MAX_AI_ROLES in src/server/launcher-client.ts). */
+const MAX_AI_ROLES = 64;
+/** US-0068: distinct file-safe ids, at most MAX_AI_ROLES; anything else is an empty list, never a failed overview (the row is display only). */
+function aiRolesOf(v: unknown): string[] {
+  if (!strs(v) || v.length > MAX_AI_ROLES || !v.every(isFileSafeId) || new Set(v).size !== v.length) return [];
+  return [...v];
 }
 
 export function parseReportSubject(v: unknown): ReportSubjectDetail | null {

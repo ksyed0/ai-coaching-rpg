@@ -44,7 +44,21 @@ export type Overview = {
   summary: RunSummary | null;
   /** Only `in_review`. */
   subjects: SubjectStatus[];
+  /**
+   * US-0068: only `in_review`, and only when the session's AI player roles could be read and form a well-made list (file-safe ids,
+   * at most AI_ROLES_MAX, no duplicates); absent otherwise. Display only: the console shows an "AI player, not scored" row per role.
+   */
+  aiRoles?: string[];
 };
+/** At most this many AI roles on the overview (the runtime caps AI roles at 8; the BFF and the browser accept the same 64). */
+export const AI_ROLES_MAX = 64;
+
+/** A copy of `v` when it is a list of distinct file-safe ids of at most AI_ROLES_MAX entries; undefined otherwise. */
+export function wellMadeAiRoles(v: unknown): string[] | undefined {
+  if (!Array.isArray(v) || v.length > AI_ROLES_MAX) return undefined;
+  if (!v.every((x) => typeof x === "string" && isFileSafeId(x))) return undefined;
+  return new Set(v).size === v.length ? [...(v as string[])] : undefined;
+}
 type Refusal = Exclude<ModerationCode, "busy" | "invalid" | "unavailable" | "unknown_subject">;
 export type ModOutcome<T> =
   | { status: 200; value: T }
@@ -148,6 +162,8 @@ export class ModerationService {
     sleep?: (ms: number) => Promise<void>;
     random?: () => number;
     now?: () => number;
+    /** US-0068: the session's AI player roles (main.ts wires `aiRolesFor`); null when unreadable. Optional: without it no overview carries `aiRoles`. */
+    aiRoles?: (sessionId: string) => Promise<string[] | null>;
   }) {
     this.sleep = o.sleep ?? ((ms) => new Promise((r) => { setTimeout(r, ms).unref(); }));
     this.random = o.random ?? Math.random;
@@ -239,7 +255,9 @@ export class ModerationService {
       if (f.live !== null) {
         const s = await toModResult(() => moderationStatus(f.live!));
         if (!s.ok) return UNAVAILABLE;
-        return ok({ ...base, stage: "in_review", orphan, summary: await this.summary(id), subjects: s.value.subjects });
+        // both read the session log, so they run side by side; the AI-role read can never fail the overview
+        const [summary, aiRoles] = await Promise.all([this.summary(id), this.aiRolesOf(id)]);
+        return ok({ ...base, stage: "in_review", orphan, summary, subjects: s.value.subjects, ...(aiRoles ? { aiRoles } : {}) });
       }
       if (f.unopened.length > 0) return ok({ ...base, stage: "ready_to_open", orphan });
       const pre = await jobs.preflight(id);
@@ -256,6 +274,13 @@ export class ModerationService {
     if (folder === null) return null;
     try { await checkRegular(this.logPath(id), SESSION_LOG_CAP); } catch { return null; } // the same no-follow, capped rule as `open`
     return runSummaryFromLog(this.logPath(id), folder, this.o.secrets);
+  }
+
+  /** US-0068: the session's AI roles for the overview, or undefined (no lookup, null, a throw or a malformed answer): the row is display only and fails quiet. */
+  private async aiRolesOf(id: string): Promise<string[] | undefined> {
+    const lookup = this.o.aiRoles;
+    if (!lookup) return undefined;
+    try { return wellMadeAiRoles(await lookup(id)); } catch { return undefined; }
   }
 
   /** Opens the review of the session's complete, unopened draft, bound to its session log and join-code record. */

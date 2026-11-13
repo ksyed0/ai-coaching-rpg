@@ -5,7 +5,7 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isValidSessionId } from "@acr/events";
+import { isFileSafeId, isValidSessionId } from "@acr/events";
 
 /**
  * A session id becomes file names (`<id>.jsonl`, `<id>.lock`, `<id>.codes.json`, rotated `<id>.<time>.jsonl`) and is placed in a regular
@@ -181,6 +181,11 @@ export type LockOptions = {
   onLost?: () => void;
   /** The wait before re-checking a lock that looked missing (default LOCK_RECHECK_MS); tests inject it to control the order of a race. */
   recheckDelay?: () => Promise<void>;
+  /**
+   * Names an extra lock for the same id (US-0073): the file is `<id>.<suffix>.lock` instead of `<id>.lock`, so one identity can hold several
+   * independent locks (a store lock and an audit lock). Must be file-safe (`isFileSafeId`); anything else makes acquire throw.
+   */
+  suffix?: string;
 };
 
 export type LockErrorCode = "locked" | "not_a_file" | "contention" | "lost" | "closed";
@@ -247,7 +252,8 @@ export class SessionLock {
 
   static acquire(dir: string, sessionId: string, opts: LockOptions = {}): SessionLock {
     assertSessionId(sessionId);
-    const file = path.resolve(dir, `${sessionId}.lock`);
+    if (opts.suffix !== undefined && !isFileSafeId(opts.suffix)) throw new Error("invalid lock suffix");
+    const file = path.resolve(dir, opts.suffix === undefined ? `${sessionId}.lock` : `${sessionId}.${opts.suffix}.lock`);
     assertInside(dir, file);
     const staleMs = opts.staleMs ?? DEFAULT_LOCK_STALE_MS;
     const now = opts.now ?? Date.now;

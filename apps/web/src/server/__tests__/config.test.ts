@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
-import { loadConfig } from "../config";
+import { liveKitOrigin, loadConfig } from "../config";
 
 const key = (): string => randomBytes(32).toString("base64");
 const base = (): Record<string, string> => ({ RUNTIME_URL: "wss://runtime.internal:8443", PUBLIC_ORIGIN: "https://play.example.org", COOKIE_KEYS: `k1:${key()}` });
@@ -105,3 +105,35 @@ describe("loadConfig launcher mode", () => {
   });
 });
 
+
+// US-0071 (A1b Task 11): the public LiveKit address the browser may connect to. Only its validated origin is kept (it feeds the session
+// page's CSP in Task 12); a value that is not a wss: origin, or a loopback ws: origin for local development (Open Question 6), is refused.
+describe("loadConfig LIVEKIT_URL", () => {
+  it.each([
+    ["wss://pilot.example", "wss://pilot.example"], ["wss://pilot.example/", "wss://pilot.example"], ["wss://pilot.example:7443", "wss://pilot.example:7443"],
+    ["wss://pilot.example:443", "wss://pilot.example"], ["ws://127.0.0.1:7880", "ws://127.0.0.1:7880"], ["ws://[::1]:7880", "ws://[::1]:7880"], ["WSS://Pilot.Example", "wss://pilot.example"],
+  ])("LIVEKIT_URL %s passes and is stored as its origin %s", (raw, origin) => {
+    expect(loadConfig({ ...base(), LIVEKIT_URL: raw }).livekitUrl).toBe(origin);
+  });
+
+  it.each([
+    "ws://192.168.1.2:7880", "ws://pilot.example:7880", "ws://localhost:7880", "https://x.example", "http://127.0.0.1:7880", "wss://x.example/path", "wss://u:p@x.example",
+    "wss://x.example?room=1", "wss://x.example/#a", "not a url", "wss://", "ws://127.0.0.1:7880/rtc",
+  ])("LIVEKIT_URL %s is refused by name without echoing the value", (raw) => {
+    let message = "";
+    try { loadConfig({ ...base(), LIVEKIT_URL: raw }); } catch (e) { message = (e as Error).message; }
+    expect(message).toContain("LIVEKIT_URL");
+    expect(message).not.toContain(raw);
+  });
+
+  it("an unset or empty LIVEKIT_URL leaves voice transport off (no livekitUrl key)", () => {
+    expect("livekitUrl" in loadConfig(base())).toBe(false);
+    expect("livekitUrl" in loadConfig({ ...base(), LIVEKIT_URL: "" })).toBe(false);
+  });
+
+  it("liveKitOrigin gives the same origin or undefined, and never throws", () => {
+    expect(liveKitOrigin("wss://pilot.example:7443")).toBe("wss://pilot.example:7443");
+    expect(liveKitOrigin("ws://127.0.0.1:7880")).toBe("ws://127.0.0.1:7880");
+    for (const v of [undefined, "", "https://x.example", "wss://x.example/path", "ws://10.0.0.1:7880", "%%%"]) expect(liveKitOrigin(v)).toBeUndefined();
+  });
+});

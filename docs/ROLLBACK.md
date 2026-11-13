@@ -435,6 +435,28 @@ Rollback trigger: a valid participant is refused or throttled on `/report`, a pa
 ### Rolling forward again
 Redeploy this change, control first. A link that already holds 25 or more responses is at its cap at once; the facilitator's reissue gives a fresh link.
 
+## US-0068: "AI player, not scored" rows in the console report list
+
+```
+Release: unreleased (feature/EPIC-0002-US-0068-ai-player-row)
+Date: not deployed
+Rollback trigger: the Report panel fails to show or shows wrong rows for a session with AI players, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **Nothing on disk, no new setting, no migration.** The control service adds an OPTIONAL field `aiRoles` to the `in_review` moderation overview, read from the session log on each overview read; nothing is written. No wire version, review schema or existing field changes.
+
+### Rolling back
+
+- **Deploy order: the control service before the web app; roll back the web app first, then the control service.** Either order is safe, because the field is optional on both sides.
+- **Control alone rolled back:** the overview no longer carries `aiRoles`, so the console shows no AI rows; everything else is unchanged.
+- **Web app alone rolled back:** its strict overview parser ignores the unknown field; the list is as before (no AI rows).
+- **Smoke test:** the console opens an ended session's Report panel in review; for a session with an AI player, a row for that role reads "AI player" and "not scored (no report is written for an AI player)" and has no buttons.
+
+### Rolling forward again
+Redeploy, control first. The rows appear on the next overview read; nothing is cached.
+
 ## Release 0.2.1: deploy order and rollback
 
 ```
@@ -447,3 +469,139 @@ Rollback trigger: any trigger of the BUG-0025, BUG-0029, BUG-0030 section, or th
 - **Going back to 0.2.0 is safe.** There is no schema change, no new file, no new setting and no data migration; every review log stays readable. An older web app shows "try again" for a link at its cap (nothing is written). Rolling control back restores the per-role cap of 50 and the narrower resend dedupe; responses written meanwhile stay valid.
 - **The other fixes are web-app or test only** (Report panel read ordering and retry, the export menu, the self-rating form draft, shared report sentences, test hygiene) and need no data step to roll back.
 - **Smoke test after a deploy or a rollback:** a released report opens through its link; a response is sent and shows; the console opens an ended session's Report panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads the review.
+
+## US-0070: voice pipeline on file ingest (EPIC-0003 voice slice A1a)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0070-voice-pipeline)
+Date: not deployed
+Rollback trigger: a text-only session behaves differently from the build before (start, lines, AI characters, Game Master, AI players, restart or end), a voice setting stops a session that should start, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, `LOG_FORMAT`, any event or the consent file.** A voice line is the existing `utterance` with `channel: "voice"`; demo check V-08 pins that a voice session's `session.started.logFormat` equals a session's without voice. Every log and consent record stays readable by an earlier build.
+- **New, ignorable files.** `<SESSION_DATA_DIR>/<sessionId>.voice.json` (the voice record, 0600, only written while `VOICE_ENABLED=1`) and `<CONTROL_LOG_DIR>/<sessionId>.speech.log` (the speech worker's output, fixed lines only). An earlier build ignores both; they can be deleted by hand. `consent/notice-v3.md` is a DRAFT notice that nothing uses unless `CONSENT_NOTICE_VERSION=v3` is set.
+- **New settings, all off or inert by default:** `VOICE_ENABLED` (0) and `TURN_END_MS` (800) reach control-managed runtimes; `VOICE_HANGOVER_MS`, `VOICE_MAX_SEGMENT_MS`, `STT_*`, `SPEECH_INGEST`, `SPEECH_INGEST_DIR` reach only the speech worker (`.env.example`, "voice input"). `TURN_END_MS` is read only with `VOICE_ENABLED=1`, so a stray value never stops a text-only session; `VOICE_ENABLED` itself must be exactly 0 or 1 (anything else, `true` included, refuses the start).
+- **New package `services/speech`** (the worker, forked by control only when a runtime reports `ready.voice`). No new third-party dependency.
+
+### Rolling back
+
+- **Turn voice off first: `VOICE_ENABLED=0`** (or unset) in the control service's environment, then restart the affected sessions. With voice off the runtime never reads or writes the voice record, sends no voice message, and control forks no worker; the text path is the one of the build before.
+- **Deploy order:** the control service and the runtime ship from one checkout, so there is no skew between them. The web app is not touched in A1a, so no web deploy is needed in either direction.
+- **Rolling back the code:** stop the control service (its speech workers exit when their IPC channel closes; a worker that hangs is force-killed after `CONTROL_GRACE_MS`), deploy the earlier build, start it. An earlier runtime drops an unknown parent message without answering (pinned by `parent-channel.test.ts`), and an earlier control service never sends one.
+- **Keep `CONSENT_NOTICE_VERSION` unset or `v2`** on any build: v3 is a draft, and a rolled-back build with v3 set would show participants the draft text.
+- **Smoke test after a rollback:** `pnpm demo --fast` (29 checks) and `pnpm demo --fast --security --resume` (42) pass; a console session starts, takes typed lines and ends.
+
+### Rolling forward again
+
+Redeploy; voice stays off until `VOICE_ENABLED=1` is set, which in A1a only the offline demo does. `pnpm demo --voice` (V-01 to V-08, about 25 s, offline, no secrets) is the check, and it runs in the CI Demo Run job.
+
+## US-0071: LiveKit and the web consent flow (EPIC-0003 voice slice A1b)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0071-voice-livekit-consent)
+Date: not deployed
+Rollback trigger: a text-only session or page behaves differently from the build before (join, consent, lines, the console, headers), a LiveKit setting stops the control service or the web app, a voice page records or keeps a microphone it should not, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, `LOG_FORMAT`, any event, the consent file or the voice record's format.** `consent/notice-v3.md` is unchanged (its draft marker stays). Mute is in memory only and never written. The voice record (`<sessionId>.voice.json`) is the A1a file, ignorable by an earlier build; it can be deleted by hand.
+- **New web routes and settings.** The web app gains `POST /api/v1/voice` and `POST /api/v1/voice/token` and reads `LIVEKIT_URL` (the LiveKit server's public origin: `wss://<host>[:port]`, or `ws://127.0.0.1:<port>` / `ws://[::1]:<port>` for local development). Without it the session page offers no voice and the token route answers 503; **an invalid value stops the web app's API routes** (its config check refuses it), so unset it rather than leaving a bad one. With it, `/session/<id>` (only) sends `microphone=(self)` and allows the LiveKit origin in `connect-src`.
+- **New control settings, optional:** `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (both or neither; the secret at least 32 characters) and `LIVEKIT_HOST` (default `http://127.0.0.1:7880`, loopback `http:` only). They are checked whenever they are set, **even with `VOICE_ENABLED=0`**: a bad value stops the control service's start, with the variable names only. `SPEECH_INGEST=livekit` needs the key and the secret (control refuses to start otherwise). Tokens are issued only with the keys AND `SPEECH_INGEST=livekit`. The keys never reach a runtime, a speech worker or the web app.
+- **Internal messages only.** `voice_availability`, `voice_seats.voiceChosen`/`open`, the worker's LiveKit, slot and health messages, `livekit_join_refused` and the new alert codes (`worker_restarting`, `voice_off`, `stt_recovered`) are IPC between processes of one checkout (control, runtime, speech worker), so there is no skew between them. The runtime player protocol gains `voice_mute`, `muted` in the `voice` answer and `joined.voice`, and the `voice_available` notice code (`MIGRATION_LOG.md` is where a future client looks); the BFF forwards `joined.voice` and a named `voice_notice` SSE event.
+- **New dependencies:** `livekit-server-sdk` 2.19.2 (`packages/adapters`, reachable only through `@acr/adapters/livekit`), `@livekit/rtc-node` 1.2.1 (`services/speech`, native), `livekit-client` 2.23.0 (`apps/web`, loaded lazily by the first "Join with voice"); `packages/adapters` also gains a workspace link to `@acr/events` (`findings.md`).
+- **The Alpine runtime image is unaffected.** It installs `@acr/runtime` and its workspace packages only, so it gets `livekit-server-sdk` (pure JavaScript, never loaded there: the root `@acr/adapters` index does not import it) and never `@livekit/rtc-node`, whose native binding is glibc only. Only the speech worker loads rtc-node, so a LiveKit worker must run on a glibc host (the pilot laptop); this is reasoned from the Dockerfile's `--filter "@acr/runtime..."`; CI's Docker Build job built the runtime image on the merged PR #132 (5734c09) and passed, so the image build is confirmed for the runtime only (the speech worker is not in that image and was run on glibc only: macOS arm64 and node:22 linux/arm64).
+
+### Rolling back
+
+- **Turn voice off first: `VOICE_ENABLED=0`** (or unset) in the control service's environment, then restart the affected sessions. With voice off no token is issued (the runtime reports no voice seats), no worker is forked and the page shows no voice choice; the text path is the one of the build before. To take LiveKit out completely, also unset `LIVEKIT_URL` in the web app and `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_HOST` in the control service, and set `SPEECH_INGEST=file` (or unset it).
+- **Known limit, not a rollback trigger by itself:** a LiveKit outage of about 16 s (five worker restarts and the sixth exit) turns voice off for the rest of that session; the session continues by text and a new session gets voice again. With `SPEECH_INGEST=file` a restarted worker replays its WAV files from the start (file ingest is a test stand-in only).
+- **What happens to the rooms.** Control deletes every seat room at the session end. Rooms of sessions that were running when control stopped are not deleted (their names were in its memory); a connected browser leaves when its stream drops, and LiveKit removes an empty room after its own timeout. A LiveKit server started only for this slice can simply be stopped.
+- **Deploy order: the control service before the web app.** The web app's voice routes call control's new `POST /sessions/:id/voice-token`; an old web app with a new control service is safe because the routes are additive (it never calls them and its static header rule still blocks the microphone). A new web app with an old control service answers the token route 503 `voice_unavailable` (the page says "Voice is not available right now. Use the text box.") and keeps the text path. To roll back, deploy the earlier web app first, then the earlier control service and runtime.
+- **Rolling back the code:** stop the control service (its speech workers exit when their IPC channel closes; a hung one is force-killed), deploy the earlier build, start it. An earlier runtime drops an unknown parent message without answering, and an earlier control service never sends one.
+- **Keep `CONSENT_NOTICE_VERSION` unset or `v2`** on any build used with outside participants: v3 still carries its draft marker and describes audio retention that A2 builds.
+- **Smoke test after a rollback:** `pnpm demo --fast` (29 checks), `pnpm demo --fast --security --resume` (42) and `pnpm demo --web` (8) pass; a console session starts, takes typed lines and ends; `/session/<id>` answers `microphone=()`.
+
+### Rolling forward again
+
+Redeploy control, then the web app; voice stays off until `VOICE_ENABLED=1`, LiveKit keys with `SPEECH_INGEST=livekit` in control and `LIVEKIT_URL` in the web app are all set. Checks: `pnpm demo --voice` (8 of 8, file ingest, offline), `pnpm --filter @acr/web exec playwright test voice-lobby` (no LiveKit server needed), and with a throwaway LiveKit server the opt-in live checks (docs/memory/demo-and-testing.md, "Voice live checks").
+
+## US-0072: voice operations (EPIC-0003 voice slice A1c)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0072-voice-operations)
+Date: not deployed
+Rollback trigger: a text-only operator who served the web app on the LAN with the plain start script can no longer reach it, `voice:up` leaves something running that `voice:down` cannot stop, a voice session behaves worse after a LiveKit outage than before, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, `LOG_FORMAT`, any event, the consent file or the voice record.** `consent/notice-v3.md` is unchanged (its draft marker stays).
+- **New root commands** `pnpm voice:up`, `voice:down`, `voice:check`, `voice:timings` (package `services/voice-ops`, no new npm dependency) and new files `deploy/compose/voice.yml`, `livekit.yaml`, `Caddyfile`. Nothing starts them by itself.
+- **`.env`:** `pnpm voice:up` appends `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` and `STT_URL` when they are absent (one block; nothing existing changes). Outside the repository it keeps `VOICE_STATE_DIR` (default `<HOME>/.scenecoach/voice`).
+- **The web app's `start` script listens on 127.0.0.1 only** (`next start -H 127.0.0.1`): the one behaviour change for text-only users.
+- **New control setting `VOICE_TIMING_LOG`** (exactly 0 or 1, default 0; anything else stops the control service) and, with 1, the file `<CONTROL_LOG_DIR>/voice-timing.log`.
+- **Internal messages only.** The alert codes `livekit_lost` and `livekit_recovered` are IPC between control and the runtime of one checkout (drift-tested); the web console shows their fixed sentences. Control and the runtime move together.
+
+### Rolling back
+
+- **Stop the voice infrastructure:** `pnpm voice:down` stops everything A1c starts (whisper-server, the `scenecoach-voice` compose project) and removes `livekit.env`, `state.json` and `whisper.log`; `docker compose -p scenecoach-voice ps -a` should then show nothing. `caddy-data/` and `caddy-config/` in `VOICE_STATE_DIR` can be removed by hand.
+- **The generated `.env` lines** can be removed by hand (control then has no LiveKit; voice tokens are `voice_unavailable`). Keep the file mode 0600.
+- **Serving the web app on the LAN without the proxy** (not advised, see the threat model): `pnpm --filter @acr/web exec next start -H <address>`.
+- **Turn voice off:** `VOICE_ENABLED=0`, as for A1b. Set `VOICE_TIMING_LOG=0` (or unset) and delete `voice-timing.log`.
+- **Rolling back the code:** stop control, deploy the earlier build, start it. An earlier runtime drops an unknown alert code without answering; with the earlier build a LiveKit outage of about 16 s turns voice off for the rest of that session again (the A1b known limit).
+- **Smoke test after a rollback:** `pnpm demo --fast` (29), `pnpm demo --fast --security --resume` (42), `pnpm demo --web` (8), `pnpm demo --voice` (8 of 8).
+
+### Rolling forward again
+
+Redeploy control and the runtime together (the two alert codes), then the web app; run `pnpm voice:up` and `pnpm voice:check` (`docs/VOICE_RUNBOOK.md`).
+
+## US-0073: voice audio store and retention sweep (EPIC-0003 voice slice A2a)
+
+```
+Release: unreleased (merged into develop, PR #137)
+Date: not deployed
+Rollback trigger: recordings are written somewhere unexpected or fill a disk, the hourly sweep removes something it should not, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, any event or the consent file.**
+- **New folder `AUDIO_DIR`** (default `<CONTROL_DATA_DIR>/audio`) holding `<logIdentity>/<role>/<segment>.wav`, `index.jsonl`, `ended.json`, and beside the folders `<logIdentity>.store.lock`, `<logIdentity>.audio-audit.jsonl` and `<logIdentity>.audio-audit.lock`. New settings `AUDIO_DIR`, `AUDIO_MIN_FREE_MB` and `AUDIO_MAX_RETENTION_DAYS`.
+- **A retention sweep in control** runs at start-up and then hourly, whatever `VOICE_ENABLED` is.
+
+### Rolling back
+
+- **Stop recording:** `VOICE_ENABLED=0`. The sweep keeps deleting expired audio that is already on disk.
+- **Rolling back the code:** an earlier build ignores the audio folder, the lock files and the audit file (plain files). Remove `AUDIO_DIR` by hand if the recordings are no longer wanted (they hold transcript text in the index files).
+
+### Rolling forward again
+
+Redeploy control and the speech worker together; check that `AUDIO_DIR` is a private folder of the user running control (`chmod 700`), which the sweep requires.
+
+## US-0074: audio listing and audited replay (EPIC-0003 voice slice A2b-1a)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0074-voice-audio-replay)
+Date: not deployed
+Rollback trigger: a speech worker that no longer starts after the upgrade, a replay that behaves unexpectedly, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, any event, the consent file or the voice record.**
+- **`<AUDIO_DIR>/<logIdentity>/session.json`** (`{ "v": 1, "sessionId": ... }`, 0600), written by the speech worker once before its first WAV.
+- **`audio.played` lines** appended to `<logIdentity>.audio-audit.jsonl` by every successful replay.
+- **Control sets a new worker variable `SPEECH_SESSION_ID`, and the worker requires it:** with `AUDIO_DIR` set and `SPEECH_SESSION_ID` missing or invalid, the worker's whole configuration fails (it prints its fixed error and exits with code 2), so voice transcription stops for that session, not only recording. An older control never sets the variable.
+- **Two new control routes** (`GET /sessions/:id/audio` and `.../audio/:role/:segment`), available whatever `VOICE_ENABLED` is.
+
+### Rolling back
+
+- **Deploy control and the speech worker together, in either direction.** The mix older control with the new worker fails as above. The mix older worker with the new control is safe: folders without a marker are found through the session log's first line.
+- **Rolling back the code is safe:** an earlier build never reads `session.json`; the earlier sweep removes the audio folders whole (the marker with them); `audio.played` lines are only ever appended and the sweep never reads audit files; markers left on disk are harmless. An earlier control build has no audio routes (404).
+
+### Rolling forward again
+
+Redeploy control and the speech worker together. Folders recorded before the upgrade have no marker and are found through the session log; a session that also has a newer marked folder lists only the marked one (`docs/VOICE_RUNBOOK.md` section 8).

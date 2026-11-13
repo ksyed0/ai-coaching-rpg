@@ -4,7 +4,7 @@ import { buildChildEnv, CHILD_ENV_ALLOWLIST, CHILD_WS_MAX_CONNECTIONS, CHILD_WS_
 import type { ControlConfig } from "../config.js";
 
 const config: ControlConfig = {
-  port: 8787, serviceToken: "x".repeat(40), maxSessions: 10, dataDir: "/data/control", sessionsDir: "/data/control/sessions",
+  port: 8787, serviceToken: "x".repeat(40), maxSessions: 10, dataDir: "/data/control", audioDir: "/data/control/audio", audioMinFreeMb: 2048, audioMaxRetentionDays: 30, sessionsDir: "/data/control/sessions",
   listFile: "/data/control/sessions.json", scenariosDir: "/scen", logDir: "/data/control/child-logs", graceMs: 1, readyTimeoutMs: 1000, ...AI_CONFIG,
 };
 const TOKEN = "ab".repeat(32);
@@ -66,5 +66,13 @@ describe("buildChildEnv", () => {
     expect(env.SESSION_DATA_DIR!.startsWith("/")).toBe(true);
     expect(env.SESSION_DATA_DIR!.startsWith(`${config.dataDir}/`)).toBe(true);
     expect(() => buildChildEnv({ config: { ...config, sessionsDir: "rel" }, parentEnv: {}, sessionId: "a".repeat(32), scenarioDir: "/s", token: TOKEN, start: "fresh" })).toThrow();
+  });
+
+  it("US-0070: copies VOICE_ENABLED and TURN_END_MS to the runtime, never the speech worker's settings or the LiveKit secrets", () => {
+    const env = build({ VOICE_ENABLED: "1", TURN_END_MS: "900", VOICE_HANGOVER_MS: "500", VOICE_MAX_SEGMENT_MS: "2500", STT_URL: "http://127.0.0.1:1/x", STT_MODEL: "small.en",
+      LIVEKIT_API_KEY: "k", LIVEKIT_API_SECRET: "s", LIVEKIT_URL: "wss://x", LIVEKIT_HOST: "http://127.0.0.1:7880" });
+    expect(env.VOICE_ENABLED).toBe("1");
+    expect(env.TURN_END_MS).toBe("900");
+    for (const k of ["VOICE_HANGOVER_MS", "VOICE_MAX_SEGMENT_MS", "STT_URL", "STT_MODEL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_URL", "LIVEKIT_HOST"]) expect(env[k], k).toBeUndefined();
   });
 });

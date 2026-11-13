@@ -845,3 +845,57 @@ describe("LauncherClient participant writes", () => {
     expect(spy).toHaveBeenLastCalledWith(5_000);
   });
 });
+
+// US-0071 (A1b Task 11): the voice token for the cookie's own seat. Only the token and its expiry come back; control's refusals become
+// three closed reasons, and nothing control said (its text, a room, an identity) or the service token reaches an error.
+describe("LauncherClient voiceToken", () => {
+  const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZWNoX2xlYWQuZzAxMjM0NTY3In0.c2lnbmF0dXJlLWJ5dGVz";
+
+  it("voiceToken posts roleId and participantId with the service token and answers token and expiresAt only", async () => {
+    const f = fakeFetch(() => reply(envelope({ token: JWT, expiresAt: 1_900_000_600_000, room: "v0123", identity: "tech_lead.g01234567" })));
+    const t = await client(f.fetch).voiceToken(SID, "tech_lead", "p-1");
+    expect(t).toEqual({ token: JWT, expiresAt: 1_900_000_600_000 });
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0]!.method).toBe("POST");
+    expect(f.calls[0]!.url).toBe(`${BASE}/sessions/${SID}/voice-token`);
+    expect(f.calls[0]!.headers["x-service-token"]).toBe(TOKEN);
+    expect(JSON.parse(f.calls[0]!.body!)).toEqual({ roleId: "tech_lead", participantId: "p-1" });
+    expect(f.calls[0]!.url).not.toContain(TOKEN);
+  });
+
+  it("uses the default 5 s timeout", async () => {
+    vi.spyOn(AbortSignal, "timeout");
+    const f = fakeFetch(() => reply(envelope({ token: JWT, expiresAt: 1 })));
+    await client(f.fetch).voiceToken(SID, "tech_lead", "p-1");
+    expect(AbortSignal.timeout).toHaveBeenCalledWith(5_000);
+  });
+
+  it.each([
+    [409, "voice_refused", "voice_refused"], [409, "voice_off", "voice_off"], [503, "voice_unavailable", "voice_unavailable"],
+    [404, "not_found", "not_found"], [400, "bad_request", "bad_request"], [401, "unauthorized", "unauthorized"],
+  ] as [number, string, LauncherReason][])("HTTP %i %s becomes the LauncherError reason %s, without control's text", async (status, code, reason) => {
+    const f = fakeFetch(() => reply(errorEnvelope(code, "SECRET room v0123abc identity tech_lead.g01234567"), status));
+    const r = await reasonOf(client(f.fetch).voiceToken(SID, "tech_lead", "p-1"));
+    expect(r.reason).toBe(reason);
+    for (const s of ["SECRET", "v0123abc", "tech_lead.g01234567", TOKEN, BASE]) expect(r.text).not.toContain(s);
+  });
+
+  it.each([
+    ["no token", { expiresAt: 1 }], ["an empty token", { token: "", expiresAt: 1 }], ["a token that is not a JWT", { token: "abc", expiresAt: 1 }],
+    ["a token with a newline", { token: `${JWT}\n<script>`, expiresAt: 1 }], ["a token over 4096 characters", { token: `${JWT}${"a".repeat(4096)}`, expiresAt: 1 }],
+    ["no expiry", { token: JWT }], ["an expiry that is not a number", { token: JWT, expiresAt: "soon" }], ["a fractional expiry", { token: JWT, expiresAt: 1.5 }],
+    ["a negative expiry", { token: JWT, expiresAt: -1 }], ["an array", [JWT]],
+  ])("a malformed answer (%s) is unavailable", async (_n, data) => {
+    const f = fakeFetch(() => reply(envelope(data)));
+    expect((await reasonOf(client(f.fetch).voiceToken(SID, "tech_lead", "p-1"))).reason).toBe("unavailable");
+  });
+
+  it("a role id, a participant id or a session id that is not well formed never reaches the network", async () => {
+    const f = fakeFetch(() => reply(envelope({ token: JWT, expiresAt: 1 })));
+    const c = client(f.fetch);
+    for (const [sid, role, pid] of [[SID, "a.b", "p"], [SID, "Tech", "p"], [SID, "tech_lead", ""], [SID, "tech_lead", "p\u0000x"], [SID, "tech_lead", "x".repeat(300)], ["../x", "tech_lead", "p"]] as const) {
+      await expect(c.voiceToken(sid, role, pid)).rejects.toBeInstanceOf(LauncherError);
+    }
+    expect(f.calls).toEqual([]);
+  });
+});

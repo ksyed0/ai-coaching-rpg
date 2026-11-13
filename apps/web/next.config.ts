@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
-// Static headers for every route, the API included (src/proxy.ts does not run for /api). The per-request nonce CSP, X-Robots-Tag on
-// private pages and the other page headers are set by src/proxy.ts (a static policy would block Next's inline bootstrap scripts).
+// Static headers for every route but the session page, the API included (src/proxy.ts does not run for /api). The per-request nonce CSP,
+// X-Robots-Tag on private pages and the other page headers are set by src/proxy.ts (a static policy would block Next's inline bootstrap
+// scripts). US-0071 (A1b Task 12): /session/* is left to the proxy alone, which sets all of these there too (src/server/headers.ts), so its
+// microphone exception is the page's ONLY Permissions-Policy header (two would conflict).
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "no-referrer" },
@@ -21,7 +23,7 @@ const config: NextConfig = {
   // Next buffers a copy of each request body on the paths src/proxy.ts runs on (pages only); the pages take no body worth more.
   experimental: { proxyClientMaxBodySize: "8kb" },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [{ source: "/((?!session/).*)", headers: securityHeaders }];
   },
   webpack(webpackConfig) {
     webpackConfig.resolve.extensionAlias = { ...webpackConfig.resolve.extensionAlias, ...extensionAlias };

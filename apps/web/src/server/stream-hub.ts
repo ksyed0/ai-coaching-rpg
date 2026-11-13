@@ -1,7 +1,7 @@
 import { initPlayerView } from "@acr/events";
 import { CLOSE_AI_FILLED, CLOSE_REISSUED, CLOSE_REMOVED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
-import type { ClientMessage, JoinedFrame, PeerRosterEntry, ServerMessage } from "./wire";
+import type { ClientMessage, JoinedFrame, PeerRosterEntry, ServerMessage, VoiceState } from "./wire";
 
 // Bridges one participant's runtime socket to one server-sent-events response. No Next imports: the route hands in an `out` writer.
 // The hub never reconnects: on a drop it tells the browser, whose native EventSource reconnects with Last-Event-ID, and the next request
@@ -16,6 +16,9 @@ export class NoStreamError extends Error {
   constructor() { super("no stream is open for this participant"); this.name = "NoStreamError"; }
 }
 
+/** US-0070/US-0071: what the runtime can refuse a voice_opt_in, voice_opt_out or voice_mute with. */
+const VOICE_SEND_ERRORS = ["voice_off", "forbidden", "not_joined", "consent_version", "voice_notice_required", "failed", "bad_message", "bad_json", "rate_limited", "internal"] as const;
+
 /** The messages a player sends through `send`, and the runtime error codes each one can produce (ws-server.ts, session-host.ts, session-engine.ts). */
 const SEND_ERRORS = {
   // giveConsent: refuseOnceStarting, holds, ConsentError; a failed seat write is `internal`. Facilitator sockets get `forbidden`.
@@ -27,11 +30,28 @@ const SEND_ERRORS = {
   leave: ["already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
   // onPlayerUtterance and engine.say. `log_failed` is left out: the runtime also sends it to everyone unasked, so it goes to the stream.
   say: ["not_started", "paused", "ended", "not_in_scene", "stale_scene", "unknown_role", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
+  // US-0070/US-0071: optInVoice, optOutVoice and muteVoice (session-host.ts, ws-server.ts). Success is the `voice` frame (VOICE_SENDS).
+  voice_opt_in: VOICE_SEND_ERRORS,
+  voice_opt_out: VOICE_SEND_ERRORS,
+  voice_mute: VOICE_SEND_ERRORS,
 } as const satisfies Record<string, readonly string[]>;
 type SendType = keyof typeof SEND_ERRORS;
 const isSendType = (t: string): t is SendType => Object.hasOwn(SEND_ERRORS, t);
+/** The sends the runtime answers on success (with a `voice` frame, to the sender only); the others are answered only when refused. */
+const VOICE_SENDS: ReadonlySet<string> = new Set(["voice_opt_in", "voice_opt_out", "voice_mute"]);
 
 const DEFAULT_SEND_WAIT_MS = 300;
+/** A voice send waits for its `voice` answer (a success is always answered); longer than the others, which only hear refusals. */
+export const VOICE_SEND_WAIT_MS = 2_000;
+
+/**
+ * US-0071 (A1b Task 11): the only `voice_notice` codes a player's page receives, as a named event. A local copy of the runtime's
+ * VOICE_NOTICE_CODES (host/voice.ts), pinned equal by hub.voice.runtime.test.ts; any other code is dropped.
+ */
+export const VOICE_NOTICE_CODES = ["stt_failed", "empty", "paused", "not_in_scene", "ended", "not_recording", "voice_unavailable", "voice_available"] as const;
+const isNoticeCode = (c: unknown): c is (typeof VOICE_NOTICE_CODES)[number] => typeof c === "string" && (VOICE_NOTICE_CODES as readonly string[]).includes(c);
+const VOICE_STATES: readonly string[] = ["none", "voice", "text_only", "off"] satisfies VoiceState[];
+export const isVoiceState = (v: unknown): v is VoiceState => typeof v === "string" && VOICE_STATES.includes(v);
 /** What a player whose credential is gone is told (the stream's `signed_out` event). */
 export const SIGNED_OUT_MESSAGE = "ask your facilitator for a new code";
 /** What a player the facilitator removed is told (the stream's `removed` event). Equal to MESSAGES.removed; the page shows its own copy. */
@@ -41,7 +61,7 @@ export const AI_FILLED_MESSAGE = "The facilitator has filled this role.";
 /** Sent instead of the runtime's own text, so nothing the BFF did not choose reaches the page as a sentence. */
 const ERROR_MESSAGE = "the server reported an error";
 
-type Waiter = { accepts: readonly string[]; done: (m: ServerMessage | null) => void };
+type Waiter = { accepts: readonly string[]; voice: boolean; done: (m: ServerMessage | null) => void };
 type Stream = {
   key: string; sessionId: string; address: string; expiresAt: number; conn: RuntimeConnection; out: SseOut; ended: boolean;
   /** Replayed event frames still to drop because a reset already covers them. */
@@ -71,7 +91,14 @@ const keyOf = (c: { sessionId: string; roleId: string; participantId: string }) 
  * (state, scenes, consent) are forwarded as the runtime sent them: the runtime already projects them for this player.
  */
 function playerJoined(j: JoinedFrame) {
-  return { roleId: j.roleId, brief: j.brief, privateFacts: j.privateFacts, consent: j.consent, scenes: j.scenes, state: j.state, logIdentity: j.logIdentity, replay: j.replay };
+  const out: Record<string, unknown> = { roleId: j.roleId, brief: j.brief, privateFacts: j.privateFacts, consent: j.consent, scenes: j.scenes, state: j.state, logIdentity: j.logIdentity, replay: j.replay };
+  // US-0071: this seat's own voice state and mute, picked (never spread); absent whenever the runtime sent none (a text-only session).
+  const v: unknown = j.voice;
+  if (typeof v === "object" && v !== null && isVoiceState((v as { state?: unknown }).state)) {
+    const muted = (v as { muted?: unknown }).muted;
+    out.voice = typeof muted === "boolean" ? { state: (v as { state: VoiceState }).state, muted } : { state: (v as { state: VoiceState }).state };
+  }
+  return out;
 }
 
 export type StreamHubOptions = {
@@ -175,9 +202,10 @@ export class StreamHub {
   }
 
   /**
-   * Sends a player message (say, consent, withdraw_consent, leave; anything else is refused) over the participant's open stream
-   * connection: a new connection would supersede the stream. The runtime acks nothing, so this resolves with the first error frame
-   * this message type can produce within the bounded wait, else null. Sends on one stream run one at a time, so an answer is never
+   * Sends a player message (say, consent, withdraw_consent, leave, voice_opt_in, voice_opt_out, voice_mute; anything else is refused)
+   * over the participant's open stream connection: a new connection would supersede the stream. The runtime acks nothing but the voice
+   * messages, so this resolves with the first error frame this message type can produce within the bounded wait, else null; a voice
+   * send also resolves with its `voice` answer and waits VOICE_SEND_WAIT_MS (null then means "not confirmed"). Sends on one stream run one at a time, so an answer is never
    * taken by a send that was handed over later. (An error that arrives after its own wait cannot be told apart from the next send's;
    * the runtime has no correlation ids.)
    */
@@ -186,19 +214,20 @@ export class StreamHub {
     const s = this.streams.get(keyOf(cookie));
     if (!s || s.ended || !s.conn.isOpen) throw new NoStreamError();
     const accepts = SEND_ERRORS[m.type];
-    const run = s.sendChain.then(() => this.sendOne(s, m, accepts));
+    const voice = VOICE_SENDS.has(m.type);
+    const run = s.sendChain.then(() => this.sendOne(s, m, accepts, voice));
     s.sendChain = run.catch(() => undefined);
     return run;
   }
 
-  private sendOne(s: Stream, m: ClientMessage, accepts: readonly string[]): Promise<ServerMessage | null> {
+  private sendOne(s: Stream, m: ClientMessage, accepts: readonly string[], voice: boolean): Promise<ServerMessage | null> {
     if (s.ended || !s.conn.isOpen) return Promise.reject(new NoStreamError());
     try { s.conn.send(m); } catch { return Promise.reject(new NoStreamError()); }
     return new Promise((resolve) => {
       let cancel = () => {};
-      const w: Waiter = { accepts, done: (r) => { if (s.waiter === w) s.waiter = null; cancel(); resolve(r); } };
+      const w: Waiter = { accepts, voice, done: (r) => { if (s.waiter === w) s.waiter = null; cancel(); resolve(r); } };
       s.waiter = w;
-      cancel = this.o.setTimer(() => w.done(null), this.sendWaitMs);
+      cancel = this.o.setTimer(() => w.done(null), voice ? VOICE_SEND_WAIT_MS : this.sendWaitMs);
     });
   }
 
@@ -218,6 +247,13 @@ export class StreamHub {
       const w = s.waiter;
       if (w && w.accepts.includes(m.code)) { w.done(m); return; }
       this.write(s, sse("error", { code: m.code, message: ERROR_MESSAGE }));
+    } else if (m.type === "voice") {
+      // US-0071: only ever the answer to this player's own waiting voice send; a stray one (late, or unasked) is dropped.
+      const w = s.waiter;
+      if (w?.voice) w.done(m);
+    } else if (m.type === "voice_notice") {
+      // US-0071 (AC-0414): to this player's page only, as a named event with the code alone; a code outside the allowlist is dropped.
+      if (isNoticeCode(m.code)) this.write(s, sse("voice_notice", { code: m.code }));
     }
     // Anything else (another joined, an unknown type) is not forwarded: the browser gets only frames it knows.
   }

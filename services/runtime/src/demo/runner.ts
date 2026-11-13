@@ -96,6 +96,8 @@ export type RunDeps = {
   afterTempCreated?: (root: string) => Promise<void> | void;
   /** `--web`: starts the web package's demo and resolves with its exit code. Default: spawnWebDemo in the repo root. */
   spawnWeb?: (o: { env: NodeJS.ProcessEnv }) => Promise<number>;
+  /** `--voice` (US-0070): starts the control service's voice demo and resolves with its exit code. Default: spawnVoiceDemo in the repo root. */
+  spawnVoice?: (o: { env: NodeJS.ProcessEnv }) => Promise<number>;
 };
 
 /**
@@ -111,6 +113,15 @@ export function spawnWebDemo(o: { cwd: string; env: NodeJS.ProcessEnv; command?:
   });
 }
 spawnWebDemo.defaultCommand = ["pnpm", ["--filter", "@acr/web", "demo"]] as const;
+
+/**
+ * US-0070: `pnpm demo --voice`: runs `pnpm --filter @acr/control demo:voice` (src/demo/voice-demo.ts: control, a runtime and a speech worker
+ * on file ingest with the fake speech-to-text) like `--web`, with the terminal's own stdio. The runtime package never imports control.
+ */
+export function spawnVoiceDemo(o: { cwd: string; env: NodeJS.ProcessEnv; command?: readonly [string, readonly string[]] }): Promise<number> {
+  return spawnWebDemo({ ...o, command: o.command ?? spawnVoiceDemo.defaultCommand });
+}
+spawnVoiceDemo.defaultCommand = ["pnpm", ["--filter", "@acr/control", "demo:voice"]] as const;
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const realTimer = (fire: () => void, ms: number): (() => void) => { const t = setTimeout(fire, ms); return () => clearTimeout(t); };
@@ -141,6 +152,14 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   if (!parsed.ok) { deps.stderr.write(`${scrubText(parsed.error)}\n${parsed.usage}\n`); return { exitCode: 2 }; }
   const opts = parsed.opts;
   if (opts.help) { deps.stdout.write(`${DEMO_USAGE}\n`); return { exitCode: 0 }; }
+  if (opts.voice) {
+    const env = opts.noColor ? { ...deps.env, NO_COLOR: "1" } : { ...deps.env };
+    try { return { exitCode: await (deps.spawnVoice ?? ((o) => spawnVoiceDemo({ cwd: deps.repoRoot ?? REPO_ROOT, env: o.env })))({ env }) }; }
+    catch (err) {
+      deps.stderr.write(`error: could not start the voice demo (pnpm --filter @acr/control demo:voice): ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
+      return { exitCode: 1 };
+    }
+  }
   if (opts.web) {
     const env = opts.noColor ? { ...deps.env, NO_COLOR: "1" } : { ...deps.env };
     try { return { exitCode: await (deps.spawnWeb ?? ((o) => spawnWebDemo({ cwd: deps.repoRoot ?? REPO_ROOT, env: o.env })))({ env }) }; }

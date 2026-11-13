@@ -283,6 +283,39 @@ describe("console report handlers", () => {
     expect((await handleConsoleReportOverview(new Request(`${ORIGIN}/api/v1/console/sessions/bad%20id/report`, { headers: { Cookie: COOKIE } }), deps)).status).toBe(404);
   });
 
+  it("test_bff_overview_aiRoles_forwarded: a well-made aiRoles from control reaches the browser in order (US-0068)", async () => {
+    const IN_REVIEW = { ...OVERVIEW, stage: "in_review", confirm: null };
+    const { outputDir: _dropped, ...browserJob } = JOB;
+    answer = () => good({ ...IN_REVIEW, aiRoles: ["tech_lead", "ai1"] });
+    const o = await json(await handleConsoleReportOverview(get(""), deps));
+    expect(o.data).toEqual({ ...IN_REVIEW, job: browserJob, aiRoles: ["tech_lead", "ai1"] });
+    // an answer without the field (an older control) is forwarded with no aiRoles key
+    answer = () => good(IN_REVIEW);
+    const none = await json(await handleConsoleReportOverview(get(""), deps));
+    expect(none.data).toEqual({ ...IN_REVIEW, job: browserJob });
+    expect(Object.prototype.hasOwnProperty.call(none.data, "aiRoles")).toBe(false);
+  });
+
+  it("test_bff_overview_aiRoles_malformed_dropped: a malformed aiRoles is dropped, the rest of the overview still arrives (US-0068)", async () => {
+    const IN_REVIEW = { ...OVERVIEW, stage: "in_review", confirm: null };
+    const { outputDir: _dropped, ...browserJob } = JOB;
+    const bad: unknown[] = [
+      "ai1", { 0: "ai1" }, null, 3, ["ai1", 2], ["../x"], ["Tech Lead"], [""], ["ai1", "ai1"], ["x".repeat(65)],
+      Array.from({ length: 65 }, (_, i) => `r${i}`),
+    ];
+    for (const aiRoles of bad) {
+      answer = () => good({ ...IN_REVIEW, aiRoles });
+      const res = await handleConsoleReportOverview(get(""), deps);
+      expect(res.status, JSON.stringify(aiRoles).slice(0, 40)).toBe(200);
+      const o = await json(res);
+      expect(o.data).toEqual({ ...IN_REVIEW, job: browserJob });
+    }
+    // the boundary: 64 distinct safe ids pass
+    const max = Array.from({ length: 64 }, (_, i) => `r${i}`);
+    answer = () => good({ ...IN_REVIEW, aiRoles: max });
+    expect((await json(await handleConsoleReportOverview(get(""), deps))).data).toEqual({ ...IN_REVIEW, job: browserJob, aiRoles: max });
+  });
+
   it("the subject-view parser rejects an unknown level value (fails closed)", async () => {
     for (const mutate of [
       (v: typeof VIEW) => ({ ...v, criteria: [{ ...v.criteria[0]!, current: 5 }] }),

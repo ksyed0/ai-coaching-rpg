@@ -44,3 +44,18 @@ There are none pending for an existing platform (the US-0013 entry below lists w
 - **New close code.** **4002 `reissued`**: the runtime closes a role's socket with 4002 when its code is reissued. A client must treat it like 4001 (terminal, do not reconnect) and tell the player to ask the facilitator for a new code. The web client does this.
 - **Dual-mode runtime lookup.** The web app resolves a session's runtime through the control service when `LAUNCHER_URL` is set (launcher mode) and through `RUNTIME_URL` otherwise (single-runtime mode, unchanged). Any other client of the web app's BFF needs nothing; the cookie formats are unchanged (the facilitator cookie `__Host-scenecoach-fac` is separate and purpose-bound).
 - **Log format.** No change: still format 2 (docs/ROLLBACK.md).
+
+## 2026-11-09: voice choice, mute and voice notices on the player protocol (EPIC-0003 voice A1b, US-0071)
+
+- **Files:** `services/runtime/src/host/protocol.ts`, `host/ws-server.ts`, `host/session-host.ts`, `host/voice.ts`, `host/roster.ts`; `apps/web/src/server/handlers.ts`, `stream-hub.ts`, `wire.ts`, `src/app/api/v1/voice/route.ts`, `src/app/api/v1/voice/token/route.ts`.
+- **Applies to:** every future client of the runtime socket or the BFF (3D EPIC-0004, any native client). The terminal client does not offer voice and needs nothing; the web client has it. Only with `VOICE_ENABLED=1`.
+- **Runtime socket.** New player message `{ "type": "voice_mute", "muted": boolean }` (strict), answered `{ "type": "voice", "state", "muted" }` to the sender; every `voice` answer and `joined.voice` now carry `muted`. A mute lives in runtime memory only and is forgotten when the holder's socket is released: a client must re-send its local mute after every fresh `joined`. `voice_notice` codes gain `voice_unavailable` (now sent) and `voice_available`; treat them as state, not one-off errors.
+- **BFF.** `POST /api/v1/voice` (`{ choice: "voice", noticeVersion }`, `{ choice: "text_only" }` or `{ mute }`), `POST /api/v1/voice/token` (no body; `{ token, url, expiresAt }`), the `joined` event's `voice { state, muted? }` and the named SSE event `voice_notice { code }` (PROJECT.md, Data schemas). A client must leave its LiveKit room on every final stream event and when its stream drops.
+- **Internal only (no other platform):** `voice_availability`, `voice_seats.voiceChosen`/`open`, the new alert codes and the speech worker's LiveKit, slot and health messages move together in one checkout (control, runtime, worker; drift-tested).
+
+## 2026-11-09: two voice alert codes and the operations commands (EPIC-0003 voice A1c, US-0072)
+
+- **Files:** `services/control/src/protocol.ts`, `services/runtime/src/host/parent-channel.ts`, `services/runtime/src/host/voice.ts`, `services/runtime/src/main.ts`, `apps/web/src/server/facilitator-copies.ts`; `services/speech/src/protocol.ts` (`EXIT_LIVEKIT_LOST`).
+- **Internal only (no other platform):** the parent-channel alert codes `livekit_lost` (closes an open voice turn) and `livekit_recovered` (info) move together in one checkout (control, runtime, the web console's exact-sentence copy; drift-tested). A future client of the runtime socket or the BFF needs nothing: they reach the console as ordinary `facilitator.alert` events with fixed sentences.
+- **Operations:** `pnpm voice:up|down|check|timings` (macOS pilot laptop; Linux hosts are not supported in A1c). The web package's `start` script binds 127.0.0.1: any deployment that served it on the LAN directly must put the TLS proxy in front.
+- **Log format.** No change.

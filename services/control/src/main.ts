@@ -11,14 +11,27 @@ import { createApi } from "./api.js";
 import type { EvalSpawnFn } from "./eval-child.js";
 import { ModerationService } from "./moderation.js";
 import { ReportJobService } from "./report-job.js";
-import { loadControlConfig, loadControlEnv } from "./config.js";
+import { loadControlConfig, loadControlEnv, type ControlConfig } from "./config.js";
 import { ReportAccessStore } from "./report-access.js";
 import { createParticipantWriteService, warnIfReportsNotWritable } from "./participant-writes.js";
 import { createReportService } from "./reports.js";
 import { listScenarios, scenarioDir } from "./scenarios.js";
 import { SessionList } from "./session-list.js";
 import { forkSpawn } from "./spawn.js";
-import { Supervisor, type SpawnFn } from "./supervisor.js";
+import { Supervisor, type SetTimer, type SpawnFn } from "./supervisor.js";
+import { speechSpawn } from "./voice/speech-spawn.js";
+import { randomBytes } from "node:crypto";
+import { createRoomAdmin, mintParticipantToken, mintWorkerToken } from "@acr/adapters/livekit";
+import { liveKitStartProblems, parseLiveKitConfig, voiceTokensWanted } from "./voice/livekit-config.js";
+import { AudioCatalog } from "./voice/audio-catalog.js";
+import { AudioService } from "./voice/audio-routes.js";
+import { AuditLog } from "./voice/audit-log.js";
+import { makeFallbackIdentity } from "./voice/log-identity.js";
+import { startAudioSweep, stopWithin } from "./voice/sweep.js";
+import { livekitProbe } from "./voice/livekit-probe.js";
+import { timingLogSink } from "./voice/timing-log.js";
+import { VoiceTokens } from "./voice/tokens.js";
+import { VoiceHost, type SpeechSpawnFn } from "./voice/voice-host.js";
 
 /** The service listens on loopback only: the BFF is the single caller. */
 export const CONTROL_HOST = "127.0.0.1";
@@ -29,6 +42,18 @@ const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 const MARGIN_MS = 10_000;
 /** The BFF waits 120 s for a create, restart or whole-session reissue; the longest of those here must stay below this (with margin). */
 export const BFF_SAFE_OPERATION_MS = 110_000;
+
+const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
+
+/**
+ * US-0074 (voice A2b-1a, Task 8): the facilitator's audio listing and replay. Built whenever control runs, independent of VOICE_ENABLED and
+ * of the voice host (audio recorded before a rollback to VOICE_ENABLED=0 stays replayable until the sweep removes it). The catalog falls
+ * back to the session log's identity (`<sessionsDir>/<id>.jsonl`) for folders recorded before session markers existed.
+ */
+export function buildAudioService(config: Pick<ControlConfig, "audioDir" | "sessionsDir">, deps: { audit: Pick<AuditLog, "append"> }): AudioService {
+  const catalog = new AudioCatalog({ audioDir: config.audioDir, fallbackIdentity: makeFallbackIdentity(config.sessionsDir) });
+  return new AudioService({ catalog, audit: deps.audit, audioDir: config.audioDir });
+}
 
 export type RunningControl = {
   port: number;
@@ -45,9 +70,22 @@ export type RunningControl = {
  */
 export async function startControl(
   env: NodeJS.ProcessEnv,
-  opts: { log?: (m: string) => void; spawn?: SpawnFn; port?: number; /** Tests: a stand-in for the evaluate child. */ evalSpawn?: EvalSpawnFn } = {},
+  opts: {
+    log?: (m: string) => void; spawn?: SpawnFn; port?: number; /** Tests: a stand-in for the evaluate child. */ evalSpawn?: EvalSpawnFn;
+    /** Tests and the voice demo: a stand-in for the speech worker fork, and a way to reach the VoiceHost (V-07 kills a worker by pid). */
+    speechSpawn?: SpeechSpawnFn; onVoiceHost?: (v: VoiceHost) => void;
+    /** Tests: a stand-in for control's LiveKit probe (US-0072); the service probes LIVEKIT_HOST. */ livekitReachable?: () => Promise<boolean>;
+  } = {},
 ): Promise<RunningControl> {
   const config = loadControlConfig(env);
+  // US-0071 (A1b Task 5): a bad LiveKit setting, or SPEECH_INGEST=livekit without LiveKit, stops the start (variables named, no value).
+  const lkProblems = liveKitStartProblems(env);
+  if (lkProblems.length > 0) throw new Error(`invalid control service settings: ${lkProblems.join("; ")}`);
+  // US-0072 (A1c Task 12): the room test's timing record, off by default; anything but 0 or 1 stops the start (the variable named only).
+  const timingRaw = env.VOICE_TIMING_LOG ?? "";
+  if (timingRaw !== "" && timingRaw !== "0" && timingRaw !== "1") throw new Error("invalid control service settings: VOICE_TIMING_LOG must be 0 or 1");
+  const lk = parseLiveKitConfig(env);
+  const liveKit = lk.ok ? lk.cfg : null;
   const log = opts.log ?? (() => {});
   const longest = config.readyTimeoutMs + 2 * config.graceMs;
   if (longest > BFF_SAFE_OPERATION_MS)
@@ -63,11 +101,37 @@ export async function startControl(
     if (!entry) throw new Error("unknown session");
     return loadScenario(scenarioDir(config.scenariosDir, entry.scenarioId));
   };
+  // US-0073 (A2a Task 8): the audio audit log (opt-in, opt-out, recording stops, sweep deletions), under AUDIO_DIR with its own lock per identity.
+  const audit = new AuditLog({ audioDir: config.audioDir, now: Date.now, log });
   const supervisor = new Supervisor({
     config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
+    // US-0070: one speech worker per session whose runtime reports voice (VOICE_ENABLED=1 accepted at its bootstrap); none otherwise.
+    voice: (deps) => {
+      // US-0071: the seat rooms, generations and tokens exist only when control has LiveKit settings and the workers read LiveKit
+      // (batch 3 review F8: never with SPEECH_INGEST=file); the key and secret stay here.
+      const lkWanted = voiceTokensWanted(env, liveKit) ? liveKit : null;
+      const tokens = lkWanted ? new VoiceTokens({
+        cfg: lkWanted, admin: createRoomAdmin({ host: lkWanted.host, apiKey: lkWanted.apiKey, apiSecret: lkWanted.apiSecret }),
+        mint: mintParticipantToken, mintWorker: mintWorkerToken, random: randomBytes, setTimer: realSetTimer, log,
+      }) : undefined;
+      // US-0072 (A1c Task 11): the LiveKit probe goes with the tokens (same condition), so an outage is told from a fault.
+      const v = new VoiceHost({
+        spawn: opts.speechSpawn ?? speechSpawn(), config, parentEnv: env, log, setTimer: realSetTimer, ...deps, now: Date.now,
+        ...(timingRaw === "1" ? { timingLog: timingLogSink(config.logDir, { log }) } : {}),
+        ...(tokens && lkWanted ? { tokens, livekitReachable: opts.livekitReachable ?? livekitProbe(lkWanted.host) } : {}),
+        audit,
+      });
+      opts.onVoiceHost?.(v);
+      return v;
+    },
   });
   await supervisor.resumeAll();
+  // US-0073 (A2a Task 9b): the audio retention sweep runs whenever control runs, NOT only with voice hosting: a rollback to VOICE_ENABLED=0
+  // must not strand recordings the notice promises to delete. Stopped in close().
+  const sweep = startAudioSweep(config, { audit, setTimer: realSetTimer, log });
+  // US-0074: the audio routes, under the same rule (and the same audit log, so a replay's line sits with the sweep's).
+  const audio = buildAudioService(config, { audit });
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
   const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
   const secrets = collectSecrets(env);
@@ -90,9 +154,10 @@ export async function startControl(
       if (!opened) log("report open after evaluate did not complete");
     },
   });
-  moderation = new ModerationService({ config, jobs, secrets });
+  // US-0068: the overview's "AI player, not scored" rows read the same source as the link guard (one reader of the log, no shared memo).
+  moderation = new ModerationService({ config, jobs, secrets, aiRoles: (id) => aiRolesFor(config, list, id) });
 
-  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation }));
+  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
   // are at most 64 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default
@@ -110,7 +175,7 @@ export async function startControl(
       server.listen(port, CONTROL_HOST, () => { server.off("error", reject); resolve(); });
     });
   } catch (err) {
-    await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
+    await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
     throw new Error(`cannot listen on ${CONTROL_HOST}:${port} (${(err as NodeJS.ErrnoException).code ?? "error"})`);
   }
   server.on("error", () => log("server error"));
@@ -122,7 +187,8 @@ export async function startControl(
     closing ??= (async () => {
       const stopped = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeIdleConnections();
-      await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
+      // The sweep is awaited (bounded) alongside the children, so a deletion that was renamed aside can still write its audit line.
+      await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
       server.closeAllConnections();
       await stopped;
     })();

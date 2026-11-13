@@ -86,6 +86,8 @@ flowchart TB
 | `evaluator` | Post-session scoring against rubrics, evidence quoting, confidence rating, calibration runs | Python | container | container |
 | `assets` | Level and avatar upload validation, manifest parsing, draco compression, thumbnails | TypeScript (Node) | container | container |
 
+> **Deviation (EPIC-0003 voice part A, spec `docs/superpowers/specs/2026-11-08-voice-part-a-design.md` section 4; built from slice A1a, US-0070):** speech does NOT run inside `runtime`. Voice-activity detection, segmentation and speech-to-text run in a separate per-session **speech worker** (`services/speech`), a child process of the control service with no network listener; it talks to the control service over IPC, and the control service passes finished lines to the runtime over the existing parent channel. The runtime stays the single writer of the session log, and a native fault in the speech code (LiveKit in A1b) costs voice, not the session. This is closer to the `speech` box of the diagram in section 2 than to the `runtime` row above. Speech-to-text is local-first behind an adapter (`packages/adapters/src/speech`, default a whisper.cpp server on loopback).
+
 ### Infrastructure
 
 | Component | Role | Stage A (laptop) | Stage B (pilot) | Stage C (enterprise) |
@@ -96,6 +98,8 @@ flowchart TB
 | LiveKit | WebRTC rooms, recording | container | LiveKit Cloud or self-hosted | self-hosted per region |
 | Identity | OIDC provider | built-in stub | Entra ID / Okta / Keycloak | same |
 | Reverse proxy | TLS, routing | Caddy container | Caddy or cloud load balancer | ingress controller |
+
+> **Deviation (EPIC-0003 voice A1c, US-0072; `docs/VOICE_RUNBOOK.md`):** for the voice pilot on the laptop, the media server (LiveKit 1.13.11) and the TLS proxy (Caddy 2.11.9) run in Docker Compose (project `scenecoach-voice`, `deploy/compose/voice.yml`, both images pinned by digest) beside a **native** whisper.cpp `whisper-server` on loopback (Metal), all three started and stopped by `pnpm voice:up` / `pnpm voice:down` (`services/voice-ops`); not LiveKit Cloud, Kubernetes or a hosted speech service. The control service and the web app are still started by the operator; the web app listens on 127.0.0.1 only, behind Caddy. Not yet run against the real services (the owner checklist in the runbook).
 
 ### Communication
 
@@ -369,6 +373,8 @@ The transcript is a projection of `session_events`, never a separately edited do
 {tenant}/assets/levels/{hash}/level.glb | manifest.json | thumb.png
 {tenant}/assets/avatars/{hash}/avatar.glb
 ```
+
+> **Deviation (EPIC-0003 voice part A, spec section 4):** voice audio is NOT written to object storage through the storage adapter and LiveKit egress. Part A keeps 16 kHz mono WAV files as local files on the host, under `<audio root>/<logIdentity>/<role>/` (directories 0700, files 0600), with a per-role index and a separate audio audit log, deleted by the facilitator or after `AUDIO_MAX_RETENTION_DAYS` (default 30). A1a wrote no audio at all; the store was planned for slice A2. **Built in slice A2a (US-0073):** one WAV per kept segment under `<AUDIO_DIR>/<logIdentity>/<role>/` (default `<CONTROL_DATA_DIR>/audio`), written by the speech worker only after the runtime has answered and only for an accepted line, an empty or failed transcription, or a `paused` / `not_in_scene` refusal (a **narrowing** of the parent spec's "refused segments follow normal retention": every other refusal and an unanswered line write nothing), a mandatory audit file `<logIdentity>.audio-audit.jsonl` kept as long as the session's log, and automatic deletion `AUDIO_MAX_RETENTION_DAYS` (default 30) after the session ended by a sweep in the control service; replay and manual delete are slice A2b. `SessionLock` is shared as `@acr/runtime/files`. See `docs/THREAT_MODEL.md`, "Voice audio store, slice A2a".
 
 ### Retention
 

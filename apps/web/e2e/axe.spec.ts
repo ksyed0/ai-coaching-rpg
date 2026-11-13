@@ -263,10 +263,21 @@ test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate
 
   // in_review: the run summary and the subject list (the seed opens the review), then bob's view, then its edit form.
   await seedDraft(launcher, sessionId);
+  // US-0068 (TC-0160): every role here is human, so the real overview carries no AI role; add one to the real answer so the list shows
+  // its "AI player, not scored" row. The glob matches the overview only (not /report-links, not /report/subjects/...).
+  await fac.route("**/api/v1/console/sessions/*/report", async (route) => {
+    const res = await route.fetch();
+    const body = (await res.json()) as { success: boolean; data: Record<string, unknown> | null };
+    if (body.success && body.data && body.data.stage === "in_review") body.data.aiRoles = ["tech_lead"];
+    await route.fulfill({ response: res, json: body });
+  });
   await fac.reload();
   await expect(report.getByText("The reports are drafted and the review is open.")).toBeVisible();
   await expect(report.getByRole("button", { name: "Review Bob" })).toBeVisible();
-  await checkAt(fac, "the Report panel in review with the subject list");
+  await expect(report.getByText("not scored (no report is written for an AI player)")).toBeVisible();
+  await expect(report.getByRole("listitem").filter({ hasText: "Tech lead" })).toContainText("AI player");
+  await expect(report.getByRole("button", { name: "Review Tech lead" })).toHaveCount(0);
+  await checkAt(fac, "the Report panel in review with the subject list and an AI player row");
   await report.getByRole("button", { name: "Review Bob" }).click();
   await expect(report.getByRole("button", { name: "Edit Discovery" })).toBeEnabled();
   await checkAt(fac, "the subject view");

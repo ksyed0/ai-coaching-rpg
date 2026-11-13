@@ -18,7 +18,7 @@ import {
 import { consoleSessionFromToken } from "./console-session";
 import { fail } from "./envelope";
 import { FacilitatorBudget } from "./facilitator-budget";
-import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, type Deps } from "./handlers";
+import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, handleVoice, handleVoiceToken, seatedIn, VOICE_TOKEN_THROTTLE, type Deps } from "./handlers";
 import { LauncherClient } from "./launcher-client";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
 import { FacilitatorHub } from "./facilitator-hub";
@@ -66,6 +66,8 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // Report cookies that do not unseal (BUG-0025): the join's limits, in a table of their own, so a flood of forged cookies cannot
     // saturate the enter table, and a valid cookie never consults it.
     reportReadFailThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
+    // US-0071: voice token requests per participant (a digest of the cookie's seat), in a table of their own.
+    voiceTokenThrottle: new JoinThrottle({ ...VOICE_TOKEN_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
     facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
@@ -89,6 +91,15 @@ export function hasSeat(token: string | undefined, sessionId: string, getDeps: (
   } catch {
     return false;
   }
+}
+
+/**
+ * US-0071 (A1b Task 14): for the /session page (server side only): whether this web server has LiveKit (`config.livekitUrl`, validated).
+ * The page gets this boolean and nothing else of the config. False on a configuration error.
+ */
+export function voiceTransport(getDeps: () => Deps = sharedDeps): boolean {
+  try { return getDeps().config.livekitUrl !== undefined; }
+  catch { return false; }
 }
 
 /** For the /console page (server side only): the console's state for this cookie value. A configuration error reads as disabled. */
@@ -129,6 +140,8 @@ export const streamGET = route(handleStream);
 export const sayPOST = route(handleSay);
 export const consentPOST = route(handleConsent);
 export const leavePOST = route(handleLeave);
+export const voicePOST = route(handleVoice);
+export const voiceTokenPOST = route(handleVoiceToken);
 export const consoleLoginPOST = route(handleConsoleLogin);
 export const consoleLogoutPOST = route(handleConsoleLogout);
 export const consoleScenariosGET = route(handleConsoleScenarios);

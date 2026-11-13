@@ -1,16 +1,16 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { CLIENT_ID_MAX_CHARS, isNoticeVersion, isReservedDisplayName, isScenarioId, isValidSessionId } from "@acr/events";
 import type { Config } from "./config";
 import { fail, ok } from "./envelope";
 import type { FacilitatorBudget } from "./facilitator-budget";
 import { checkFetchSite, checkOrigin, requestAddress } from "./guards";
-import type { LauncherClient } from "./launcher-client";
+import { LauncherError, type LauncherClient } from "./launcher-client";
 import { RuntimeError, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import { resolveRuntimeUrl } from "./runtime-lookup";
 import { seal, unseal } from "./seal";
 import { lastSeqOf, sseBody, sseFinal, sseHeaders, type SseOut } from "./sse";
 import type { FacilitatorHub } from "./facilitator-hub";
-import { AI_FILLED_MESSAGE, NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type StreamHub } from "./stream-hub";
+import { AI_FILLED_MESSAGE, isVoiceState, NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type StreamHub } from "./stream-hub";
 import type { JoinThrottle } from "./throttle";
 import type { ClientMessage, JoinedFrame } from "./wire";
 
@@ -20,7 +20,10 @@ import type { ClientMessage, JoinedFrame } from "./wire";
 export type Deps = {
   config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; consoleGlobalThrottle: JoinThrottle; reportThrottle: JoinThrottle; reportWriteThrottle: JoinThrottle;
   /** The facilitator's evaluate and review writes, keyed by a digest of the console cookie (60 per minute). */
-  consoleReportThrottle: JoinThrottle; reportEnterThrottle: JoinThrottle; reportReadFailThrottle: JoinThrottle; hub: StreamHub; facilitatorBudget: FacilitatorBudget; facilitatorHub: FacilitatorHub;
+  consoleReportThrottle: JoinThrottle; reportEnterThrottle: JoinThrottle; reportReadFailThrottle: JoinThrottle;
+  /** US-0071: voice token requests, keyed by a digest of the cookie's session, role and participant (VOICE_TOKEN_THROTTLE). */
+  voiceTokenThrottle: JoinThrottle;
+  hub: StreamHub; facilitatorBudget: FacilitatorBudget; facilitatorHub: FacilitatorHub;
   /** Set when LAUNCHER_URL is: each session's runtime is then looked up through the control service (runtime-lookup.ts). */
   launcher?: LauncherClient;
   /** The timer the console's Start wait uses (default: real timers); tests drive it by hand. */
@@ -70,6 +73,24 @@ const SEND_ANSWERS: Record<string, Answer> = {
   bad_json: A.badRequest,
   internal: A.unavailable,
 };
+/** US-0071 (A1b Task 11): the voice route's own answers; the runtime's text never reaches the page. */
+export const VOICE_ANSWERS: Record<string, Answer> = {
+  voice_notice_required: { status: 409, code: "voice_notice_required", message: "Voice needs the current consent notice, which you did not agree to before the start. You can take part by text." },
+  voice_off: { status: 409, code: "voice_off", message: "Voice is not available in this session." },
+};
+const UNCONFIRMED: Answer = { status: 504, code: "unconfirmed", message: "Your choice was not confirmed. Reload the page to see it." };
+/** US-0071: the token route's answers. Control's text, a room and an identity never reach the page. */
+export const TOKEN_ANSWERS = {
+  voice_refused: { status: 409, code: "voice_refused", message: "Voice is not available for your seat. Choose voice first, or use the text box." },
+  voice_off: { status: 409, code: "voice_off", message: "Voice is off for this session. Use the text box." },
+  voice_unavailable: { status: 503, code: "voice_unavailable", message: "Voice is not available right now. Use the text box." },
+  rate_limited: { status: 429, code: "rate_limited", message: "Too many voice connection attempts. Wait a minute and try again." },
+} as const satisfies Record<string, Answer>;
+/** US-0071 (Open Question 8): 20 token requests per 60 s per participant (one per join and one per reconnect), then 60 s blocked. */
+export const VOICE_TOKEN_THROTTLE = { max: 20, windowMs: 60_000, blockMs: 60_000 };
+/** The throttle's role slot: the participant's digest is the key, so no id is kept in the table. */
+const VOICE_TOKEN_SLOT = "*voice-token";
+
 /** Join failures that mean the runtime is unreachable or broken, not a refusal: 503, never charged. */
 const JOIN_UNAVAILABLE = new Set(["unavailable", "closed", "internal"]);
 
@@ -321,6 +342,99 @@ async function relay(req: Request, deps: Deps, parse: (req: Request) => Promise<
   const revoked = m.type === "leave" || m.type === "withdraw_consent";
   return ok({}, revoked ? { headers: { "Set-Cookie": CLEAR_COOKIE } } : undefined);
 }
+
+/**
+ * US-0071 (A1b Task 11): POST /api/v1/voice with exactly one of { choice: "voice", noticeVersion }, { choice: "text_only" } or
+ * { mute: boolean }; any other key (a roleId or participantId above all: identity is the cookie's) is 400. Relayed over the player's own
+ * stream; 200 { state, muted? } from the runtime's `voice` answer, 504 `unconfirmed` when no answer came in VOICE_SEND_WAIT_MS.
+ */
+export async function handleVoice(req: Request, deps: Deps): Promise<Response> {
+  if (!checkOrigin(req, deps.config.publicOrigin) || !checkFetchSite(req)) return answer(A.forbidden);
+  const who = signedIn(req, deps);
+  if ("response" in who) return who.response;
+  const m = voiceMessage(await readJson(req));
+  if (m === null) return answer(A.badRequest);
+  let reply;
+  try { reply = await deps.hub.send(who.cookie, m); }
+  catch (err) {
+    if (err instanceof NoStreamError) return answer(A.noStream);
+    logFailure(m.type, err);
+    return answer(A.internal);
+  }
+  if (reply?.type === "error") {
+    const code = reply.code;
+    return answer(Object.hasOwn(VOICE_ANSWERS, code) ? VOICE_ANSWERS[code]! : Object.hasOwn(SEND_ANSWERS, code) ? SEND_ANSWERS[code]! : A.refused);
+  }
+  if (reply?.type !== "voice" || !isVoiceState(reply.state)) return answer(UNCONFIRMED);
+  return ok(typeof reply.muted === "boolean" ? { state: reply.state, muted: reply.muted } : { state: reply.state });
+}
+
+function voiceMessage(b: Record<string, unknown> | null): ClientMessage | null {
+  if (b === null) return null;
+  const keys = Object.keys(b).sort().join(",");
+  if (keys === "choice,noticeVersion" && b.choice === "voice" && typeof b.noticeVersion === "string" && isNoticeVersion(b.noticeVersion)) return { type: "voice_opt_in", noticeVersion: b.noticeVersion };
+  if (keys === "choice" && b.choice === "text_only") return { type: "voice_opt_out" };
+  if (keys === "mute" && typeof b.mute === "boolean") return { type: "voice_mute", muted: b.mute };
+  return null;
+}
+
+/**
+ * US-0071 (A1b Task 11): POST /api/v1/voice/token (no body; an empty JSON object is accepted). A LiveKit token for the COOKIE's own seat
+ * from the control service: 200 { token, url, expiresAt } with no-store, url being the validated LIVEKIT_URL origin. A cross-site write is
+ * refused before the throttle is consulted or charged; then the cookie (401), then whether voice can work here at all (503, nothing
+ * called), then 20 requests per 60 s per participant (429 with Retry-After). Nothing is logged but an error's name.
+ */
+export async function handleVoiceToken(req: Request, deps: Deps): Promise<Response> {
+  if (!checkOrigin(req, deps.config.publicOrigin) || !checkFetchSite(req)) return answer(A.forbidden);
+  const who = signedIn(req, deps);
+  if ("response" in who) return who.response;
+  if (!(await emptyBody(req))) return answer(A.badRequest);
+  const launcher = deps.launcher;
+  const url = deps.config.livekitUrl;
+  if (launcher === undefined || url === undefined) return answer(TOKEN_ANSWERS.voice_unavailable);
+  const c = who.cookie;
+  const key = createHash("sha256").update(JSON.stringify([c.sessionId, c.roleId, c.participantId])).digest("hex").slice(0, 32);
+  const throttle = deps.voiceTokenThrottle;
+  const blocked = throttle.blockedForMs(key, VOICE_TOKEN_SLOT);
+  if (blocked > 0) return tokenThrottled(blocked);
+  throttle.fail(key, VOICE_TOKEN_SLOT);
+  const justBlocked = throttle.blockedForMs(key, VOICE_TOKEN_SLOT);
+  if (justBlocked > 0) return tokenThrottled(justBlocked);
+  let t: { token: string; expiresAt: number };
+  try { t = await launcher.voiceToken(c.sessionId, c.roleId, c.participantId); }
+  catch (err) {
+    if (err instanceof LauncherError) return answer(err.reason === "voice_refused" ? TOKEN_ANSWERS.voice_refused : err.reason === "voice_off" ? TOKEN_ANSWERS.voice_off : TOKEN_ANSWERS.voice_unavailable);
+    logFailure("voice token", err);
+    return answer(TOKEN_ANSWERS.voice_unavailable);
+  }
+  // The token is in this one body and nowhere else (no header, no log); no-store is set by the envelope on every answer.
+  return ok({ token: t.token, url, expiresAt: t.expiresAt }, { headers: { "Cache-Control": "no-store" } });
+}
+
+const tokenThrottled = (ms: number) => answer(TOKEN_ANSWERS.rate_limited, { "Retry-After": String(Math.max(1, Math.ceil(ms / 1000))) });
+
+/** No body, or an empty JSON object: the token route takes nothing from the request but the cookie. */
+async function emptyBody(req: Request): Promise<boolean> {
+  if (!req.body) return true;
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      // Read without ever holding more than a few bytes: anything longer is not an empty body.
+      if (size > MAX_EMPTY_BODY_BYTES) { await reader.cancel(); return false; }
+      chunks.push(value);
+    }
+  } catch {
+    return false;
+  }
+  const t = Buffer.concat(chunks).toString("utf8").trim();
+  return t === "" || t === "{}";
+}
+const MAX_EMPTY_BODY_BYTES = 16;
 
 /** POST /api/v1/say { text, expectSceneId? } */
 export function handleSay(req: Request, deps: Deps): Promise<Response> {

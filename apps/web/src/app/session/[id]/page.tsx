@@ -4,6 +4,7 @@ import { AppHeader } from "../../../components/AppHeader";
 import { SessionScreen } from "../../../components/SessionScreen";
 import { TitleBlock } from "../../../components/TitleBlock";
 import { MESSAGES } from "../../../lib/messages";
+import { voiceTransport } from "../../../server/routes";
 
 // /session/<id>: the participant's live page. Who they are comes only from the HttpOnly cookie the join set (the BFF checks the id).
 
@@ -22,5 +23,6 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       </>
     );
   }
-  return <SessionScreen sessionId={id} />;
+  // US-0071: only whether the web server has LiveKit reaches the page (never the URL or any other setting).
+  return <SessionScreen sessionId={id} voiceTransport={voiceTransport()} />;
 }

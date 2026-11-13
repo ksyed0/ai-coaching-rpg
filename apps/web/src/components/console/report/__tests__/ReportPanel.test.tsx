@@ -84,6 +84,21 @@ describe("ReportPanel", () => {
     expect(screen.getByRole("heading", { name: "Clarity" })).toBeTruthy();
   });
 
+  it("test_ReportPanel_aiRoles: an in_review overview with aiRoles shows the AI row beside a human subject, and the release bar and export menu ignore it (US-0068)", async () => {
+    const subjects = [row("account_manager", { state: "released", version: 2 }), row("group")];
+    mount({ ...inReview(subjects), aiRoles: ["tech_lead"] });
+    expect(await screen.findByText("Tech lead")).toBeTruthy();
+    const items = screen.getAllByRole("listitem").filter((li) => li.closest(".report-subjects"));
+    expect(items.map((li) => li.textContent?.startsWith("Tech lead"))).toEqual([false, false, true]);
+    expect(items.at(-1)!.textContent).toBe(`Tech leadAI player${REPORT_CONSOLE.aiNotScored}`);
+    expect(screen.getByRole("button", { name: "Review Account manager" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Review Tech lead" })).toBeNull();
+    // regression guards: nothing outside the list mentions the AI role (release bar, export menu)
+    const outside = Array.from(document.body.querySelectorAll("*")).filter((e) => !e.closest(".report-subjects") && e.children.length === 0);
+    expect(outside.some((e) => /Tech lead/.test(e.textContent ?? ""))).toBe(false);
+    expect(Array.from(document.querySelectorAll("option")).some((op) => /tech_lead|Tech lead/.test(op.textContent ?? "") || op.getAttribute("value") === "tech_lead")).toBe(false);
+  });
+
   it("a subject whose evaluation failed opens with the hand-scoring sentence and no Accept on its criteria", async () => {
     const subjects = [row("account_manager", { evaluationOk: false, scoreByHand: ["clarity"] }), row("group")];
     mount(inReview(subjects), (url) => (url === `${BASE}/subjects/account_manager` ? { status: 200, body: ok(subjectView()) } : undefined));

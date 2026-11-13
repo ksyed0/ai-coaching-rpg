@@ -21,6 +21,7 @@ import { aiErrorText, parseAiAnswer, setAiRoles } from "../../lib/console-ai";
 import { AiRoleSwitch } from "./AiRoleSwitch";
 import { GroupScoreOption } from "./GroupScoreOption";
 import { ConfirmDialog, focusFallback } from "./ConfirmDialog";
+import { VoiceStateWords } from "./VoicePanel";
 
 // The facilitator's view of one session before and after the start: the model, who has joined, consented and connected (in words,
 // never colour alone), a code reissue per role, and Start. Names come from the network and are rendered only as text nodes.
@@ -417,6 +418,8 @@ function View(p: ViewProps) {
   const running = data.status === "running";
   const started = p.startedHere || data.status === "running";
   const hasAi = data.roster.some((e) => e.ai === true);
+  // US-0071: the Voice column only when an entry carries a voice state (voice on); a text-only roster keeps exactly its old columns.
+  const hasVoice = data.roster.some((e) => e.voice !== undefined);
   const waiting = splitWaiting(data.roster, data.missing, data.aiWaiting);
   const reason = !idle
     ? null
@@ -510,6 +513,7 @@ function View(p: ViewProps) {
                   <th scope="col">Name</th>
                   <th scope="col">Joined</th>
                   <th scope="col">Consented</th>
+                  {hasVoice ? <th scope="col">Voice</th> : null}
                   <th scope="col">Connected</th>
                   <th scope="col">Code</th>
                 </tr>
@@ -539,6 +543,17 @@ function View(p: ViewProps) {
                         <State on={e.consented} />
                       )}
                     </td>
+                    {hasVoice ? (
+                      <td>
+                        {e.ai === true ? (
+                          <span className="muted">Not needed</span>
+                        ) : e.voice !== undefined ? (
+                          <VoiceStateWords voice={e.voice} />
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                    ) : null}
                     <td>
                       <State on={e.connected} />
                     </td>

@@ -27,7 +27,7 @@
       "title": "Slice 3 — voice over LiveKit",
       "description": "LiveKit rooms, per-track STT with speaker attribution, NPC TTS bot tracks, latency instrumentation against the budget in ARCHITECTURE.md section 4.",
       "releaseTarget": "MVP",
-      "status": "Planned",
+      "status": "In Progress",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -2625,7 +2625,7 @@
         },
         {
           "id": "AC-0321",
-          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the \"(AI player)\" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete; Deviation 3 (no AI row in the console subject list) was decided by the owner on 2026-11-06 as a follow-up, the row is filed as US-0068)",
+          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the \"(AI player)\" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete; Deviation 3 (no AI row in the console subject list) was decided by the owner on 2026-11-06 as a follow-up, the row is filed as US-0068 and built on 2026-11-08 (TC-0158 to TC-0161))",
           "done": true
         },
         {
@@ -2942,23 +2942,23 @@
       "title": "As a facilitator, I want the console report list to show which roles are AI players and not scored, so that I can see why they have no report.",
       "priority": "Low",
       "estimate": "S",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0068-ai-player-row",
       "acs": [
         {
           "id": "AC-0389",
           "text": "the console report subject list shows one \"AI player, not scored\" row per AI-filled role, with no actions and no export entry",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0390",
           "text": "the moderation overview carries the AI roles as an OPTIONAL field (control answer, BFF and browser parse), so an older control or an older web still works; control deploys before web",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0391",
           "text": "the row text is accessible (the meaning is in words, not colour alone) and is covered by a unit test and an Axe check",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -3031,6 +3031,307 @@
       ],
       "dependencies": [
         "EPIC-0002"
+      ]
+    },
+    {
+      "id": "US-0070",
+      "epicId": "EPIC-0003",
+      "title": "As a participant, I want what I say to appear under my name in the transcript, so that I can take part by voice.",
+      "priority": "High",
+      "estimate": "L",
+      "status": "Complete",
+      "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
+      "acs": [
+        {
+          "id": "AC-0396",
+          "text": "a voice line from the current human holder who chose voice is recorded as an `utterance` with `channel: \"voice\"` and answered with its `seq`; the log format is unchanged (TC-0162; services/runtime/src/host/__tests__/voice-line.test.ts \"a holder who chose voice is recorded with channel voice and the returned seq equals the event's seq\", services/runtime/src/__tests__/main.voice-line.test.ts (one `voice_line_ack` per `voice_line`), demo checks V-01 and V-08)",
+          "done": true
+        },
+        {
+          "id": "AC-0397",
+          "text": "the runtime refuses a voice line for an AI role, an unknown or non-player role, a non-holder, a holder who has not chosen voice, while paused, between scenes and after the end, with the fixed codes of the overview; nothing is appended (TC-0163; voice-line.test.ts refusal table: `voice_off`, `not_started`, `unknown_role` (also an inherited member name and an NPC id), `ai_role`, `not_holder`, `not_recording`, `paused`, `not_in_scene`, `ended`, and \"a reissue between segment and line: the old participant's line is not_holder\")",
+          "done": true
+        },
+        {
+          "id": "AC-0398",
+          "text": "a seat that is not a recording holder produces no segment, no STT request and no message (file-fed test) (TC-0164; services/speech/src/__tests__/track-pipeline.test.ts \"unconsented track produces nothing ...\", services/control/src/__tests__/voice/voice.real.test.ts \"... the text-only seat's file is never transcribed\", demo check V-04)",
+          "done": true
+        },
+        {
+          "id": "AC-0399",
+          "text": "one speaker's lines are logged in segment order; a failed or empty segment produces no line; a failed transcription (`stt_failed`) gives the speaker a private notice and the facilitator an alert; an EMPTY segment gives neither (owner decision 2026-11-08, spec section 16 open question 1; `NOTICE_EMPTY_SEGMENTS = false` in services/control/src/voice/voice-host.ts); a line the runtime refuses for `paused`, `not_in_scene`, `ended` or `not_recording` gives the speaker a notice and no alert (TC-0165; track-pipeline.test.ts \"out-of-order answers are delivered in segment order\", \"an empty answer gives segment_failed empty and no voice_line\", \"a Refused or Timeout gives segment_failed stt_failed\"; voice-host.test.ts \"segment_failed stt_failed becomes the speaker's voice_notice and a facilitator alert; empty gives neither\"; voice-notice.test.ts \"the refusals a speaker should hear produce a notice ...\")",
+          "done": true
+        },
+        {
+          "id": "AC-0400",
+          "text": "the NPC round, the Game Master and AI-player bots react once per voice turn (`TURN_END_MS` after the last speech frame); a text line schedules at once; pause and end clear the timer (TC-0166; services/runtime/src/host/__tests__/voice-turn.test.ts \"two voice lines then a false edge run ONE round after the timer\", \"a text line cancels a pending timer ...\", \"pause clears the timer and no round runs ...\", \"end clears it\"; services/runtime/src/agents/__tests__/game-master.voice.test.ts \"with everyN 3, nine voice segments in three turns cause one evaluation, not three\"; services/control/src/__tests__/bots/bot.voice-turn.test.ts \"three human lines in an open voice turn give one reply after close\"; demo checks V-03 and V-05)",
+          "done": true
+        },
+        {
+          "id": "AC-0401",
+          "text": "voice choice is per participant and never inherited across a reissue, a rebind or a restart; opt-out stops recording at once (TC-0167; services/runtime/src/host/__tests__/voice-choice.test.ts \"after a reissue the old entry is deleted ...\", \"after a rebind (claimRebind) the new holder is text_only ...\", \"after a restart the record still applies to the same participant and only to them\", \"a record whose logIdentity differs ... is ignored and removed\", \"opt-out stops recording at once even when the file write fails\"; services/runtime/src/engine/__tests__/voice-file.test.ts)",
+          "done": true
+        },
+        {
+          "id": "AC-0402",
+          "text": "any `SpeechToText` implementation passes one contract suite; the Whisper client sends only to loopback (TC-0168; packages/adapters/src/speech/__tests__/fake.contract.test.ts, whisper.contract.test.ts and limited.test.ts run `speechToTextContract`; whisper-http.test.ts \"refuses localhost, 0.0.0.0, a LAN address, https, a query, a fragment, user info, no port and a missing value\"; a real whisper-server was not run)",
+          "done": true
+        },
+        {
+          "id": "AC-0403",
+          "text": "a worker crash leaves the session running and alerts the facilitator (TC-0169; services/control/src/__tests__/voice/voice-host.test.ts \"a worker exit while the session runs: one worker_down alert, pending lines forgotten, no restart\", supervisor.voice.test.ts \"worker exit leaves the session running: ...\", demo check V-07)",
+          "done": true
+        },
+        {
+          "id": "AC-0404",
+          "text": "`pnpm demo --voice` runs the pipeline offline (file ingest, fake STT) and passes checks V-01 to V-08 in CI (TC-0170; 8 of 8 locally on macOS on 2026-11-08, services/control/src/__tests__/demo/voice-demo.test.ts passes, and the CI Demo Run job, which runs `pnpm demo --voice`, was green on PR #130 with all 15 checks green before the squash merge 76a61c0 into `develop` on 2026-11-08)",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "EPIC-0002"
+      ]
+    },
+    {
+      "id": "US-0071",
+      "epicId": "EPIC-0003",
+      "title": "As a participant, I want to choose voice in the browser and speak into the session, so that I can take part by voice.",
+      "priority": "High",
+      "estimate": "L",
+      "status": "Complete",
+      "branch": "feature/EPIC-0003-US-0071-voice-livekit-consent",
+      "acs": [
+        {
+          "id": "AC-0405",
+          "text": "`lint:sdk` allows `livekit-server-sdk` only in `packages/adapters`, `@livekit/rtc-node` only in `services/speech`, `livekit-client` only in `apps/web`; the provider rule is unchanged; `livekit-server-sdk` is reachable only through `@acr/adapters/livekit` (TC-0171; scripts/check-sdk-imports.test.sh LiveKit fixtures (`livekit-server-in-service`, `rtc-node-in-control`, `livekit-client-dynamic-import-in-runtime`, `livekit-protocol-untouched`, `adapters-livekit-subpath-in-control` and the rest, the provider rule's lines byte-identical) plus a third rule keeping `@acr/adapters/livekit` in control and the speech live checks; packages/adapters/src/__tests__/root-index-imports.test.ts \"importing @acr/adapters does not load livekit-server-sdk\" with its positive controls; `pnpm lint:sdk` ok, re-run by the controller on 2026-11-09)",
+          "done": true
+        },
+        {
+          "id": "AC-0406",
+          "text": "a token is issued only to the current human holder whose voice choice is `voice`, for that seat's own room, with exactly the grant of the plan's Global Constraints; a text-only seat gets no token and its published track is never subscribed (TC-0172; packages/adapters/src/livekit/__tests__/token.test.ts \"its video grant is exactly the microphone-only grant\", \"the participant token expires 600 s after now\", \"the worker token has canPublish false, canSubscribe true, hidden true, canPublishData false\"; services/control/src/__tests__/voice/tokens.test.ts \"each seat has its own room, v plus 32 hex, different per role and per session\", \"refuses another participant, voiceChosen false and an AI seat ... voice_refused\", \"refuses an unknown session, an ended session ... voice_unavailable\", \"after voiceOff every request is refused voice_off\"; token-route.test.ts \"200 carries only token and expiresAt\"; services/speech/src/__tests__/livekit-ingest.test.ts \"an unconsented published track is never subscribed\"; live check case 1 on 2026-11-09 \"a participant token publishes a microphone only and can subscribe to nothing\" against LiveKit 1.13.11)",
+          "done": true
+        },
+        {
+          "id": "AC-0407",
+          "text": "a reissue, a rebind, a leave, a withdrawal, an AI fill, an opt-out, a removal, voice off and the session end remove the stale LiveKit identity; a plain disconnect does not (TC-0173; tokens.test.ts \"a new holder for a role removes the old identity (a reissue or rebind ...)\", \"leave, withdraw and AI fill remove\", \"an opt-out (voiceChosen false) removes it\", \"roleReissued removes it at once\", \"voiceOff removes every seat identity\", \"endSession deletes every seat room\", \"a plain disconnect removes no identity (holder gone, role in open)\", \"mute, pause and voice unavailable remove nothing\", \"the sweep removes a stale identity that reconnected\"; a facilitator removal takes the reissue path (`forgetVoice` sets the seat vacated, so it is never `open`: services/runtime/src/host/__tests__/voice-choice.test.ts \"a reissue keeps the role out of open\", \"a human seat filled by an AI is not open\"); live checks 2026-11-09: speech case 3 (`removeParticipant` drops a publisher holding a valid token, which is never subscribed again) and the browser case \"Stop using voice leaves the room; a stale browser reconnecting with the old token is removed by control's sweep and never heard\" (removed about 11 s after it published))",
+          "done": true
+        },
+        {
+          "id": "AC-0408",
+          "text": "the worker subscribes only to identities of current recording holders (started, not paused, not muted, voice available) and feeds 20 ms 16 kHz mono frames, each attributed only to the generation whose track produced it (TC-0174; livekit-ingest.test.ts \"before the start nothing is subscribed\", \"paused or ended gives an empty allowed set\", \"a second microphone track of the same identity is not subscribed\", \"a video or non-microphone audio track is never subscribed\", \"frames queued after unsubscribe are never delivered\", \"two tracks of one role never interleave\", \"frames reach onFrame as 320-sample frames tagged with role and generation\"; track-pipeline.test.ts \"TrackPipeline drops a frame whose generation is not the gate's\"; voice-choice.test.ts \"recording is false before the start even for a seat that chose voice\"; voice-mute.test.ts \"mute makes recording false at once\"; voice-availability.test.ts \"voice_availability available false ... recording turns false\"; live checks 2026-11-09: case 1 (50 of 50 chunks 320 samples, 16 kHz mono, nothing read before subscribe), \"the worker subscribes only to the allowed identity of the seat room\", \"frames queued under the old generation are never delivered after setAllowed moves the seat\", case 2 (rapid mute/unmute and pause/resume))",
+          "done": true
+        },
+        {
+          "id": "AC-0409",
+          "text": "one speech-to-text in-flight budget (2) is held by control across all sessions, with a lease that a stuck worker cannot outlive (TC-0175; services/control/src/__tests__/voice/stt-slots.test.ts \"two sessions each asking twice get two grants in total, the third waits\", \"an expired lease is reclaimed and the next waiter granted\", \"releaseAll of a dead worker frees its slots\"; voice-host.test.ts \"with two voice sessions at most 2 transcriptions run at once across both\", \"an expired lease kills that session's worker only\"; services/speech/src/__tests__/slot-stt.test.ts; main.process.test.ts \"with Whisper every inference request runs inside a slot control granted\" (a stand-in server); not run against a real whisper-server: real cold calls against the 35 s lease are unverified)",
+          "done": true
+        },
+        {
+          "id": "AC-0410",
+          "text": "a worker that exits is restarted with bounded backoff (500 ms doubling, 5 consecutive failures, reset after 60 s ready); after that voice is off for the session with one alert, and the session continues by text (TC-0176; services/control/src/__tests__/voice/restart.test.ts \"consecutive failures are restarted after 500, 1000, 2000, 4000 and 8000 ms\", \"after 5 failed restarts in a row (the 6th exit): one voice_off alert, no further spawn, tokens refused voice_off\", \"a worker ready for 60 s resets the count\", \"an exit with code 3 (a lost LiveKit room), 0, or a signal (null) is unexpected like any other and restarted\"; restart.real.test.ts \"a SIGKILLed worker is replaced by a new process\"; supervisor.voice.test.ts \"a killed worker is restarted and voice lines flow again; the session keeps running throughout\"; demo check V-07 (one `worker_restarting` alert, a typed line recorded); live case 7 (a LiveKit stop while recording exits 3))",
+          "done": true
+        },
+        {
+          "id": "AC-0411",
+          "text": "Whisper health is polled every 5 s; unhealthy gives one alert and \"voice unavailable, use the text box\" on the pages, healthy again one info alert; the state survives a runtime restart (TC-0177; services/speech/src/__tests__/health.test.ts \"polls every 5000 ms\", \"true, true, false, false, true, true sends false then true only\" (two agreeing polls before a change, deviation D15); voice-host.test.ts \"stt_health false gives one stt_unavailable alert and voice_availability available false\", \"false, true gives stt_recovered and available true\", \"every runtime ready receives the current voice_availability\"; supervisor.voice.test.ts \"a restarted runtime is told the current voice availability at its ready\"; voice-availability.test.ts \"voice_availability available false sends voice_unavailable to every voice holder once\", \"the transition back to available sends voice_available once\"; MicButton.test.tsx \"voice_available after voice_unavailable restores the recording words\"; e2e voice-lobby.spec.ts shows \"Voice is available again, you can speak.\" after a killed worker restarts; no real whisper-server was run: whether its `/health` answers 200 while a model loads is unverified)",
+          "done": true
+        },
+        {
+          "id": "AC-0412",
+          "text": "the participant page offers the voice choice after consent to a notice that names voice, only when the web server has LiveKit; the console roster and readiness show each seat's voice state; a player's frames carry only their own state (TC-0178; SessionScreenVoice.test.tsx \"not shown before consent or when the seat's voice is off; shown after consent\", \"voiceTransport false disables the voice option with the not-available sentence\"; VoiceChoice.test.tsx \"voice_notice_required shows its sentence and the state stays text only\"; VoicePanel.test.tsx \"Readiness shows the voice column only with voice entries\", \"lists every human seat with its voice state in words\"; services/runtime/src/host/__tests__/voice-roster.test.ts \"the peers roster never carries voice or speaking\"; stream-hub.test.ts \"peer roster frames keep only the peer fields even when the runtime adds voice and speaking\"; e2e voice-lobby.spec.ts \"lobby: no microphone on load, the keyboard choice, the console voice column, peer isolation, ...\" and \"no microphone exception in any header, and the voice option says why it is not offered\")",
+          "done": true
+        },
+        {
+          "id": "AC-0413",
+          "text": "the microphone is never opened on page load; permission is asked only after the voice opt-in; the mic check shows a level; \"Join with voice\" publishes; mute stops publishing and recording; the state is shown in honest words and an icon; the room connection ends on every final stream event; keyboard operable; Axe clean (TC-0179; MicCheck.test.tsx \"no getUserMedia call on render\", \"getUserMedia is called only after the click, for audio only\", \"the meter has a name; the meter and the words follow the level\"; MicButton.test.tsx \"the label stays Mute microphone and aria-pressed follows mute; muting really stops publishing\" (in CI only against the fake `BrowserRoom`; the real unpublish on a LiveKit server is proven only by the opt-in `VOICE_LIVE=1` run below), \"state shown in words with an aria-hidden icon\", \"keyboard operable ...\"; SessionScreenVoice.test.tsx \"every final event leaves the room\", \"a dropped runtime stream leaves the room ...\", \"pagehide leaves the room\"; e2e voice-lobby.spec.ts (no `getUserMedia` on load, Tab and arrow keys on the radios, the superseded and removed seat's microphone tracks stopped, the stream-drop teardown F10, Axe on the lobby and scene states); live browser checks 2026-11-09 voice-live.spec.ts (\"Join with voice\" publishes one microphone track into the seat's own room and moves the focus to Mute; Mute leaves the server with no microphone track for the seat and stops transcription; the final `ended` stops every microphone track and the seat room is deleted; Axe clean on the connected, recording and muted states). Chromium only: Safari, Firefox and mobile browsers were not run)",
+          "done": true
+        },
+        {
+          "id": "AC-0414",
+          "text": "`voice_notice` reaches only that player's page, is announced politely, unknown codes are dropped (TC-0180; stream-hub.test.ts \"a voice_notice with an unknown code, a non-string code or an inherited name is dropped\", \"the BFF's notice allowlist is exactly the eight codes\"; hub.voice.runtime.test.ts \"voice_availability false sends voice_unavailable to the voice holder's stream only, as a named event\"; VoiceNotices.test.tsx \"the region is a polite status, present and empty before any notice\", \"a repeated code replaces the inner span and the region element is the same node\"; facilitator-hub.test.ts \"a voice answer or a voice notice never reaches the console stream\"; e2e voice-lobby.spec.ts (a killed worker's restart gives the voice holder \"Voice is available again, you can speak.\" and the other player's stream no `voice_notice`))",
+          "done": true
+        },
+        {
+          "id": "AC-0415",
+          "text": "the console shows who is speaking and the voice alerts in their fixed words; neither reaches a player frame (TC-0181; VoicePanel.test.tsx \"speaking shows the word Speaking and an aria-hidden icon\", \"the speaking state is not in a live region\"; facilitator-copies.test.ts \"the copy list equals the runtime's VOICE_ALERT_SENTENCES values\", \"each voice alert sentence passes through exactly, at its level\", \"a sentence with one extra character, a changed case or a prefix is replaced by the fixed line\"; voice-roster.test.ts \"a speaking edge sends a roster to the facilitator socket only\"; stream-hub.test.ts \"a facilitator roster carrying voice and speaking never reaches a player's stream\"; live browser check 2026-11-09: the console's voice panel shows \"Speaking\" from a real `speech_activity`)",
+          "done": true
+        },
+        {
+          "id": "AC-0416",
+          "text": "notice v3 carries the owner-approved wording (2026-11-08); its draft marker and the draft test stay until the release gate, where the marker is removed and the file is pinned by its SHA-256; legal and HR sign-off stays a go-live item (TC-0182; services/runtime/src/engine/__tests__/consent-notice-v3.test.ts \"loads, within the notice length limit, and is marked as a draft not for use with participants\" and its phrase checks; `consent/notice-v3.md` unchanged on the branch; the owner approval of 2026-11-08 and the release-gate items are in docs/memory/backlog-and-decisions.md, \"Go-live checklist\". Left OPEN on purpose: line 1 of `consent/notice-v3.md` still carries the draft marker, which is correct until the release gate; the marker removal, the SHA-256 pin and the legal and HR sign-off are release-gate items, deferred by the owner while in pre-production)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0070"
+      ]
+    },
+    {
+      "id": "US-0072",
+      "epicId": "EPIC-0003",
+      "title": "As the facilitator running a voice pilot, I want one command to start, check and stop the voice infrastructure safely, so that a session can use voice without hand-run servers or leaked keys.",
+      "priority": "High",
+      "estimate": "L",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0003-US-0072-voice-operations",
+      "acs": [
+        {
+          "id": "AC-0417",
+          "text": "`pnpm voice:up` starts whisper-server natively on `127.0.0.1` with the `STT_URL` port and an unguessable request path, never `--convert`, with the model file of `STT_MODEL_FILE`; refuses without that file and says how to obtain one (never downloads); waits for health and warms it; then starts the compose services and waits until they run; it is idempotent (a changed setting while running is refused; a missing service is started again without stopping a healthy whisper-server) and starts nothing it cannot stop; `pnpm voice:down` stops all of it (TC-0189); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
+          "done": false
+        },
+        {
+          "id": "AC-0418",
+          "text": "the LiveKit key and secret and `STT_URL` are generated into `.env` only when absent, never printed, never overwritten, the file kept private; a symlinked, too-open or git-tracked `.env`, half a key pair, an empty managed line, the public development keys and a shell environment that overrides a managed name are refused with the file unchanged (TC-0190); ticked 2026-11-09: env-file.test.ts (the `refuses and leaves the file byte-identical for ...` table, the append, umask and identity-recheck cases) and up.test.ts (`the real environment setting a managed name is refused`)",
+          "done": true
+        },
+        {
+          "id": "AC-0419",
+          "text": "LiveKit runs from `deploy/compose/voice.yml`, pinned by digest, never `--dev`, with only its own keys from a private file, its API on loopback only, `node_ip` the LAN address (`lan`) or loopback (`local`), media on TCP 7881 and UDP 7882; Caddy (`lan`) serves the web app and `wss` signalling under one owner-supplied certificate, forwards only `/rtc*` to LiveKit without cookies, keeps no access log and no admin endpoint (TC-0191); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
+          "done": false
+        },
+        {
+          "id": "AC-0420",
+          "text": "`pnpm voice:check` reports Whisper health and its cross-origin answer, LiveKit reachability and that control's keys are LiveKit's (a short-lived server API token for `ListRooms` on loopback; no participant token minted), a node address that changed since `voice:up`, the certificate's presence, hostname and days to expiry (warning under 21), the hostname resolving to the private node address (with a DNS-rebinding hint), free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and versions; exit 0 / 1 / 2; it never prints a secret (TC-0192); proven with stand-in programs in CI (open until the owner-approved real run, TC-0204)",
+          "done": false
+        },
+        {
+          "id": "AC-0421",
+          "text": "the web server listens on loopback only (`next start -H 127.0.0.1`): a request from a LAN address to its port is refused; the proxy configuration never trusts or forwards a client's `X-Forwarded-For` (TC-0193); ticked 2026-11-09: apps/web/e2e/web-bind.spec.ts, compose-files.test.ts (the Caddyfile pins), guards.test.ts `requestAddress refuses a two-entry list`",
+          "done": true
+        },
+        {
+          "id": "AC-0422",
+          "text": "a worker exit caused by a LiveKit outage (exit 3 and LiveKit unreachable by control's probe) does not count toward the restart budget: voice is unavailable, control probes 2, 4, 8, 16 s after the previous answer and then every 30 s and restarts the worker when LiveKit answers, with one alert for the loss and one for the recovery (which tells participants who lost voice to press \"Join with voice\" again: pages do not rejoin by themselves); a LiveKit that dies again within 60 s of a recovery counts, and every other exit still counts. Proven with fakes in CI; the live claim waits for the plan's Task 15 real outage run (TC-0194)",
+          "done": false
+        },
+        {
+          "id": "AC-0423",
+          "text": "with `VOICE_TIMING_LOG=1` control logs, per appended voice line, only the voice-detector-end-to-append (the hangover included) and start-to-append milliseconds (to a private, bounded `voice-timing.log`); `pnpm voice:timings <log>` prints count, p50, p95 and max (TC-0195); ticked 2026-11-09: voice-host.test.ts (the timing describe), timing-log.test.ts (marker scan, 0600, no link or FIFO, 1 MiB), timing-chain.test.ts, timings.test.ts, cli.process.test.ts (`pnpm -s voice:timings`)",
+          "done": true
+        },
+        {
+          "id": "AC-0424",
+          "text": "`docs/VOICE_RUNBOOK.md` covers start, check, stop, the secure context, router DNS rebinding, the macOS firewall and the native LiveKit failure, headsets, excluding the audio directory from backups, the same-room cross-talk risk and the owner-run room test with how to read its results (TC-0196); ticked 2026-11-09: docs/VOICE_RUNBOOK.md sections 1 to 11",
+          "done": true
+        },
+        {
+          "id": "AC-0425",
+          "text": "the threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, `findings.md` (the two images; no new npm dependency) and the memory files describe A1c; `VOICE_ENABLED` stays `0` by default (TC-0197); ticked 2026-11-09: THREAT_MODEL \"Voice operations, slice A1c\", ROLLBACK \"US-0072\", the ARCHITECTURE deviation note, README section 6, `.env.example`, findings.md, docs/memory",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0070",
+        "US-0071"
+      ]
+    },
+    {
+      "id": "US-0073",
+      "epicId": "EPIC-0003",
+      "title": "As the facilitator running a voice pilot, I want the voice audio of each session kept briefly, privately and only where consent allows, so that a disputed line can be checked later without keeping more than needed.",
+      "priority": "Medium",
+      "estimate": "L",
+      "status": "Complete",
+      "branch": "feature/EPIC-0003-US-0073-voice-audio-store",
+      "acs": [
+        {
+          "id": "AC-0426",
+          "text": "`AUDIO_DIR`, `AUDIO_MIN_FREE_MB` and `AUDIO_MAX_RETENTION_DAYS` are validated in control's and the speech worker's settings (absolute directory, 512 to 1 000 000 MB, 1 to 30 days; defaults `<CONTROL_DATA_DIR>/audio`, 2048 and 30), and the runtime's `ready` hands the speech worker the session's 32-hex `logIdentity`, which every later path uses (TC-0205) ; ticked 2026-11-11: services/control audio-settings.test.ts (defaults, ranges, absolute path, the name-only errors) and config tests; services/speech config.test.ts (`a SPEECH_LOG_IDENTITY that is not 32 lower-case hex is a config error naming the variable only`, `no AUDIO_DIR: no store, voice still works`); control voice-host.test.ts (`VoiceHost log identity hand-off`: valid, set at ready, invalid, restart with the same and with a different identity); speech-env.test.ts (R10: from `extra` only)",
+          "done": true
+        },
+        {
+          "id": "AC-0427",
+          "text": "audio lives under `<AUDIO_DIR>/<logIdentity>/<roleId>/<segment>.wav` with an `index.jsonl` of `v: 1` lines; every id passes `isFileSafeId` and the resolved path stays inside the session directory; directories are `0700`, files `0600` and created exclusively; a symlinked or group-writable `AUDIO_DIR` or role folder is refused or repaired; a torn last index line is tolerated (TC-0206) ; ticked 2026-11-11: speech store/paths.test.ts (layout, bad ids, symlinked, dangling, file-for-folder, repairs 0777, refused when repair fails), paths-containment.test.ts (containment alone), index-file.test.ts (modes, torn line, symlinked index), wav.test.ts, audio-store.test.ts (`test_an_accepted_segment_writes_a_private_wav_and_one_index_line`, `test_an_existing_wav_is_never_overwritten_or_removed`)",
+          "done": true
+        },
+        {
+          "id": "AC-0428",
+          "text": "the store writes nothing when free space is under `AUDIO_MIN_FREE_MB` (or cannot be measured), stops with `store_stopped` and one alert; the worker stays stopped for the rest of its life (no restart inside the same worker) and a respawned worker checks the guard again (TC-0207) ; ticked 2026-11-11: speech store/disk-guard.test.ts (both volumes, the floor, next file, fail closed), audio-store.test.ts (`test_a_failing_guard_stops_with_disk_low_and_writes_nothing`, `test_the_default_guard_watches_both_volumes_with_minFreeMb`), control audio-store.e2e.test.ts (scenario 4: low disk with the real guard sends `store_stopped disk_low` once, no audio, voice lines still go), voice-host.test.ts (`store_stopped %s raises the facilitator alert and audits voice.recording_stopped`)",
+          "done": true
+        },
+        {
+          "id": "AC-0429",
+          "text": "audio is written only for an accepted line, `empty`, `stt_failed` and a runtime refusal of `paused` or `not_in_scene` (an allowlist: `failed`, `ended`, `not_started`, any later code and every timeout write nothing); no file appears when a participant opts out or the seat is reissued while a segment waits; the WAV is 16 kHz mono 16-bit PCM, written before its index line (TC-0208) ; ticked 2026-11-11: speech store/consent-rule.test.ts (the keep set is exactly `paused` and `not_in_scene`, every other code, an unknown future code and a timeout are not kept), worker-audio.test.ts (answer-first write, each refusal, no answer in time, Review Focus 1: opt-out, reissue and pause while waiting, the 256 cap, `empty` and `stt_failed` at once), control audio-store.e2e.test.ts scenarios 2, 3 and 3b",
+          "done": true
+        },
+        {
+          "id": "AC-0430",
+          "text": "the speech worker holds the store lock `<logIdentity>.store.lock` (made by `SessionLock.acquire` with a `suffix`, via `@acr/runtime/files`), retries and alerts when it cannot, keeps bounded `pending` segments until the runtime answers, drops them at `gate.update`, and the shared lock export keeps the speech import guard to exactly that one subpath (TC-0209) ; ticked 2026-11-11: runtime files-export.test.ts (`test_two_suffixes_for_one_id_coexist`, `test_default_lock_name_unchanged`, `test_files_reexports_the_same_SessionLock`); speech main-store.test.ts (retry window, `store_stopped` once, symlinked folder, `onLost`, two real stores one identity, abort during the wait), main-store.process.test.ts (a real forked worker exits 0 promptly when the parent's channel closes during the lock wait and holds no lock afterwards), imports.test.ts and control bots/imports.test.ts (the speech guard allows exactly `@acr/runtime/files`; control allows exactly six subpaths)",
+          "done": true
+        },
+        {
+          "id": "AC-0431",
+          "text": "control records the store's alerts and `store_stopped` in `<logIdentity>.audio-audit.jsonl` (lines `v: 1` with `ts`, never any text, audio or transcript) under its own lock `<logIdentity>.audio-audit.lock`, retried on failure, and raises the alert codes (TC-0210) ; ticked 2026-11-11: control audit-log.test.ts (one line per event, no text key even when smuggled, order, lock retry 3 times 50 ms, one fixed sentence, malformed identity, symlinked directory, permissions), voice-host.test.ts (`VoiceHost audit log and store alerts`: opted_in with notice v3 and opted_out, R1 before attach, `store_stopped` under the sending worker's identity including a retired worker, no identity no audit), protocol.drift.test.ts and the runtime and web copies tests for `disk_low` and `write_error`",
+          "done": true
+        },
+        {
+          "id": "AC-0432",
+          "text": "a sweep that runs regardless of `VOICE_ENABLED` deletes audio older than `AUDIO_MAX_RETENTION_DAYS` and orphans of a crash, only under identities (32 lower-case hex) whose store lock proves no live worker, atomically and never under a worker that is still flushing after a control restart, ; the audit log is never deleted by the sweep (kept as long as the session's log; corrected 2026-11-11: the filed text said it was pruned, contrary to spec section 7) (TC-0211) ; ticked 2026-11-11: control sweep.test.ts (inclusive boundary at 1 and 30 days; the clock: marker, last `endMs` plus 24 h, newest file time, a future time counts as now; refused lock skips, a live worker's lock; rename then audit then remove; one audit line across a failed removal; leftovers finished silently; symlinks never followed; non-hex names and links untouched; runs with `VOICE_ENABLED=0`; orphan cleanup incl. an unreadable, linked or over-64-MiB index removing nothing; the scheduler single-flight, `stop()` and `stopWithin`), main.test.ts (the sweep runs at start with `VOICE_ENABLED=0` and stops at close), audio-store.e2e.test.ts scenarios 5, 5b, 6, 7 and audio-store.e2e.real.test.ts (the forked worker's live lock blocks the sweep)",
+          "done": true
+        },
+        {
+          "id": "AC-0433",
+          "text": "the fake-ingest stack writes, indexes and sweeps audio end to end with every failure mode of the plan's Review Focus covered and mutation-checked, and the threat model, `.env.example`, memory files, changelog and progress describe A2a; voice stays dark behind `VOICE_ENABLED=0` (TC-0212) ; ticked 2026-11-11: control audio-store.e2e.test.ts (real worker, store, sweep and audit in one process) and audio-store.e2e.real.test.ts (a real runtime child and a real forked speech worker); eight mutation checks each failed a named test and were reverted (the allowlist keeping `failed` or every refusal, the guard skipped, the path containment removed (a test gap, closed by `paths-containment.test.ts`), the id check removed, the sweep treating a refused lock as acquired, the opt-out drop removed); THREAT_MODEL \"Voice audio store, slice A2a\", `.env.example`, `docs/memory`, VOICE_RUNBOOK, CHANGELOG and progress describe A2a; `VOICE_ENABLED` stays `0` by default",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0070"
+      ]
+    },
+    {
+      "id": "US-0074",
+      "epicId": "EPIC-0003",
+      "title": "As the facilitator running a voice pilot, I want to list and replay a participant's recorded audio through the control API, with every play audited before any audio leaves, so that a disputed line can be checked without the audio leaking.",
+      "priority": "Medium",
+      "estimate": "L",
+      "status": "Complete",
+      "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
+      "acs": [
+        {
+          "id": "AC-0434",
+          "text": "each audio folder records its session: the speech worker writes `<AUDIO_DIR>/<logIdentity>/session.json` `{ v: 1, sessionId }` (0600, temp file, rename, directory fsync, no link followed) once, before the first WAV of the process, and never for a skipped or refused segment or a guard stop; a marker failure stops the store with `write_error` (TC-0219) ; ticked 2026-11-12: speech store/session-marker.test.ts and audio-store.test.ts (`AudioStore: session marker`: written before the first WAV, not rewritten, none when nothing is written, `write_error` at each of the four file steps, a planted link never followed)",
+          "done": true
+        },
+        {
+          "id": "AC-0435",
+          "text": "control hands the session id to the worker: `SPEECH_SESSION_ID` is set by `buildSpeechEnv` from `extra` only (never inherited, never on the allowlist), the worker requires a valid one (`isValidSessionId`) whenever the store is configured, and a bad value is a config error naming the variable only (TC-0220) ; ticked 2026-11-12: speech config.test.ts (`test_store_needs_a_valid_session_id`), control speech-env.test.ts (`SPEECH_SESSION_ID`: from `extra` only, never inherited, invalid omitted) and voice-host.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0436",
+          "text": "`AuditLog.append` reports success: it returns `Promise<boolean>` (true on success, false on every failure path, still never rejecting) and accepts `audio.played { role, segment, by }`, with every line rebuilt field by field so no extra key is written (TC-0221) ; ticked 2026-11-12: control audit-log.test.ts (`AuditLog.append reports success; audio.played`: true on success, false on every failure path, exact `audio.played` shape, older events unchanged)",
+          "done": true
+        },
+        {
+          "id": "AC-0437",
+          "text": "`AudioCatalog.find(sessionId)` returns every identity whose marker names the session by scanning the audio directory on every request (markers read `O_NOFOLLOW`, at most 4 KB); a marker that is missing, torn, a link, of another `v` or naming another session is ignored (TC-0222) ; ticked 2026-11-12: control audio-catalog.test.ts (`AudioCatalog.find by marker`, the root-mode cases of ruling R3, the fallback cases)",
+          "done": true
+        },
+        {
+          "id": "AC-0438",
+          "text": "listing: `GET /sessions/:id/audio` returns the identities, `recordingStopped` and each segment with `audio: available | deleted | missing` and never `raw`, over the index files of every identity (64 MiB cap, torn lines skipped); a folder recorded before the marker existed is found through the session log's `logIdentity`; a session with no audio is 404 (TC-0223) ; ticked 2026-11-12: control audio-catalog.test.ts (`AudioCatalog.list`, `find fallback`, `readSegmentIndex`), log-identity.test.ts, audio-routes.test.ts (the listing) and audio-replay.e2e.test.ts; `available` means only that the WAV opens as a regular own file with one link",
+          "done": true
+        },
+        {
+          "id": "AC-0439",
+          "text": "safe whole-file read: a segment's WAV is opened with `O_NOFOLLOW` under real directories of this user, judged on the descriptor (regular file, own uid, `nlink` 1, 44 to 524288 bytes), read whole, required to have an index line that is not marked deleted, and only then is `audio.played` appended; a failed audit returns `audit_unavailable` with no bytes (TC-0224) ; ticked 2026-11-12: control audio-replay.test.ts (whole read, audit after the read and before the bytes, `audit_unavailable`, every refusal, the race cases)",
+          "done": true
+        },
+        {
+          "id": "AC-0440",
+          "text": "HTTP routes: `GET /sessions/:id/audio` and `GET /sessions/:id/audio/:role/:segment` answer 200 with the whole file (`Accept-Ranges: none`, any `Range` ignored, exact `Content-Length`, `no-store`, `nosniff`), 400 for a missing or bad `X-Acr-By`, 401 before any file call, 404, 410 `audio_deleted`, 503 `audit_unavailable` (no audio; a JSON body with only the code) or `busy` (at most 8 in flight); nothing logs a path, id or name (TC-0225) ; ticked 2026-11-12: control audio-routes.test.ts (200 headers, `Range` ignored, 400, 401, 404, 410, 503 `audit_unavailable` and `busy`, `X-Acr-By` on both routes)",
+          "done": true
+        },
+        {
+          "id": "AC-0441",
+          "text": "a real store and a real control API work end to end (list, replay, one `audio.played` line with no content keys, two identities for one session, 404 after the sweep, routes alive with `VOICE_ENABLED=0`), and mutation checks (the plan named five: audit after the bytes, no `nlink` check, no index-line requirement, audit result ignored, any `by` accepted; eleven were run, adding `Range` honoured, the deleted-mark checks, the token check, the fallback ignoring a marker and two wiring mutations) each fail a named test and are reverted (TC-0226) ; ticked 2026-11-12: control audio-replay.e2e.test.ts (real store, real API, real sweep; two identities; `VOICE_ENABLED=0`) and eleven mutation checks from the Task 8 report, each failing a named test and reverted (prior evidence, not re-run)",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0073"
       ]
     }
   ],
@@ -4024,6 +4325,66 @@
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0066-close-out-polish",
       "notes": "Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors."
+    },
+    {
+      "id": "TASK-0105",
+      "storyId": "US-0068",
+      "title": "Show AI-filled roles as \"AI player, not scored\" rows in the console report list",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0068-ai-player-row",
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md (7 tasks: control overview field from `aiRolesFor`, BFF and browser parsers, the row, Axe, e2e, documents). Covers AC-0389 to AC-0391 (TC-0158 to TC-0161). Built 2026-11-08 on the branch above: control `ModerationService` option `aiRoles` (wired in `main.ts`), BFF `toOverview`, browser `parseReportOverview`, the `SubjectList` row, the Axe case and the real-stack e2e in `report-ai-role.spec.ts`."
+    },
+    {
+      "id": "TASK-0106",
+      "storyId": "US-0070",
+      "title": "Build the voice pipeline on file ingest (slice A1a)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md (Tasks 0 to 21): speech package and worker protocol, parent-channel voice messages, voice settings and draft notice v3, the voice record, opt-in and opt-out, voice lines through the host, the turn timer, Game Master and bot cadence, notices and alerts, the speech-to-text adapter, the Whisper client, the segmenter, noise gate and normaliser, the worker pipeline, control's VoiceHost and `pnpm demo --voice`. Covers AC-0396 to AC-0404 (TC-0162 to TC-0170). 2026-11-08: Tasks 0 to 20 done (code and tests, four batches, commits 6b81e84 to 2952053); Task 21 (documents, gates, independent review, PR) in progress, so the task stays In Progress. Deviations from the plan recorded by the batches: the runtime's first `voice_seats`, sent in the same turn as `ready`, is held by the supervisor's `awaitReady` (it was dropped before); control sends `voice_state` only after the worker's `worker_ready`; file ingest starts with the first `voice_state` in which a seat records and the session is not paused; control refuses a line at once (`failed`) beyond 256 pending per session (`MAX_PENDING_LINES`); the limiter also treats a call as cold while another cold call is pending; the fake script gives each role its own fake adapter outside the limiter; the `--voice` flag tests are in `services/runtime/src/demo/__tests__/voice-flag.test.ts`, and `supervisor.voice.test.ts` and `session-store.voice.test.ts` were added. Review fix wave (2026-11-08): F1 to F10 fixed test-first (see US-0070 notes); the STT in-flight cap stays per worker (A1b moves it to control), `STT_MODEL` is unread and the `voice_unavailable` notice unused in A1a, `closedTurnEnds` is unbounded for the session (noted). 2026-11-08: Task 21 done; PR #130 merged into `develop` (squash commit 76a61c0) with all 15 CI checks green, so the task is Done."
+    },
+    {
+      "id": "TASK-0107",
+      "storyId": "US-0071",
+      "title": "Build LiveKit and the web consent flow (slice A1b)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0003-US-0071-voice-livekit-consent",
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1b-livekit-consent.md (Tasks 0 to 19, in six batches): the `lint:sdk` rule for the LiveKit packages, the LiveKit, health, slot and availability messages, started, mute and availability in `recording`, the LiveKit token adapter behind `@acr/adapters/livekit`, per-seat rooms, generations and identity removal in control, one leased speech-to-text budget, the LiveKit `AudioIngest` with a generation per frame, worker restart with bounded backoff, Whisper health polling, the owner-approved notice v3 wording, the BFF voice routes, the session page headers, the console voice fields, the participant page voice choice, mic check, mute and teardown, the console speaking indicator, end-to-end and opt-in live checks, and the close-out. Covers AC-0405 to AC-0416 (TC-0171 to TC-0182). 2026-11-09: Tasks 0 to 18 done (code and tests, six batches, 57 commits eed360a to afd24f5, two independent reviews and their fix waves, the opt-in live checks against a real LiveKit server and their two fixes); Task 19 (documents, gates, the final independent review and the PR) in progress, so the task stays In Progress."
+    },
+    {
+      "id": "TASK-0108",
+      "storyId": "US-0072",
+      "title": "Build the voice operations commands (slice A1c)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0003-US-0072-voice-operations",
+      "notes": "Plan: docs/superpowers/plans/2026-11-09-voice-a1c-operations.md (Revision 2, Tasks 0 to 15 in five batches, with independent reviews A, B, B2 and C after batches 1 to 4 and a final one in Task 15): the `voice-ops` package and its settings, an HTTP probe in `@acr/adapters`, the `.env` secrets writer, the private state directory and process identity, whisper-server hardening, the compose services (LiveKit and Caddy) pinned by digest, the loopback-only web server, `voice:up` and `voice:down` with repair and rollback, the checks and `voice:check`, the LiveKit-outage path in control's restart budget, the timing record, the runbook and the close-out. Covers AC-0417 to AC-0425 (TC-0189 to TC-0197)."
+    },
+    {
+      "id": "TASK-0109",
+      "storyId": "US-0073",
+      "title": "Build the voice audio store and its sweep (slice A2a)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0003-US-0073-voice-audio-store",
+      "notes": "Plan: docs/superpowers/plans/2026-11-09-voice-a2a-audio-store.md (Tasks 1 to 11: the shared lock export with the `suffix` option, settings, the identity hand-off, paths and the index file, the disk guard, the consent rule and `AudioStore`, the pipeline hook, worker `pending` segments, the store and lock wiring, control's alerts and audit log, the sweep core, orphans and scheduler, end to end and mutation checks, documents and close-out). Covers AC-0426 to AC-0433 (TC-0205 to TC-0212). Done 2026-11-11 on feature/EPIC-0003-US-0073-voice-audio-store (all ten code tasks and the documents task); the PR into `develop` is not yet opened. Test cases TC-0205 to TC-0212 Pass; TC-0213 to TC-0217 are the edge cases; the owner-run real check (TC-0218) is Not Run."
+    },
+    {
+      "id": "TASK-0110",
+      "storyId": "US-0074",
+      "title": "Build the audio listing and audited replay routes (slice A2b-1a)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
+      "notes": "Plan: docs/superpowers/plans/2026-11-12-voice-a2b1a-audio-replay.md (Tasks 1 to 9: the marker writer in the speech store, control hands over the session id, the audit boolean and `audio.played`, the audio catalog, listing and the pre-marker fallback, the safe whole-file read, the HTTP routes with `X-Acr-By`, wiring and end to end with mutation checks, documents and close-out). Covers AC-0434 to AC-0441 (TC-0219 to TC-0226). Filed 2026-11-12; Tasks 1 to 8 built the same day and Task 9 (the documents) closed it. Done 2026-11-12 on feature/EPIC-0003-US-0074-voice-audio-replay; the PR into `develop` is not yet opened. Test cases TC-0219 to TC-0226 Pass (TC-0226's mutation checks are prior evidence); TC-0227 to TC-0231 are the edge cases (Pass); the owner-run real check TC-0232 is Not Run."
     }
   ],
   "testCases": [
@@ -5586,6 +5947,756 @@
       "type": "Negative",
       "status": "Pass",
       "defect": "BUG-0030"
+    },
+    {
+      "id": "TC-0158",
+      "title": "The AI roles reach the console report list through control, the BFF and the browser, and the real stack shows the row",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0389, AC-0390",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0159",
+      "title": "The \"AI player, not scored\" row: read only, after the subject rows, once per role, and skipped for a role that is also a subject",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0389, AC-0391",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0160",
+      "title": "Axe finds no serious or critical violation on the Report panel with an AI player row",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0391",
+      "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0161",
+      "title": "No AI row and an intact panel when the AI roles are unknown, malformed or not yet relevant",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0390",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0162",
+      "title": "A voice line from the recording holder is recorded with channel voice and answered with its seq",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0396",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0163",
+      "title": "The runtime refuses voice lines it must not record and appends nothing",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0397",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0164",
+      "title": "A seat that is not a recording holder produces no segment, no STT request and no message",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0398",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0165",
+      "title": "One speaker's lines are logged in segment order; a failed or empty segment gives no line",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0399",
+      "type": "Edge Case",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0166",
+      "title": "One NPC round, one Game Master unit and one bot reply per voice turn",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0400",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0167",
+      "title": "Voice choice is per participant, never inherited, and opt-out stops recording at once",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0401",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0168",
+      "title": "Every speech-to-text adapter passes one contract suite; the Whisper client only sends to loopback",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0402",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0169",
+      "title": "A worker crash leaves the session running and alerts the facilitator",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0403",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0170",
+      "title": "`pnpm demo --voice` runs the voice pipeline offline and passes V-01 to V-08",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0404",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0171",
+      "title": "The LiveKit packages are allowed only in their own package",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0405",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0172",
+      "title": "A voice token is issued only to the current holder who chose voice, for the seat's own room",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0406",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0173",
+      "title": "Stale LiveKit identities are removed; a plain disconnect removes nothing",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0407",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0174",
+      "title": "The worker subscribes only to recording holders and attributes each frame to its generation",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0408",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0175",
+      "title": "One leased speech-to-text budget is shared across sessions",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0409",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0176",
+      "title": "A worker that exits is restarted with bounded backoff, then voice is off",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0410",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0177",
+      "title": "Whisper health is polled and voice availability follows it",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0411",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0178",
+      "title": "The participant page offers voice only with LiveKit, and the console shows each seat's voice state",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0412",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0179",
+      "title": "Microphone check, join with voice, mute and teardown",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0413",
+      "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0180",
+      "title": "A voice notice reaches only that player's page",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0414",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0181",
+      "title": "The console shows who speaks and the fixed voice alert sentences",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0415",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0182",
+      "title": "Notice v3 carries the owner-approved wording and keeps its draft marker",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0416",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0183",
+      "title": "A track that must not be heard is never subscribed, and no frame of an old generation reaches the new holder",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0406, AC-0408",
+      "type": "Edge Case",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0184",
+      "title": "A removed browser that reconnects with its still-valid token is swept again and never heard",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0407",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0185",
+      "title": "Without a secure page, a microphone permission or LiveKit in the web server, the page says why and keeps the text box",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0412, AC-0413",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0186",
+      "title": "The microphone and the LiveKit origin are allowed on the session page only",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0413",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0187",
+      "title": "The ten live-only LiveKit cases against a real server",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0406, AC-0407, AC-0408, AC-0410, AC-0413",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0188",
+      "title": "Browser matrix for the voice page",
+      "relatedStory": "US-0071",
+      "relatedTask": "TASK-0107",
+      "relatedAC": "AC-0413",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0189",
+      "title": "`pnpm voice:up` starts a hardened whisper-server and the compose services, and `pnpm voice:down` stops them",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0190",
+      "title": "LiveKit keys and STT_URL are generated into `.env` once, privately, and every unsafe `.env` is refused unchanged",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0418",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0191",
+      "title": "The compose services are pinned and hardened",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0419",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0192",
+      "title": "`pnpm voice:check` reports every voice prerequisite without printing a secret",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0420",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0193",
+      "title": "The web server listens on loopback only and the proxy never trusts a client's `X-Forwarded-For`",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0421",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0194",
+      "title": "A LiveKit outage does not spend the speech worker's restart budget",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0422",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0195",
+      "title": "The timing record holds numbers only and `pnpm voice:timings` summarises it",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0423",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0196",
+      "title": "The voice runbook covers start, check, stop and the room test",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0424",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0197",
+      "title": "The documents describe A1c and voice stays off by default",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0425",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0198",
+      "title": "An `.env` that is not what `voice:up` expects is refused or merged without changing one existing byte",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0418",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0199",
+      "title": "`voice:up` failing half way or interrupted leaves nothing `voice:down` cannot stop",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0200",
+      "title": "`voice:down` never signals a process that is not the whisper-server `voice:up` started",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0201",
+      "title": "The LiveKit outage table, the crash loop and the probe faults",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0422",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0202",
+      "title": "A LAN client cannot reach the web port, and its own `X-Forwarded-For` never survives the proxy",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0421",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0203",
+      "title": "The wrapper and the environment around `voice-ops`",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417, AC-0418",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0204",
+      "title": "The real stack (owner-approved run; not in CI)",
+      "relatedStory": "US-0072",
+      "relatedTask": "TASK-0108",
+      "relatedAC": "AC-0417, AC-0419, AC-0420, AC-0422, AC-0423",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0205",
+      "title": "Settings validate and the runtime's ready hands over the identity",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0426",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0206",
+      "title": "Audio paths and the index file are safe",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0427",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0207",
+      "title": "The disk guard stops writes",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0428",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0208",
+      "title": "Only consented outcomes keep audio",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0429",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0209",
+      "title": "The speech worker holds the store lock and keeps pending segments",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0430",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0210",
+      "title": "Control audits the store without keeping any content",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0431",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0211",
+      "title": "The sweep deletes only what it may",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0432",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0212",
+      "title": "Audio retention works end to end and is documented",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0433",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0213",
+      "title": "The store survives faults at every file step",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0427, AC-0429",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0214",
+      "title": "The consent and containment rules fail the named tests when removed (mutation checks)",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0429, AC-0433",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0215",
+      "title": "Identity change, retired workers and the order of stops",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0426, AC-0431",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0216",
+      "title": "The sweep leaves unsafe and live entries alone, and finishes interrupted deletions",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0432",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0217",
+      "title": "The segment WAV name rule is the shared id rule",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0427, AC-0432",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0218",
+      "title": "Audio retention on the real stack (owner-approved run; not in CI)",
+      "relatedStory": "US-0073",
+      "relatedTask": "TASK-0109",
+      "relatedAC": "AC-0427, AC-0428, AC-0432",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0219",
+      "title": "The audio folder records its session before the first WAV",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0434",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0220",
+      "title": "The worker requires a valid session id when it stores audio",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0435",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0221",
+      "title": "The audit log reports success and records audio.played",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0436",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0222",
+      "title": "The catalog finds every folder of a session and trusts no bad marker",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0437",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0223",
+      "title": "The listing covers every identity and falls back for old folders",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0438",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0224",
+      "title": "The segment read is safe, whole and audited before any byte",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0439",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0225",
+      "title": "The HTTP routes answer the right status for every case",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0440",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0226",
+      "title": "Replay works end to end and survives the mutation checks",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0441",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0227",
+      "title": "The catalog refuses a writable root and a fallback folder that has any marker",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0437, AC-0438",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0228",
+      "title": "The session-log identity reader only trusts the first line",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0438",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0229",
+      "title": "The replay holds when files or folders change under it",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0439",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0230",
+      "title": "The routes refuse odd requests before any file call",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0440",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0231",
+      "title": "The listing's index reader skips what it cannot trust",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0438",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0232",
+      "title": "Replay and its audit line on a real recorded session (owner-run)",
+      "relatedStory": "US-0074",
+      "relatedTask": "TASK-0110",
+      "relatedAC": "AC-0439, AC-0440",
+      "type": "Manual",
+      "status": "Not Run",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -6001,415 +7112,445 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 10.803868,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0070": {
+      "projectedUsd": 0.9,
+      "costUsd": 10.803868,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0071": {
+      "projectedUsd": 0.9,
+      "costUsd": 10.803868,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0072": {
+      "projectedUsd": 1600,
+      "costUsd": 10.803868,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0073": {
+      "projectedUsd": 0.9,
+      "costUsd": 10.803868,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0074": {
+      "projectedUsd": 0.9,
+      "costUsd": 10.803868,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -7162,11 +8303,11 @@
       "isAtRisk": false
     },
     "US-0068": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0069": {
       "missingTCs": true,
@@ -7181,6 +8322,41 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0070": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0071": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0072": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0073": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0074": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -7511,12 +8687,68 @@
       "context": "",
       "date": "2026-11-07",
       "bugIds": []
+    },
+    {
+      "id": "L-0037",
+      "title": "After a realtime reconnect, ask again for what you subscribed to, and never wait for ever on the server's answer",
+      "rule": "A subscription is state on the server; a full reconnect can drop it without any event telling you. Keep the set of things you want, re-request each one that has no delivered track when the connection reports `Reconnected`, and bound every wait for a subscription (or any other server answer) with an injected timer, so a request the server silently drops ends in a bounded retry or a visible failure instead of a component that looks healthy and hears nothing.\n_Learned in the A1b live checks (US-0071, D59 and D60): after a full reconnect rtc-node never answered the re-subscribe sent while reconnecting (4 frames in 60 s), and a refused subscription was never answered either, so a read waited for ever; one plain re-request after `Reconnected` brought the audio back, and a 10 s `SUBSCRIBE_WAIT_MS` now ends a read nobody answers._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0038",
+      "title": "Attribute buffered data by the generation that produced it, checked per item, not by the channel it arrives on",
+      "rule": "When a channel (a seat, a role, a socket slot) can change owner while data from the old owner is still buffered, unsubscribing is not enough: frames already queued keep arriving. Tag each item at its source with an owner generation and drop it at the consumer when the generation is no longer current, item by item. Closing the old stream early is defence in depth; the per-item check is the guarantee, and a race test with the check mutated away must fail.\n_Learned in A1b (US-0071, review finding behind Task 7): rtc-node's `AudioStreamSource.teardown` keeps already-buffered frames readable after `setSubscribed(false)`, so a reissued seat would have recorded the old holder's last words under the new holder's name without the generation check in `TrackPipeline`._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0039",
+      "title": "A fake must hang where the real thing hangs",
+      "rule": "A test double that settles a pending read, a `return()` or a request at once hides every hang the real library has. Model the real ordering in the fake (a `return()` queued behind a pending `next()`, an unsubscribe that takes effect late, an answer that never comes) and keep a test that proves the code survives it; a component excluded from coverage because it wraps the real library needs a live check that exercises it directly.\n_Learned in A1b (US-0071, batch 3 review F11 and the live checks): the fake room settled a pending `next()` on `return()` and answered every subscribe, so a deaf seat after a dropped stream and a read that waited for ever passed every unit test and showed up only against a real LiveKit server._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0040",
+      "title": "Never hang state on a rate-limited or deferred alert path",
+      "rule": "An alert path that is rate limited, or kept until later (before a session starts), drops or delays messages by design. Anything that changes behaviour (availability, voice off, a mute) needs its own message, applied first, with no rate limit and also before the start; the alert then only informs a human.\n_Learned in the A1b plan review (US-0071, K7 and R23): Whisper being unhealthy was going to ride the `stt_unavailable` alert, which the runtime limits to one per 30 s and keeps unraised before the start, so a page could have kept saying \"recording\" while nothing was transcribed; `voice_availability` became a separate parent message._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0041",
+      "title": "Read the installed library source before trusting what its documentation implies",
+      "rule": "For any behaviour a security or privacy property depends on (what a mute does, what a 404 means, where a logger lives), read the pinned version's installed source and pin the answer with a test. Documentation and method names describe intent, not the edge cases.\n_Learned in A1b (US-0071): livekit-client 2.23.0's `setMicrophoneEnabled(false)` only mutes the published track (D40: the page now unpublishes it); rtc-node 1.2.1's logger is not exported and logs identities at debug level (D10: silenced by file path); `livekit-server-sdk` maps a non-JSON 404 to a twirp error with no code, so \"any 404 is not found\" made removals silent no-ops against the wrong server (batch 2 F1)._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0042",
+      "title": "A package script must never share a name with a package-manager built-in",
+      "rule": "Before naming a script that a root script hands over to (`pnpm --filter <pkg> <name>`), run `pnpm help <name>`: pnpm resolves a built-in (or its alias) before a script of the same name. Give the script a name no built-in has, and write `run` explicitly in every handing-over root script; pin both with a test that reads `package.json`.\n_Learned in the A1c plan review (US-0072, K13): `pnpm -s --filter @acr/voice-ops up` would have run `pnpm update` (its alias `up`) in that package and rewritten its `package.json` and the lockfile, instead of starting voice. The scripts became `voice-up` and friends, called with `run`._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
+    },
+    {
+      "id": "L-0043",
+      "title": "`fetch` and Node's global agent follow an environment proxy: probes that carry a secret use `node:http` with `agent: false`",
+      "rule": "With `NODE_USE_ENV_PROXY=1` (Node 22.21 and later) global `fetch` and the default `http` agent send requests, the full URL included, to `HTTP_PROXY`. Any request whose URL or headers carry a secret (a secret request path, an admin token) goes through `node:http` with `agent: false`, to a literal loopback address only, and a test runs it in a child Node started with the proxy variables set (Node reads them at start-up) with the child's own default-agent request as the proof that the proxy was live.\n_Learned in A1c (US-0072, review A F10 and review B F2): the `STT_URL` path and the LiveKit admin token would have reached a proxy; the first test set the variables at run time and so proved nothing._",
+      "context": "",
+      "date": "2026-11-09",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-08T17:16:04.636Z",
-  "commitSha": "7834ca2",
-  "buildNumber": "546",
-  "branch": "release/0.2.1",
+  "generatedAt": "2026-11-12T21:50:41.062Z",
+  "commitSha": "e8fcce7",
+  "buildNumber": "576",
+  "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7658,9 +8890,9 @@
     }
   },
   "budget": {
-    "totalBudget": 808.4862,
+    "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 12053.1,
+    "totalProjected": 13656.699999999999,
     "percentUsed": 99,
     "burnRate": 0,
     "daysRemaining": null,
@@ -7680,66 +8912,66 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 162.21459800000005,
-        "spent": 162.21459800000005,
-        "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0005",
-        "title": "Slice 5 — evaluator and reports",
-        "budget": 162.21459800000005,
-        "spent": 162.21459800000005,
-        "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0006",
-        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 173.80135500000006,
-        "spent": 173.80135500000006,
+        "budget": 151.25415199999995,
+        "spent": 151.25415199999995,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 210.3616260000001,
-        "spent": 208.56162600000008,
-        "remaining": 1.8000000000000114,
-        "percentUsed": 99
-      },
-      {
-        "id": "EPIC-0007",
-        "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 49.947028,
-        "spent": 46.347028,
-        "remaining": 3.6000000000000014,
-        "percentUsed": 93
-      },
-      {
-        "id": "EPIC-0008",
-        "title": "Multi-client service and subdomain provisioning",
-        "budget": 37.460271000000006,
-        "spent": 34.760271,
-        "remaining": 2.700000000000003,
-        "percentUsed": 93
-      },
-      {
-        "id": "EPIC-0009",
-        "title": "Multilingual support",
-        "budget": 12.486757,
-        "spent": 11.586757,
-        "remaining": 0.9000000000000004,
-        "percentUsed": 93
+        "budget": 195.36962399999993,
+        "spent": 194.46962399999992,
+        "remaining": 0.9000000000000057,
+        "percentUsed": 100
       },
       {
         "id": "EPIC-0003",
         "title": "Slice 3 — voice over LiveKit",
-        "budget": 0,
-        "spent": 0,
+        "budget": 54.01934,
+        "spent": 54.01934,
         "remaining": 0,
-        "percentUsed": null
+        "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0005",
+        "title": "Slice 5 — evaluator and reports",
+        "budget": 151.25415199999995,
+        "spent": 151.25415199999995,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0006",
+        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+        "budget": 162.05801999999994,
+        "spent": 162.05801999999994,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0007",
+        "title": "Brand, graphic design and landing page (SceneCoach.ai)",
+        "budget": 46.815472,
+        "spent": 43.215472,
+        "remaining": 3.6000000000000014,
+        "percentUsed": 92
+      },
+      {
+        "id": "EPIC-0008",
+        "title": "Multi-client service and subdomain provisioning",
+        "budget": 35.111604,
+        "spent": 32.411604,
+        "remaining": 2.700000000000003,
+        "percentUsed": 92
+      },
+      {
+        "id": "EPIC-0009",
+        "title": "Multilingual support",
+        "budget": 11.703868,
+        "spent": 10.803868,
+        "remaining": 0.9000000000000004,
+        "percentUsed": 92
       },
       {
         "id": "EPIC-0004",
@@ -7753,57 +8985,37 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 1",
-    "rangeStart": "Jun 9",
-    "rangeEnd": "Sep 24",
-    "velocityWeeks": 5,
-    "storiesPerWeek": 1.1,
-    "pointsPerWeek": 5.5
+    "likelyDate": "Oct 10",
+    "rangeStart": "Aug 5",
+    "rangeEnd": "Dec 16",
+    "velocityWeeks": 6,
+    "storiesPerWeek": 1,
+    "pointsPerWeek": 5
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-06T05:38:48.389Z",
-      "2026-11-06T07:06:42.489Z",
-      "2026-11-06T16:07:34.581Z",
-      "2026-11-06T20:16:40.988Z",
-      "2026-11-06T20:43:37.775Z",
-      "2026-11-06T21:55:07.566Z",
-      "2026-11-06T22:58:47.846Z",
-      "2026-11-06T23:42:42.538Z",
-      "2026-11-08T17:16:04.731Z"
+      "2026-11-11T18:08:18.602Z",
+      "2026-11-11T19:47:52.607Z",
+      "2026-11-12T20:37:55.878Z",
+      "2026-11-12T21:50:41.141Z"
     ],
     "doneCounts": [
       0,
-      2,
-      3,
-      3,
-      3,
-      3,
-      4,
-      4,
-      4,
+      6,
+      6,
+      6,
       6
     ],
     "totalStories": [
       13,
-      65,
-      65,
-      65,
-      65,
-      65,
-      65,
-      65,
-      65,
-      69
+      73,
+      73,
+      74,
+      74
     ],
     "aiCosts": [
       54.2322,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7814,43 +9026,23 @@
       null,
       null,
       null,
-      null,
-      null,
-      null,
-      null,
-      null,
       null
     ],
     "velocity": [
       0,
-      8,
-      13,
-      13,
-      13,
-      13,
-      21,
-      21,
-      21,
+      29,
+      29,
+      29,
       29
     ],
     "openBugs": [
       0,
-      4,
-      4,
-      4,
-      4,
-      4,
-      4,
-      4,
-      4,
+      1,
+      1,
+      1,
       1
     ],
     "atRisk": [
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0,
       0,
@@ -7862,11 +9054,6 @@
       33019880,
       33019880,
       33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7874,29 +9061,19 @@
       5997518,
       5997518,
       5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
-      1.1380952380952383,
-      1.1387096774193552,
-      1.1387096774193552,
-      1.1435483870967746,
-      1.1435483870967746,
-      1.1393442622950825,
-      1.1393442622950825,
-      1.1393442622950825,
-      1.1333333333333335
+      1.135820895522388,
+      1.135820895522388,
+      1.1352941176470586,
+      1.1352941176470586
     ],
     "velocityByWeek": {
       "labels": [
         "2026-W40",
-        "2026-W45"
+        "2026-W46"
       ],
       "points": [
         0,

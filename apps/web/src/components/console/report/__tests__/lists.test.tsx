@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseReportOverview } from "../../../../lib/console-api";
+import { REPORT_CONSOLE } from "../../../../lib/messages";
 import { AuthorName, loadAuthorName } from "../AuthorName";
 import { RunSummaryView } from "../RunSummaryView";
 import { SubjectList } from "../SubjectList";
@@ -63,6 +64,63 @@ describe("SubjectList", () => {
     expect(screen.getAllByText(/released/i)).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Review Sales lead" }));
     expect(onSelect).toHaveBeenCalledWith("sales_lead");
+  });
+});
+
+describe("test_SubjectList_aiRoles (US-0068)", () => {
+  const NOT_SCORED = REPORT_CONSOLE.aiNotScored;
+
+  it("one read-only AI row per listed role, after the subject rows (Group included), in the given order", () => {
+    const o = parseReportOverview({ ...inReview([row("account_manager"), row("group")]), aiRoles: ["tech_lead", "ai1"] })!;
+    const onSelect = vi.fn();
+    render(<SubjectList subjects={o.subjects} aiRoles={o.aiRoles} selected={null} onSelect={onSelect} />);
+    const items = screen.getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual([
+      "Account managerDraftNo open itemsReview",
+      "GroupDraftNo open itemsReview",
+      `Tech leadAI player${NOT_SCORED}`,
+      `Ai1AI player${NOT_SCORED}`,
+    ]);
+    // the words carry the meaning: the pill says "AI player" in text (pill ai, as elsewhere in the console) and the row says "not scored"
+    const pill = screen.getAllByText("AI player", { exact: true })[0]!;
+    expect(pill.className).toBe("pill ai");
+    expect(NOT_SCORED).toMatch(/^not scored/);
+    // no control of any kind on an AI row: not selectable, no Review, Amend, Withdraw, Release or Export
+    for (const li of items.slice(2)) {
+      expect(li.querySelectorAll("button, a, input, select, [tabindex]")).toHaveLength(0);
+    }
+    expect(screen.queryByRole("button", { name: "Review Tech lead" })).toBeNull();
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+  });
+
+  it("the row shows with the post-release actions too, still with no buttons of its own", () => {
+    const o = parseReportOverview({ ...inReview([row("account_manager", { state: "released", version: 3 }), row("group")]), aiRoles: ["tech_lead"] })!;
+    const on = { onAmend: vi.fn(), onWithdraw: vi.fn(), onExport: vi.fn(), onRelease: vi.fn() };
+    render(<SubjectList subjects={o.subjects} aiRoles={o.aiRoles} selected={null} onSelect={() => {}} actions={{ canWrite: true, pending: false, ...on }} />);
+    const ai = screen.getAllByRole("listitem").at(-1)!;
+    expect(ai.textContent).toBe(`Tech leadAI player${NOT_SCORED}`);
+    expect(ai.querySelectorAll("button")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Export Tech lead" })).toBeNull();
+  });
+
+  it("a listed role that is also a subject keeps only its subject row", () => {
+    const o = parseReportOverview({ ...inReview([row("account_manager"), row("group")]), aiRoles: ["account_manager", "tech_lead"] })!;
+    render(<SubjectList subjects={o.subjects} aiRoles={o.aiRoles} selected={null} onSelect={() => {}} />);
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Account managerDraftNo open itemsReview",
+      "GroupDraftNo open itemsReview",
+      `Tech leadAI player${NOT_SCORED}`,
+    ]);
+  });
+
+  it("an empty or absent list renders nothing extra", () => {
+    const o = parseReportOverview(inReview([row("account_manager"), row("group")]))!;
+    render(<SubjectList subjects={o.subjects} aiRoles={[]} selected={null} onSelect={() => {}} />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    cleanup();
+    render(<SubjectList subjects={o.subjects} selected={null} onSelect={() => {}} />);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.queryByText("AI player", { exact: true })).toBeNull();
   });
 });
 

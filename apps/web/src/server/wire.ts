@@ -28,12 +28,19 @@ export type ClientMessage =
   | { type: "withdraw_consent" }
   | { type: "leave" }
   | { type: "say"; text: string; expectSceneId?: string }
+  /** US-0070/US-0071: the player's voice choice (naming the notice version for voice) and mute. The runtime answers each with `voice`. */
+  | { type: "voice_opt_in"; noticeVersion: string }
+  | { type: "voice_opt_out" }
+  | { type: "voice_mute"; muted: boolean }
   /** US-0059: a facilitator control. `by` is the facilitator's name; `ref` asks the runtime to answer with an `ack` (or an `error` carrying it). */
   | { type: "command"; command: FacilitatorCommand; expectSceneId?: string; by?: string; ref?: string }
   | { type: "end_now"; message?: string; by?: string; ref?: string };
 
 /** A command as the hub's callers give it: the hub adds the `ref`. */
 export type CommandMessage = Extract<ClientMessage, { type: "command" | "end_now" }> extends infer M ? (M extends unknown ? Omit<M, "ref"> : never) : never;
+
+/** SOURCE: VoiceState in the runtime's host/voice.ts. */
+export type VoiceState = "none" | "voice" | "text_only" | "off";
 
 export type ReplaySummary = { afterSeq: number; toSeq: number; events: number; complete: boolean };
 
@@ -57,10 +64,16 @@ export type JoinedFrame = {
   logIdentity?: string;
   /** The notice to agree to and whether this participant has agreed. */
   consent?: { noticeVersion: string; notice: string; given: boolean };
+  /** US-0070/US-0071: a player join with voice on, for a human seat: this seat's own voice state and mute. Absent otherwise. */
+  voice?: { state: VoiceState; muted?: boolean };
 };
 
 /** What the facilitator sees of a seat. */
-export type FacilitatorRosterEntry = { roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
+export type FacilitatorRosterEntry = {
+  roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true;
+  /** US-0071 (K6): with voice on, this seat's voice state and whether it is speaking now. The facilitator's roster only, never a peer's. */
+  voice?: VoiceState; speaking?: true;
+};
 /** What a player sees of another seat. */
 export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
 
@@ -71,6 +84,10 @@ export type ServerMessage =
   | { type: "roster"; audience: "peers"; entries: PeerRosterEntry[] }
   /** US-0059: the runtime's answer to a `command` or `end_now` that carried a `ref`, to the sender only. */
   | { type: "ack"; ref: string }
+  /** US-0070/US-0071: the answer to this player's own voice_opt_in, voice_opt_out or voice_mute, to the sender only. */
+  | { type: "voice"; state: VoiceState; muted?: boolean }
+  /** US-0070/US-0071: why this player's speech was not recorded, or whether voice is available; to the holder's socket only. */
+  | { type: "voice_notice"; code: string }
   | { type: "error"; code: string; message: string; ref?: string };
 
 export type FacilitatorRoster = Extract<ServerMessage, { type: "roster"; audience: "facilitator" }>;

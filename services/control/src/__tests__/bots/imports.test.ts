@@ -19,7 +19,7 @@ export function specifiers(text: string): string[] {
 }
 
 /** The only runtime subpaths control may import; anything else (review store, engine internals) stays out. */
-const ALLOWED = ["@acr/runtime/moderation", "@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports", "@acr/runtime/run-summary"];
+const ALLOWED = ["@acr/runtime/files", "@acr/runtime/moderation", "@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports", "@acr/runtime/run-summary"];
 
 describe("control sources and the runtime", () => {
   it("the checker sees every import form", () => {
@@ -27,12 +27,12 @@ describe("control sources and the runtime", () => {
     expect(specifiers(fixture)).toEqual(["@acr/runtime/x", "@acr/runtime/y", "@acr/runtime/z", "@acr/runtime/t", "@acr/runtime/u", "@acr/runtime/v"]);
   });
 
-  it("the allowed list is exactly moderation, participant, players, reports and run-summary (any other @acr/runtime subpath fails the guard)", () => {
-    expect(ALLOWED).toEqual(["@acr/runtime/moderation", "@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports", "@acr/runtime/run-summary"]);
+  it("the allowed list is exactly files, moderation, participant, players, reports and run-summary (any other @acr/runtime subpath fails the guard)", () => {
+    expect(ALLOWED).toEqual(["@acr/runtime/files", "@acr/runtime/moderation", "@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports", "@acr/runtime/run-summary"]);
     for (const other of ["@acr/runtime/review", "@acr/runtime", "@acr/runtime/participant/write", "@acr/runtime/src/review/store.js"]) expect(ALLOWED).not.toContain(other);
   });
 
-  it("no control source outside __tests__ imports @acr/runtime other than the five allowed subpaths (moderation, participant, players, reports, run-summary)", () => {
+  it("no control source outside __tests__ imports @acr/runtime other than the six allowed subpaths (files, moderation, participant, players, reports, run-summary)", () => {
     const files = sources(SRC);
     expect(files.length).toBeGreaterThan(5);
     for (const f of files) {
@@ -40,6 +40,15 @@ describe("control sources and the runtime", () => {
       for (const spec of specifiers(text)) {
         if (spec.startsWith("@acr/runtime")) expect(ALLOWED, f).toContain(spec);
         expect(spec, f).not.toMatch(/runtime\/src/);
+      }
+    }
+  });
+
+  it("control imports @acr/speech only as @acr/speech/protocol (no native audio code in control)", () => {
+    for (const f of sources(SRC)) {
+      for (const spec of specifiers(readFileSync(f, "utf8"))) {
+        if (spec.startsWith("@acr/speech")) expect(spec, f).toBe("@acr/speech/protocol");
+        expect(spec, f).not.toMatch(/speech\/src/);
       }
     }
   });

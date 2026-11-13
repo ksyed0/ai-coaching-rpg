@@ -29,6 +29,17 @@ export const failClosed = (res: ServerResponse, status: number, code: string, da
   send(res, status, { success: false, data, error: { code } });
 
 /**
+ * A binary 200-style answer (the replay's WAV): the exact status, the given headers plus the exact `Content-Length`, then the bytes in
+ * one `end`. No connection header is added (the server's keep-alive is unchanged, as with `send`). When headers are already out the
+ * response is destroyed instead: a body is never written after another answer, and a truncated one must not look complete.
+ */
+export function sendBytes(res: ServerResponse, status: number, headers: Record<string, string>, bytes: Buffer): void {
+  if (res.headersSent) { res.destroy(); return; }
+  res.writeHead(status, { ...headers, "Content-Length": String(bytes.length) });
+  res.end(bytes);
+}
+
+/**
  * Reads at most `max` bytes (MAX_BODY_BYTES unless the route names a cap). A declared length over the cap is refused at once (nothing is read); an undeclared or understated one
  * is cut off the moment the running total passes the cap. Resolves to the text ("" for no body).
  */

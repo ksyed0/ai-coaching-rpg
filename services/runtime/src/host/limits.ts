@@ -11,8 +11,20 @@ export function playerRoleCapError(scenario: Scenario): string | null {
   return n > MAX_MANAGED_PLAYER_ROLES ? `a managed session allows at most ${MAX_MANAGED_PLAYER_ROLES} player roles (this scenario has ${n})` : null;
 }
 
+/** The number N of a notice version `v<N>`, or null for any other version text. One parse for every "does this notice name X" rule. */
+function noticeNumber(version: string): number | null {
+  const m = /^v(\d+)$/.exec(version);
+  return m === null ? null : Number(m[1]);
+}
+
 /** Whether a consent notice version names AI players: `v<N>` with N >= 2 (v1 predates AI players). */
 export function noticeNamesAiPlayers(version: string): boolean {
-  const m = /^v(\d+)$/.exec(version);
-  return m !== null && Number(m[1]) >= 2;
+  const n = noticeNumber(version);
+  return n !== null && n >= 2;
+}
+
+/** US-0070: whether a consent notice version describes voice recording: `v<N>` with N >= 3 (v1 and v2 predate voice). */
+export function noticeNamesVoice(version: string): boolean {
+  const n = noticeNumber(version);
+  return n !== null && n >= 3;
 }

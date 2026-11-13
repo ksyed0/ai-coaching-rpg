@@ -81,6 +81,10 @@ input.t:disabled { background: var(--panel2); color: var(--muted); }
 
 .banner { padding: 8px 12px; border-radius: 6px; margin-top: 12px; }
 .banner.warn { background: var(--warn-soft); border: 1px solid var(--warn); color: var(--ink); }
+/* US-0071: the private voice notices (one region, always mounted; the span inside it is the visible notice). */
+.voice-notices > span { display: block; padding: 8px 12px; border-radius: 6px; margin-top: 12px; background: var(--warn-soft); border: 1px solid var(--warn); color: var(--ink); }
+.voice fieldset { border: 0; padding: 0; margin: 0 0 10px; }
+.voice legend { font-weight: 600; margin-bottom: 8px; }
 
 /* Roster */
 .roster { list-style: none; }

@@ -2439,3 +2439,1091 @@ Actual Result: As expected, 2026-11-07: step 1, 1 file, 36 tests (3 new, 1 chang
 Status: [x] Pass
 Defect Raised: BUG-0030
 Notes: Fixed in bugfix/BUG-0025-throttle-resend-link-cap (c10a07a, 86984be). Mutation check: counting every link's responses, or a cap of 26, fails 2 runtime tests; checking the link cap before the role cap fails 1; dropping `link_full` from the launcher's conflict states fails the mapping test; never setting the page's link-full state fails the notice test. Not covered: the console does not show a link at its cap (follow-up); redaction (US-0069).
+
+TC-0158: The AI roles reach the console report list through control, the BFF and the browser, and the real stack shows the row
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0389, AC-0390
+Type: Functional
+Preconditions: As TC-0110 (a checkout with dependencies installed); steps 3 and 4 need a fresh `pnpm --filter @acr/web exec next build --webpack` and a Chromium for Playwright (`PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned build is missing); no model key.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.ai-roles-overview.test.ts` (the `in_review` overview carries `aiRoles` from the injected lookup, in its order, called once with the session id; an empty list is carried; the carried list is a copy; 64 safe distinct ids pass).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers.test.ts src/lib/__tests__/console-api.report-overview.test.ts` (the BFF forwards a well-made `aiRoles` in order and forwards an answer without it with no `aiRoles` key; the browser parse keeps a well-made list and reads an absent one as `[]`).
+  3. From `apps/web`: `pnpm exec playwright test report-ai-role --trace off` (real control, `next start` in launcher mode, nothing intercepted: Tech lead is made an AI player in the lobby, the two humans join, Start, End, the review is seeded for the humans, the console is reloaded; the list has exactly one Tech lead row, last, with "AI player" and "not scored (no report is written for an AI player)", no button, and no "Review Tech lead").
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-08: step 1, 1 file, 5 tests (all new); step 2, 2 files, 23 tests (2 new) and 3 tests (new file); step 3, 2 tests passed (1 new).
+Status: [x] Pass
+Defect Raised: None
+Notes: The e2e is the only test of the `services/control/src/main.ts` wiring (`aiRoles: (id) => aiRolesFor(config, list, id)`). Mutation check: with the wiring removed from `main.ts`, step 3's new test fails (the Tech lead row count is 0, expected 1).
+
+TC-0159: The "AI player, not scored" row: read only, after the subject rows, once per role, and skipped for a role that is also a subject
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0389, AC-0391
+Type: Functional
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/lists.test.tsx src/components/console/report/__tests__/ReportPanel.test.tsx` (one row per listed role after the subject rows, Group included, in the given order, reading the role label, the pill "AI player" (`pill ai`, `MESSAGES.reportAiPlayer`) and `REPORT_CONSOLE.aiNotScored`; no button, link, input or focusable element on the row, also with the post-release actions; a listed role that is also a subject keeps only its subject row; an empty or absent list adds nothing; in the panel, the row shows beside a human subject and neither the release bar nor the export menu mentions the AI role).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-08: 2 files, 11 tests (4 new) and 13 tests (1 new).
+Status: [x] Pass
+Defect Raised: None
+Notes: The release bar and export menu assertions are regression guards (they passed before the row existed: both read `subjects` only). Mutation check: rendering every listed role without the subject filter fails "a listed role that is also a subject keeps only its subject row".
+
+TC-0160: Axe finds no serious or critical violation on the Report panel with an AI player row
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0391
+Type: Accessibility
+Preconditions: As TC-0158 step 3.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test axe --trace off` (the case "Axe: the Report panel ready to evaluate, ... in review with the subject list, ..." runs the real launcher stack with every role human, then intercepts only the overview route (`**/api/v1/console/sessions/*/report`), fetches the real answer and adds `aiRoles: ["tech_lead"]`, reloads, asserts the row text is visible with no "Review Tech lead" button, and runs Axe in light and dark and at 1280 and 400 px).
+Expected Result: All pass with zero serious or critical violations.
+Actual Result: As expected, 2026-11-08: `axe report-moderation report-release report-ai-role` 12 passed (axe 7) on Chromium headless shell 1223 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE`.
+Status: [x] Pass
+Defect Raised: None
+Notes: The meaning is in words (the pill and the "not scored" sentence), never colour alone; the row is a list item with no interactive control.
+
+TC-0161: No AI row and an intact panel when the AI roles are unknown, malformed or not yet relevant
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0390
+Type: Negative
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.ai-roles-overview.test.ts src/__tests__/moderation.test.ts` (a lookup answering null, one that throws, one that rejects and no lookup at all omit the field and keep the subjects; a non-array, an object, a number, a non-string entry, an unsafe id, an upper-case id, an empty id, a duplicate, a 65-character id and 65 entries omit the field; `not_ended`, `not_evaluated`, `evaluating`, `failed` and `ready_to_open` never carry it and never call the lookup).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers.test.ts src/lib/__tests__/console-api.report-overview.test.ts` (the same malformed lists are dropped by the BFF, which still answers 200 with the rest of the overview, and read as `[]` by the browser, whose overview is never null for them; the existing "extra fields dropped" case shows an older web ignores an unknown field).
+  3. From `apps/web`: TC-0159 step 1 (a role that is also a subject gets no AI row).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-08: step 1, 2 files, 5 and 17 tests (1 new in `moderation.test.ts`); step 2, 23 and 3 tests; step 3 as TC-0159.
+Status: [x] Pass
+Defect Raised: None
+Notes: Fail quiet by design (the row guards nothing), the opposite of the link guard's fail closed (docs/THREAT_MODEL.md, "AI roles in the credential path"). Mutation check: dropping the duplicate check in control's `wellMadeAiRoles` fails the malformed-answer test.
+
+## US-0070: voice pipeline on file ingest (EPIC-0003 voice A1a)
+
+TC-0162: A voice line from the recording holder is recorded with channel voice and answered with its seq
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0396
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no speech server.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-line.test.ts src/__tests__/main.voice-line.test.ts` (a host over a real engine on a temp log; `bootstrap` with a fake parent channel).
+  2. From the repository root: `pnpm demo --voice` (checks V-01 and V-08).
+Expected Result: The holder who chose voice gets an `utterance` with `channel: "voice"` whose `seq` equals the answered `seq` ("a holder who chose voice is recorded with channel voice and the returned seq equals the event's seq"); the utterance reaches players exactly like a typed line and no player frame carries `segmentId` or `participantId`; control gets exactly one answer per `voice_line` (`voice_line_ack`, `voice_line_refused` with the code, or `failed`); V-08: `session.started.logFormat` equals the value of a session without voice.
+Actual Result: As expected, 2026-11-08 (macOS, run during Task 21): step 1, 2 files, 14 and 7 tests passed; step 2, 8 of 8 checks passed (V-08: format 2, a session without voice: 2).
+Status: [x] Pass
+Defect Raised: None
+Notes: No new event type and no new field: a voice line is the existing `utterance` with `channel: "voice"` (packages/events/src/events.ts). The link between a line and its segment exists only in control and the worker, never in the log. Review fix wave (2026-11-08, macOS): F6, `TURN_END_MS` is read only with `VOICE_ENABLED=1` and `VOICE_ENABLED=true` stays refused: `voice-config.test.ts` "TURN_END_MS is not read while voice is off: any value, valid or not, leaves a text-only session startable" and "VOICE_ENABLED is still strict while TURN_END_MS is bad", `main.voice-config.test.ts` "F6: a text-only managed session starts whatever TURN_END_MS says" (both files passed).
+
+TC-0163: The runtime refuses voice lines it must not record and appends nothing
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0397
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-line.test.ts` (the refusal table).
+Expected Result: Each case is answered with its fixed code and the log length is unchanged: `voice_off` (voice disabled), `not_started`, `unknown_role` (an unknown id, an inherited member name, an AI character's id), `ai_role` (a player role an AI plays), `not_holder` (another participant id, an unheld seat, and the old participant's line after a reissue between segment and line), `not_recording` (no choice, a holder who chose text, a choice made by another participant), `paused` (recorded again after resume), `not_in_scene` (a role outside the current scene), `ended`; any other engine failure is `failed`; a line waits for a start in flight.
+Actual Result: As expected, 2026-11-08 (macOS): 1 file, 14 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: The codes are `VOICE_REFUSALS` in both parent-channel copies (services/runtime/src/host/parent-channel.ts, services/control/src/protocol.ts), compared by services/control/src/__tests__/protocol.drift.test.ts (5 tests passed, same run). The second gate of the privacy invariant: the worker's gate (TC-0164) is the first.
+
+TC-0164: A seat that is not a recording holder produces no segment, no STT request and no message
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0398
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/track-pipeline.test.ts src/__tests__/voice-gate.test.ts src/__tests__/worker.test.ts` (file-fed, synthetic signals, `FakeSpeechToText`).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/voice/voice.real.test.ts` (a real forked runtime and a real forked speech worker with the fake script).
+  3. From the repository root: `pnpm demo --voice` (check V-04: the text-only seat's role is absent from the fake's `calls.jsonl`).
+Expected Result: "unconsented track produces nothing (no voice_state, a text-only holder, an unheld role, an AI role absent from holders)": zero STT calls and zero messages; an opt-out or pause mid-segment discards the open segment with no STT call; nothing is ingested before the first `voice_state`; the real-process run logs only the voice seat's lines and never transcribes the text-only seat's file; V-04 passes.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 17, 5 and 7 tests passed; step 2, 1 test passed; step 3, V-04 "0 calls for the text-only seat, 9 in all".
+Status: [x] Pass
+Defect Raised: None
+Notes: The worker's gate is the first half of the privacy invariant; the runtime refusal table (TC-0163) is the second. The implementers reported the real-process tests (`main.process.test.ts`, `voice.real.test.ts`, `voice-demo.test.ts`, `voice-file.test.ts`) also passing in the node:22 Linux container as root and with `--user node`; that run was not repeated in Task 21. Review fix wave (2026-11-08, macOS): F5, `track-pipeline.test.ts` "an opt-out with two segments queued behind the in-flight cap makes no further inner call" (the in-flight call is aborted too) and "a pipeline stopped once still transcribes what it segments afterwards"; F2, `worker.test.ts` "the end of a file closes its open segment: the line goes out and the speech edge closes" and "a file that ends inside a blip too short to keep still closes the speech edge (no line)". Speech: 12 files, 136 tests passed.
+
+TC-0165: One speaker's lines are logged in segment order; a failed or empty segment gives no line
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0399
+Type: Edge Case
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/track-pipeline.test.ts`.
+  2. From `packages/adapters`: `pnpm exec vitest run src/speech` (the limiter: deadlines, retries, the in-flight cap, cold start).
+  3. From `services/control`: `pnpm exec vitest run src/__tests__/voice/voice-host.test.ts`.
+  4. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-notice.test.ts`.
+Expected Result: "out-of-order answers are delivered in segment order" and "a failed segment takes its place in the order"; an empty answer gives `segment_failed` `empty` and no line; a Refused or Timeout gives `segment_failed` `stt_failed`, never a placeholder line; in control, `stt_failed` becomes the speaker's `voice_notice` and one facilitator alert, and `empty` gives neither (owner decision, `NOTICE_EMPTY_SEGMENTS = false`); in the runtime, a notice goes only to the seat's current holder, at most one per role and code per 10 s, is never logged and never reaches another player or the facilitator; a refused line (`paused`, `not_in_scene`, `ended`, `not_recording`) gives a notice and no alert; an alert is one fixed sentence at most once per 30 s, never before the start or after the end.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 17 tests; step 2, 7 files, 74 passed and 1 skipped (`whisper.live.test.ts`, opt-in with `STT_LIVE=1`); step 3, 18 tests; step 4, 8 tests.
+Status: [x] Pass
+Defect Raised: None
+Notes: AC-0399 was reworded on 2026-11-08 to the owner's decision (spec section 16, open question 1): no notice for an empty segment. The `voice_unavailable` notice code exists in `VOICE_NOTICE_CODES` (services/runtime/src/host/voice.ts) but nothing sends it in A1a. The web app drops the `voice_notice` frame (A1b wires it), so in A1a only a direct runtime WebSocket client sees it. Review fix wave (2026-11-08, macOS): F4, `segmenter.test.ts` "a 2540 ms tone gives two segments that hold every speech frame", "a split's short rest is kept by flush too", "a split's rest with no speech at all ... is still dropped" and "a genuinely short isolated blip after a split segment is still dropped"; F9a, `normalise.test.ts` "a cut that exposes a currency word after an amount drops it" and "is idempotent over every cut position near a currency phrase"; F10, `voice-notice.test.ts` "an alert raised before the start is delivered at the start, exactly once", "pre-start alerts are deduped by code and bounded, the latest raised last" and "no pre-start alert is kept while voice is off": an alert is no longer dropped before the start, it is kept (one per code, at most 8) and logged when the session starts.
+
+TC-0166: One NPC round, one Game Master unit and one bot reply per voice turn
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0400
+Type: Functional
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-turn.test.ts src/agents/__tests__/game-master.voice.test.ts` (a manual `SetTimer`; no real time).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/bots/bot.voice-turn.test.ts`.
+  3. From the repository root: `pnpm demo --voice` (checks V-03 and V-05).
+Expected Result: The timer arms for `max(0, TURN_END_MS - silentMs)` only when every recording track is silent; "two voice lines then a false edge run ONE round after the timer"; "the round waits for a voice line still being recorded (C3)"; a text line cancels a pending timer and runs a round at once; pause and end clear the timer with no round; a running round is not interrupted; the Game Master counts a closed voice turn as one unit, judges nothing while a turn is open, and restores with the same units; bots defer human lines while a turn is open and reply once after it closes; V-03 one answer per turn, V-05 evaluations at most the per-turn count.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 25 and 16 tests; step 2, 11 tests; step 3, V-03 "3 answers for 3 turns of 3 segments (9 segments)", V-05 "1 evaluations (at most 2 by turn; counting segments would allow 4)".
+Status: [x] Pass
+Defect Raised: None
+Notes: The turn boundaries (`closedTurnEnds`) are in memory only: after a restart, consecutive voice lines count as one unit per run. The list is never trimmed during a session (open item in docs/memory/backlog-and-decisions.md). Review fix wave (2026-11-08, macOS): F1, `voice-turn.test.ts` "a turn whose only segment was dropped (no line at all) runs no round", "a turn whose only line was refused runs no round (not_holder, and an engine refusal)" and "after an answered turn, an empty turn runs no second round; the next turn with a line runs exactly one"; F2, "the worker going down mid-speech closes the turn at once ...", "... with no line recorded closes the turn and runs no round", "the backstop: a speaking track with no news for VOICE_ACTIVITY_STALE_MS is forgotten and the turn closes", the tracker cases for `staleMs`, `touch` and `dropAll`, and `voice_alert worker_down` closing an open turn in "voice_turn open/close is sent in order" (35 tests); F3, `bot.voice-turn.test.ts` "a runtime restart during an open voice turn releases the hold (and drops the deferred line)" (12 tests).
+
+TC-0167: Voice choice is per participant, never inherited, and opt-out stops recording at once
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0401
+Type: Functional
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/engine/__tests__/voice-file.test.ts src/host/__tests__/voice-choice.test.ts src/host/__tests__/ws-voice.test.ts src/engine/__tests__/session-store.voice.test.ts`.
+Expected Result: Opt-in by the holder records voice; it is refused `voice_off`, `forbidden` (AI seat), `not_joined`, `consent_version` and `voice_notice_required` (consent to v2); after a reissue the old entry is deleted and the next participant does not record; after a rebind the new holder is `text_only`; after a restart the record applies to the same participant only; a record bound to another log identity or a malformed one is ignored and removed; R14 consent seeding never creates a voice entry; an opt-out stops recording in memory even when the file write fails, and with the write and the removal both failing the seat stays off for the process with one facilitator alert; the file is 0600, bound to `{sessionId, logIdentity}`, at most 64 KiB, and a symlink is refused; a player's `voice_opt_in` is answered to that socket only and `joined.voice` carries only the joining player's own state.
+Actual Result: As expected, 2026-11-08 (macOS): 4 files, 18, 24, 6 and 3 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: The implementers reported `voice-file.test.ts` passing in the node:22 Linux container as root and with `--user node`; not repeated in Task 21. Review fix wave (2026-11-08, macOS): F8, `ws-voice.test.ts` "a voice opt-in whose file write fails answers failed and logs no path (the error name at most)", and `voice-choice.test.ts` now expects the fixed code `failed` for an opt-in whose write fails.
+
+TC-0168: Every speech-to-text adapter passes one contract suite; the Whisper client only sends to loopback
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0402
+Type: Functional
+Preconditions: As TC-0162. A real whisper-server is NOT needed (the Whisper client is tested against a stand-in HTTP server on 127.0.0.1:0).
+Steps:
+  1. From `packages/adapters`: `pnpm exec vitest run src/speech`.
+Expected Result: `speechToTextContract` passes for the fake (`fake.contract.test.ts`), the Whisper HTTP client (`whisper.contract.test.ts`) and the limiter over the fake (`limited.test.ts`); `parseSttUrl` accepts `http://127.0.0.1:<port>` and `http://[::1]:<port>/<path>` and refuses `localhost`, `0.0.0.0`, a LAN address, `https`, a query, a fragment, user info, no port and a missing value; a 5xx is Unavailable, a 4xx, HTML or a body over 256 KiB is Refused; error messages never hold a URL.
+Actual Result: As expected, 2026-11-08 (macOS): 7 files, 74 passed, 1 skipped (`whisper.live.test.ts`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Not run: the opt-in live check against a real whisper-server (`STT_LIVE=1 STT_URL=http://127.0.0.1:<port> pnpm exec vitest run src/speech/__tests__/whisper.live.test.ts`); it needs a human to start whisper-server and is what resolves F1 (whether `verbose_json` carries `no_speech_prob` and `avg_logprob`). Until then the noise gate may run on blank text and energy only. The client sends `redirect: "manual"` and treats any non-2xx answer below 500 as Refused, so a redirect is never followed; no test pins the 3xx case specifically. Review fix wave (2026-11-08, macOS): F9d, `whisper-http.test.ts` "refuses an explicit :80 (the URL parser normalises the default port away, so it reads as no port)": kept on purpose and pinned (adapters `src/speech`: 6 files passed, 1 skipped; 75 passed, 1 skipped).
+
+TC-0169: A worker crash leaves the session running and alerts the facilitator
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0403
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice`.
+  2. From the repository root: `pnpm demo --voice` (check V-07: the worker is killed with SIGKILL through the test hook).
+Expected Result: When the speech worker exits mid-session the runtime keeps running, typed lines are still recorded and the facilitator gets one `worker_down` alert; pending lines are forgotten; no worker is started again for that session (A1a has no restart); a runtime restart keeps the worker and pushes the new seats, with nobody recording in between; at the end the worker gets `ended` and is stopped after the grace time without an alert.
+Actual Result: As expected, 2026-11-08 (macOS): step 1, 4 files (`speech-env`, `supervisor.voice`, `voice-host`, `voice.real`), 4, 8, 18 and 1 tests passed; step 2, V-07 "session running, 1 worker_down alert(s)".
+Status: [x] Pass
+Defect Raised: None
+Notes: Restart with bounded backoff is A1b. After a voice worker loss the session stays text only until it is restarted from a new control-service process (the `workerLost` flag lives in the VoiceHost's memory). Review fix wave (2026-11-08, macOS): F2, V-07 now kills the worker MID-speech (a long last burst has opened a voice turn) and passes only when the turn closes ("voice turn closed"); with both the worker-down call and the backstop disabled V-07 fails. F9b, `voice-host.test.ts` "an ended session's entry is removed after its worker stops, and late runtime messages do not recreate it" and "an ended session that never had a worker leaves no entry"; F9c, `supervisor.voice.test.ts` "after the hand-over, a later voice_seats is parsed by the live handler only". Control voice, bot voice-turn and demo files: 50 tests passed.
+
+TC-0170: `pnpm demo --voice` runs the voice pipeline offline and passes V-01 to V-08
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0404
+Type: Functional
+Preconditions: As TC-0162; no network, no model key, no speech server.
+Steps:
+  1. From the repository root: `pnpm demo --voice`.
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/demo/voice-demo.test.ts`; from `services/runtime`: `pnpm exec vitest run src/demo/__tests__/voice-flag.test.ts`.
+  3. On the pull request: the CI Demo Run job's `pnpm demo --voice` step.
+Expected Result: Checks V-01 to V-08 pass with file ingest and the fake speech-to-text adapter and the command exits 0; `--voice` runs on its own (only `--no-color`).
+Actual Result: Steps 1 and 2 as expected, 2026-11-08 (macOS): 8 of 8 checks passed, exit 0, about 25 s wall time; `voice-demo.test.ts` 1 test, `voice-flag.test.ts` 18 tests passed. Step 3 as expected, 2026-11-08: on PR #130 the CI Demo Run job (which runs `pnpm demo --voice`) was green, with all 15 CI checks green, before the squash merge into `develop` (commit 76a61c0).
+Status: [x] Pass
+Defect Raised: None
+Notes: Pass on 2026-11-08: the PR #130 Demo Run job was green (AC-0404 says "in CI"). The other demo counts are unchanged on this branch (29 for `--fast`, 42 for `--fast --security --resume`, 14 for `--showcase --fast`; run in Task 21). Review fix wave (2026-11-08, macOS): F7, the demo has no fixed sleep: "nothing more happens" is `waitQuiet` (the log unchanged across 12 consecutive 250 ms observations, at most 240), `voice-client.test.ts` (3 tests, injected step, no real time); V-04 now allows the extra (empty) calls of the long last burst, still none for the text-only seat. `pnpm demo --voice` 8 of 8; `voice-demo.test.ts` passed.
+
+## US-0071: LiveKit and the web consent flow (EPIC-0003 voice A1b)
+
+TC-0171: The LiveKit packages are allowed only in their own package
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0405
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From the repository root: `bash scripts/check-sdk-imports.test.sh` and `pnpm lint:sdk`; from `packages/adapters`: `pnpm exec vitest run src/__tests__/root-index-imports.test.ts`.
+Expected Result: Every fixture gives its expected exit code (a LiveKit package outside its allowed package fails with `LiveKit package used outside its allowed package`; the provider rule's fixtures are unchanged); `sdk-imports: ok`; importing `@acr/adapters` does not load `livekit-server-sdk`, importing `@acr/adapters/livekit` does.
+Actual Result: As expected: every fixture of `check-sdk-imports.test.sh` gave its expected exit code (the LiveKit rule, the third rule for `@acr/adapters/livekit` and the provider rule's unchanged fixtures) and `pnpm lint:sdk` printed `sdk-imports: ok`; `root-index-imports.test.ts` passed (the root index loads no `livekit-server-sdk`; the subpath does; a CommonJS `require` shows in the `require.cache` probe as its positive control).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): adapters 22 files, 361 passed (2 skipped). Batch 2 review F10 added the third rule (`@acr/adapters/livekit` only in `services/control` and the speech live checks; `@acr/adapters/livekit/identity` anywhere) and F11 the `require.cache` probe.
+
+TC-0172: A voice token is issued only to the current holder who chose voice, for the seat's own room
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0406
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `packages/adapters`: `pnpm exec vitest run src/livekit`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts src/__tests__/voice/token-route.test.ts`.
+Expected Result: The participant grant equals the plan's Global Constraints exactly (600 s, microphone only, no subscribe, no data, no metadata), the room is the seat's own `v` + 32 hex; another participant, a text-only seat, an AI seat, an unknown or ended session and voice off are refused with the fixed codes; the route answers only `token` and `expiresAt`.
+Actual Result: As expected: the participant grant is exactly 600 s, `roomJoin`, `canPublish`, `canPublishSources: ["microphone"]`, no subscribe, no data, no metadata; the room is the seat's own `v` + 32 hex; refusals as listed; the route answers only `token` and `expiresAt` (an answer with extra fields is cut down). Live (2026-11-09, LiveKit 1.13.11 in Docker): a participant token published a microphone, could subscribe to nothing (0 TrackSubscribed in 4 s with auto-subscribe on) and was refused a screen-share audio publish.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): adapters 361 passed, control 54 files 881 passed. Batch 3 review F4: a request for a seat the seats give to someone else is refused at once, at most 4 wait per seat; F8: tokens only with `SPEECH_INGEST=livekit` (`voiceTokensWanted`), otherwise `voice_unavailable`.
+
+TC-0173: Stale LiveKit identities are removed; a plain disconnect removes nothing
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0407
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-choice.test.ts`.
+Expected Result: A reissue, a rebind, a leave, a withdrawal, an AI fill, an opt-out, a removal, voice off and the session end remove the old identity from the seat's room (the worker identity never); a socket close puts the role in `open` and removes nothing.
+Actual Result: As expected in the unit tests (tokens.test.ts and voice-choice.test.ts, names in AC-0407). Live (2026-11-09): `removeParticipant` dropped a publisher holding a valid token with `PARTICIPANT_REMOVED`; it reconnected with the same token and the ingest never subscribed it (0 subscribe calls, 0 frames). Browser: after "Stop using voice" a stale page reconnected with the seat's last token and published; control's periodic sweep removed it about 11 s after it published (period 20 s) and the fake speech-to-text recorded no call for the seat.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): control 881 passed, runtime 248 files 4522 passed (1 skipped). Batch 3 review: F3 the periodic sweep every 20 s (`SWEEP_INTERVAL_MS`), F7 one delayed retry after a failed sweep (`SWEEP_RETRY_MS` 2 s), F9 a vacated seat stays none-expected across a runtime restart. A facilitator removal takes the reissue path (`forgetVoice`). Edge case: TC-0184.
+
+TC-0174: The worker subscribes only to recording holders and attributes each frame to its generation
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0408
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/livekit-ingest.test.ts src/__tests__/reframe.test.ts src/__tests__/voice-gate.test.ts src/__tests__/track-pipeline.test.ts`.
+  2. Opt-in, with a throwaway LiveKit server: `VOICE_LIVE=1 pnpm --filter @acr/speech exec vitest run src/__tests__/livekit.live.test.ts`.
+Expected Result: An unconsented, not started, paused, muted or unavailable seat's track is never subscribed; a second microphone track and a non-microphone track are not subscribed; frames are 320 samples of 16 kHz mono; a frame whose generation is not the gate's is dropped, including frames queued after an unsubscribe.
+Actual Result: As expected in the unit tests (names in AC-0408). Live (2026-11-09): nothing was read before `subscribe` (2 s window); then 50 of 50 chunks were 320 samples and passed the 16 kHz mono check; the worker subscribed only the allowed identity (not a stale generation, not another role); frames queued under the old generation were not delivered after `setAllowed` moved the seat; rapid mute/unmute and pause/resume (0 to 80 ms, and around 1 s) kept audio flowing with status `connected` only.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): speech 17 files 250 passed (the live file's 17 tests skipped by default). Deviations D1 to D12 (batch 3) and D59 (a subscription lost in a full reconnect is re-requested on Reconnected). Edge case: TC-0183.
+
+TC-0175: One leased speech-to-text budget is shared across sessions
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0409
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/stt-slots.test.ts src/__tests__/voice/voice-host.test.ts`; from `services/speech`: `pnpm exec vitest run src/__tests__/slot-stt.test.ts`.
+Expected Result: At most 2 transcriptions run at once across all sessions; a worker exit frees its slots; an expired lease is reclaimed, the next waiter granted and that session's worker killed.
+Actual Result: As expected: at most 2 transcriptions at once across sessions, FIFO across sessions, a worker exit frees its slots, an expired lease (`STT_COLD_TIMEOUT_MS` + 5 s) is reclaimed, the next waiter granted and only that session's worker killed; the forked worker with a stand-in Whisper server runs every inference request inside a granted slot.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): control 881, speech 250 passed. Not run against a real whisper-server: whether a healthy cold call stays inside the 35 s lease, and the cross-session contention of the room test (4 to 8 talkers), are unverified. Deviations D20 and D21.
+
+TC-0176: A worker that exits is restarted with bounded backoff, then voice is off
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0410
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/restart.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: Restarts follow 500, 1000, 2000, 4000, 8000 ms; after 5 consecutive failures voice is off for the session with one `voice_off` alert; the count resets after 60 s ready; typed lines keep working.
+Actual Result: As expected: restarts after 500, 1000, 2000, 4000, 8000 ms; the 6th exit in a row gives one `voice_off` alert, no further spawn and tokens refused `voice_off`; 60 s ready resets the count; exit code 3, 0 or a signal all count; a SIGKILLed real worker is replaced by a new process; demo check V-07 passed (8 of 8). Live (2026-11-09): with the LiveKit server stopped while the seat records, the forked worker sent `livekit_status disconnected` and exited 3; restarted while the seat did not record, it stayed quiet and rtc-node reconnected by itself.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): control 881 passed, `pnpm demo --voice` 8 of 8. Deviation D13: "5 consecutive failures" is five failed restarts in a row, so at most 6 spawns per streak; D18: control no longer sends `worker_down` (every unexpected exit is `worker_restarting`).
+
+TC-0177: Whisper health is polled and voice availability follows it
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0411
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/health.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/voice-host.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-availability.test.ts`.
+Expected Result: Health is polled every 5 s; unhealthy gives one `stt_unavailable` alert and `voice_unavailable` notices to voice holders, healthy again one `stt_recovered` info alert; `voice_availability` is re-sent on every runtime `ready`.
+Actual Result: As expected with a stand-in health answer: polls every 5000 ms; a change is sent only after two agreeing polls (true, true, false, false, true, true sends false then true); `stt_unavailable` once and `voice_availability` false, `stt_recovered` and true again; every runtime `ready` is told the current availability; voice holders get `voice_unavailable` and `voice_available` once per transition. The e2e voice-lobby spec showed "Voice is available again, you can speak." to the voice holder after a killed worker was restarted.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): speech 250, control 881, runtime 4522 passed. Deviation D15 (hysteresis in the worker, not in control) and D16 (the runtime's `voiceUnavailable` starts false; control speaks at every ready). Not verified: a real whisper-server's `/health` while a model loads (if it answers non-200 then, voice reads as unavailable for about 10 s).
+
+TC-0178: The participant page offers voice only with LiveKit, and the console shows each seat's voice state
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0412
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/voice-handlers.test.ts src/components/__tests__`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-roster.test.ts`.
+Expected Result: The voice choice appears after consent to a notice that names voice and only when the web server has LiveKit; the facilitator roster and readiness carry each seat's voice state; no peers frame carries voice or speaking.
+Actual Result: As expected (names in AC-0412). The e2e voice-lobby spec (6 passed, Chromium headless shell 1223): the voice choice after consent, the console's voice column, a peer's roster without voice keys, and on a stack whose web server has no `LIVEKIT_URL` the voice option disabled with its reason and no microphone exception in any header.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 101 files 1612 passed; Playwright `voice-lobby` 6 passed. Deviations D48, D49 (console parsers pick `voice` and `speaking` field by field; the Readiness "Voice" column after "Consented").
+
+TC-0179: Microphone check, join with voice, mute and teardown
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0413
+Type: Accessibility
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/lib/__tests__ src/components/__tests__`; then `pnpm exec next build --webpack` and `pnpm exec playwright test voice-lobby axe --trace off`.
+  2. Opt-in, with a throwaway LiveKit server (docs/memory/demo-and-testing.md, "Voice live checks"): `VOICE_LIVE=1 pnpm exec playwright test voice-live --trace off`.
+Expected Result: No microphone is opened on page load; permission is asked only after the opt-in and a click; the mic check shows a level; mute stops publishing; the state is in words and an icon; every final stream event leaves the room; keyboard operable; Axe reports no violation.
+Actual Result: As expected in the unit tests and the e2e voice-lobby spec (no `getUserMedia` on load, Tab and the arrow keys on the radios, the failed join to a closed port with the focus kept on "Join with voice", the mic check's tracks stopped when the seat is superseded or removed, the stream-drop teardown and the fresh token on resume (F10), Axe clean on the lobby and scene states in both colour schemes). Live browser checks (2026-11-09, `voice-live.spec.ts`, 6 of 6, run twice): "Join with voice" published one microphone track into the seat's own room and moved the focus to "Mute microphone" (`aria-pressed="false"`); Mute gave `aria-pressed="true"`, "Microphone muted", no microphone track for the seat on the server and no transcription; unmute published again; "Stop using voice" moved the focus to "Take part by text only" and left the room; the final `ended` stopped every microphone track and the seat room was deleted; Axe clean on the connected, recording and muted states.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 1612 passed, Playwright `voice-lobby` 6 passed; the live browser checks were run by the implementer with `VOICE_LIVE=1`. In CI and the default runs, "mute stops publishing" is proven only against the fake `BrowserRoom` (`MicButton.test.tsx`); the real unpublish is proven only by the opt-in `VOICE_LIVE=1` run. Deviation D40: `setMicrophoneEnabled(false)` only mutes in livekit-client 2.23.0, so mute unpublishes (`unpublishTrack(track, true)`); confirmed live. Browser matrix: Chromium only; Safari, Firefox and mobile browsers not run (TC-0188). Edge case: TC-0185.
+
+TC-0180: A voice notice reaches only that player's page
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0414
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/stream-hub.test.ts src/components/__tests__`.
+Expected Result: `voice_notice` is forwarded as a named event to that player's stream only, announced in the polite status region; an unknown code is dropped.
+Actual Result: As expected: an unknown code, a non-string code and an inherited name are dropped; the BFF's allowlist is exactly the eight codes; the notice region is one polite `role=status` node; through the real runtime `voice_availability` false reaches only the voice holder's stream as the named event `voice_notice`. In the e2e voice-lobby spec the other player's stream carried no `voice_notice` while the voice holder saw "Voice is available again, you can speak.".
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 1612 passed, Playwright `voice-lobby` 6 passed. The notice was produced by SIGKILLing the session's speech worker (D57), the only notice reachable without audio.
+
+TC-0181: The console shows who speaks and the fixed voice alert sentences
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0415
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__ src/components/__tests__`.
+Expected Result: The console's speaking indicator follows the facilitator roster; the voice alerts pass through in their fixed words (an allowlist pinned against the runtime's `VOICE_ALERT_SENTENCES`); neither reaches a player frame.
+Actual Result: As expected: the voice alert sentences pass through exactly at their level, anything else gets the fixed line per level; a speaking edge sends a roster to the facilitator socket only; a facilitator roster never reaches a player's stream; the panel's "Speaking" is not in a live region. Live browser check (2026-11-09): the console's voice panel showed "Speaking" from a real `speech_activity`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): web 1612 and runtime 4522 passed. Deviation D33: the copy list holds all six runtime sentences, `worker_down`'s included.
+
+TC-0182: Notice v3 carries the owner-approved wording and keeps its draft marker
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0416
+Type: Regression
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/engine/__tests__/consent-notice-v3.test.ts`.
+Expected Result: The notice's first line is still the draft marker and its phrase checks pass; the owner approval of 2026-11-08 and the release-gate items (remove the marker, add a SHA-256 pin, legal and HR sign-off) are recorded in docs/memory/backlog-and-decisions.md.
+Actual Result: As expected: the first line is still "Draft for legal and HR review; not for use with participants until signed off." and the phrase checks pass; `consent/notice-v3.md` is unchanged on the branch; the owner approval and the release-gate items are recorded in docs/memory/backlog-and-decisions.md.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story. Gate runs of 2026-11-09 on macOS arm64 (batch 6c gates of the implementers; the controller re-ran `pnpm -r typecheck`, `pnpm lint:sdk`, the package test suites, `pnpm demo --voice` and the `voice-lobby` Playwright spec): runtime 4522 passed. This case passes for what A1b must hold (the marker kept); AC-0416 itself stays open until the release gate. The marker removal, the SHA-256 pin and the legal and HR sign-off are release-gate items, deferred with the other compliance work while in pre-production (owner decision 2026-11-08).
+
+TC-0183: A track that must not be heard is never subscribed, and no frame of an old generation reaches the new holder
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0406, AC-0408
+Type: Edge Case
+Preconditions: A checkout with dependencies installed; no model key, no speech server. Step 2 needs a throwaway LiveKit server.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/livekit-ingest.test.ts src/__tests__/track-pipeline.test.ts src/__tests__/voice-gate.test.ts src/__tests__/livekit-room.test.ts`.
+  2. `VOICE_LIVE=1 pnpm --filter @acr/speech exec vitest run src/__tests__/livekit.live.test.ts` (cases 1, 2, 4 and 6).
+Expected Result: An identity that does not parse (`SPEECH.deadbeef`, `Tech.g12345678`, `a.b`, `alice`), another role's identity in a seat room, a stale generation, a second microphone track, a non-microphone track, a seat before the start, paused, muted or with voice unavailable: never subscribed, no frame, no speech-to-text call. Frames queued after an unsubscribe are never delivered; a stream that ends while allowed is re-subscribed (bounded: 5 restarts without a frame, then `failed`); a subscription that is never answered ends after 10 s (`SUBSCRIBE_WAIT_MS`); after a full reconnect the wanted subscriptions are requested again.
+Actual Result: Step 1 as expected in the gate runs of 2026-11-09 (speech 250 passed). Step 2, 2026-11-09 against `livekit/livekit-server` 1.13.11 in Docker (macOS arm64, media over TCP): first run failed cases 2 and 6 (D60: a refused subscription was never answered and the read waited for ever; D59: after `SIMULATE_NODE_FAILURE` the re-subscribe sent while reconnecting was never answered, 4 frames in 60 s); after the fixes 7d018ed and 2b02bf5 the speech file passed 16 of 16, twice, with the blip, stop and restart commands, plus the long case (686 s, both 600 s tokens expired, audio kept flowing). A second connection with the same identity displaced the first (`DUPLICATE_IDENTITY`) and frames of the same generation continued.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 1 and 2 of the A1b plan. The two live failures were fixed test-first on the branch (unit tests "Reconnected re-requests every subscription that has no track yet" and "a read waiting for a subscription that is never answered ends after SUBSCRIBE_WAIT_MS", each failed before its fix and each fix mutation-checked); they are recorded as plan deviations D59 and D60, not as BUGs, because they were found and fixed before any merge. rtc-node's publisher never receives `LocalTrackSubscribed` for a hidden subscriber (D61), so "never subscribed" is proven by the ingest's own subscribe calls and the fake speech-to-text's call record. Live checks were run by the implementer.
+
+TC-0184: A removed browser that reconnects with its still-valid token is swept again and never heard
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0407
+Type: Negative
+Preconditions: As TC-0183.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/tokens.test.ts` (the periodic sweep and its retry).
+  2. `VOICE_LIVE=1 pnpm --filter @acr/web exec playwright test voice-live --trace off` (the stale-browser case) and the speech live case 3.
+Expected Result: The sweep runs every 20 s while the session has seat rooms (one timer per session, coalesced per room, one retry 2 s after a failed sweep), keeps only the current holder and the worker's `SPEECH.` identity, and stops at the end and when the runtime exits; a reconnecting removed browser is removed again within one period and never subscribed.
+Actual Result: Step 1 as expected (control 881 passed, 2026-11-09). Step 2, 2026-11-09: the stale page published and was removed about 11 s later; no speech-to-text call and no line for the seat; speech case 3 passed (0 subscribe calls, 0 frames for the removed publisher).
+Status: [x] Pass
+Defect Raised: None
+Notes: A JWT cannot be revoked, so removal plus the sweep is the control: up to 20 s the removed browser can sit in its own seat room again, publishing to nobody (the worker never subscribes a stale generation). Batch 3 review F3 and F7. Live checks were run by the implementer.
+
+TC-0185: Without a secure page, a microphone permission or LiveKit in the web server, the page says why and keeps the text box
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0412, AC-0413
+Type: Negative
+Preconditions: A checkout with dependencies installed; no model key, no LiveKit server, no speech server.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/VoiceChoice.test.tsx src/components/__tests__/MicCheck.test.tsx src/components/__tests__/MicButton.test.tsx src/components/__tests__/SessionScreenVoice.test.tsx src/server/__tests__/voice-handlers.test.ts`.
+  2. `pnpm exec playwright test voice-lobby --trace off` (the stack without `LIVEKIT_URL`, and the failed join to a closed port).
+Expected Result: An insecure page disables the voice option with the secure-connection sentence; a denied permission shows the denied sentence and opens nothing; another failure shows the could-not-open sentence; no `LIVEKIT_URL` disables the voice option with the not-available sentence and the token route answers 503 `voice_unavailable`; a failed join ends in "Voice could not connect. Use the text box." with the focus on "Join with voice"; nothing retries in a loop; typed lines still work; once voice is off for the session Join is not offered again.
+Actual Result: As expected in the gate runs of 2026-11-09 (web 1612 passed; Playwright `voice-lobby` 6 passed, re-run by the controller).
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 5 of the A1b plan. `isSecureContext` is injected in the unit tests; the e2e stack serves `http://127.0.0.1`, a secure context, so a real LAN `http://` page and a real permission prompt's `NotAllowedError` were not exercised in a browser (Chromium's fake-UI flag grants the permission).
+
+TC-0186: The microphone and the LiveKit origin are allowed on the session page only
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0413
+Type: Negative
+Preconditions: A checkout with dependencies installed and a production build (`pnpm --filter @acr/web exec next build --webpack`).
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/__tests__/proxy.test.ts src/server/__tests__/headers.test.ts src/server/__tests__/config.test.ts`.
+  2. `pnpm exec playwright test voice-lobby --trace off` ("the real response headers ...", read with node's `http.get` raw headers).
+Expected Result: With a valid `LIVEKIT_URL`, `/session/<id>` gets exactly one `Permissions-Policy: camera=(), microphone=(self), geolocation=()` and `connect-src 'self' <wss origin> <https twin>` (for local development `ws://127.0.0.1:<port>` and `http://127.0.0.1:<port>`), built from the validated origin, never the raw variable; `/session` itself, `/console`, `/join`, the API routes and every other path keep one `microphone=()` and `connect-src 'self'`; an invalid `LIVEKIT_URL` adds nothing to a page and stops the API routes' config; `ws:` is accepted only to `127.0.0.1` or `[::1]` with an explicit port.
+Actual Result: As expected in the gate runs of 2026-11-09 (web 1612 passed; Playwright `voice-lobby` 6 passed). A `next start` with `LIVEKIT_URL=wss://pilot.example:7443` answered as expected under curl in batch 5.
+Status: [x] Pass
+Defect Raised: None
+Notes: Deviations D26, D31, D32, D58. Whether livekit-client needs the `https:` twin was not observed (allowed on `/session/*` only).
+
+TC-0187: The ten live-only LiveKit cases against a real server
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0406, AC-0407, AC-0408, AC-0410, AC-0413
+Type: Functional
+Preconditions: A throwaway local LiveKit server with random keys (never `--dev`) and the variables of docs/memory/demo-and-testing.md, "Voice live checks"; Chromium headless shell 1223; no whisper-server (the fake speech-to-text turns real segments into lines).
+Steps:
+  1. `VOICE_LIVE=1 pnpm --filter @acr/speech exec vitest run src/__tests__/livekit.live.test.ts` with `LIVEKIT_LIVE_BLIP`, `LIVEKIT_LIVE_STOP`, `LIVEKIT_LIVE_START`, `LIVEKIT_LIVE_RESTART`; once more with `VOICE_LIVE_LONG=1`.
+  2. `pnpm --filter @acr/web exec next build --webpack`, then `VOICE_LIVE=1 pnpm --filter @acr/web exec playwright test voice-live --trace off`.
+Expected Result: The ten cases of the A1b plan (Task 18 and "Batch 6c live findings") pass: subscribe with auto-subscribe off and the real frame format; rapid toggles and a surfaced subscription failure; removal and the sweep; a duplicate identity; hidden workers listed and a dead worker lingering until the server timeout; more than 10 minutes, token expiry and reconnects; a LiveKit restart (exit 3 while recording, quiet while not); `deleteRoom` versus the final flush; nothing identifying in the speech log or output, including at connect failures; a join to a dead URL failing in bounded time. Browser: 6 of 6.
+Actual Result: 2026-11-09, `livekit/livekit-server` 1.13.11 in Docker on macOS arm64 (ports on 127.0.0.1 only, media over TCP 7881): speech 16 of 16, twice (after D59 and D60 were fixed), and the long case 1 of 1 (686 s); browser 6 of 6, twice. Case 8: the ended state reached the worker before the room disconnect in 2 of 2 runs, the open segment was flushed, exit 0. Case 10: a closed port was refused in about 10 ms, a socket that never answers after about 16 s (rtc-node's own timeout). Case 9: no key, secret, URL, host, room, token, identity, participant id or `lk-rtc` in the worker's stdout and stderr, the page console, the services' output or any `*.speech.log`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Run by the implementer with the owner's go-ahead; not in CI (skipped without `VOICE_LIVE=1`). Not proven: UDP media, a real LAN, a pilot `wss://` server with TLS, a real whisper-server. Case 8 is a race in principle (IPC versus an HTTP call plus the server's kick); sending `ended` before `deleteRoom` is proposed as a hardening (docs/memory/backlog-and-decisions.md).
+
+TC-0188: Browser matrix for the voice page
+Related Story: US-0071
+Related Task: TASK-0107
+Related AC: AC-0413
+Type: Functional
+Preconditions: The A1b stack with a LiveKit server reachable over `wss://` with a trusted certificate (a pilot-like setup), a real microphone.
+Steps:
+  1. In Safari (macOS and iOS), Firefox and a mobile Chromium browser: consent to notice v3, choose voice, check the microphone, Join with voice, Mute and unmute, Stop using voice, end the session.
+Expected Result: As TC-0179 in each browser: the permission is asked only after the click, the level meter moves, Mute stops the browser's recording indicator, the words and focus follow the state, the room is left on every final event.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Only Chromium (headless shell 1223 with a fake microphone) was tested in A1b. Needs a human, real hardware and a pilot `wss://` server; part of the room test before any pilot (go-live checklist).
+
+## US-0072: voice operations (EPIC-0003 voice A1c)
+
+TC-0189: `pnpm voice:up` starts a hardened whisper-server and the compose services, and `pnpm voice:down` stops them
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417
+Type: Functional
+Preconditions: A checkout with dependencies installed; no real whisper-server, LiveKit, Caddy or Docker engine is used (stub executables on `PATH`, a private repository copy, a private `HOME`).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/whisper.test.ts src/__tests__/up.test.ts src/__tests__/down.test.ts src/__tests__/cli.process.test.ts`.
+Expected Result: whisper-server is started with exactly `--host 127.0.0.1 --port <port> --request-path /<32 hex> -m <STT_MODEL_FILE> -sns --public <empty dir> --tmp-dir <state>/tmp` and never `--convert`; a missing model file is refused before anything is generated or started; compose is started with `up -d --no-build --wait --wait-timeout 60 --quiet-pull`; a second `voice:up` says "already running"; a changed setting is refused; repair restarts only what is missing; `voice:down` stops everything and clears the state.
+Actual Result: As expected with stand-ins only (stub `whisper-server` and `docker`, a LiveKit stand-in on 127.0.0.1:7880, a private repository copy): the exact whisper arguments, never `--convert`; the model refusal before anything is generated; compose `up -d --no-build --wait --wait-timeout 60 --quiet-pull`; rollback on a failure and on SIGINT through `pnpm -s voice:up` (the last line says whether it completed); repair mode; "already running"; `voice:down` leaving a foreign or reused pid alone. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`). The real stack: TC-0204.
+Status: [x] Pass (stand-ins)
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story. The real stack is run only in the plan's Task 15 owner-approved run.
+
+TC-0190: LiveKit keys and STT_URL are generated into `.env` once, privately, and every unsafe `.env` is refused unchanged
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0418
+Type: Negative
+Preconditions: A checkout with dependencies installed; private temporary directories with fabricated `.env` files (never the owner's `.env`).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/env-file.test.ts src/__tests__/up.test.ts`.
+Expected Result: The key (`API` + 24 hex), the secret (64 hex) and `STT_URL` (`http://127.0.0.1:<20000..32767>/<32 hex>`) are appended once, only when absent, as one block; existing bytes are kept; the file stays mode 600 and is replaced atomically; a symlink, a directory, a missing file (the sentence says to run `./run.sh` first), mode 0644 (the sentence says `chmod 600 .env`), half a key pair, an empty managed assignment, the public `devkey`/`secret` pair, a short secret, a bad or `[::1]` `STT_URL`, a file changed between the read and the rename, a git-tracked `.env` and a real environment that sets a managed name are refused with the file byte-identical; no value appears in any message.
+Actual Result: As expected: the refusal table (symlink, hard link, missing, not owned, group- or world-readable, over 1 MiB, tracked by git case-insensitively, half a pair, empty managed line, `devkey`/`secret`, bad key characters, short or non-loopback `STT_URL`, a managed name in the shell) leaves the file byte-identical; one appended block, existing bytes (non-UTF-8 included) kept, 0600 under any umask, the identity recheck before the rename; nothing printed. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0191: The compose services are pinned and hardened
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0419
+Type: Functional
+Preconditions: A checkout with dependencies installed; no container is started.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose.test.ts`.
+  2. `docker compose -f deploy/compose/voice.yml config --quiet` with placeholder values (interpolation only, nothing pulled).
+Expected Result: Both images are pinned by digest; LiveKit never runs with `--dev`, takes its keys only from the private `livekit.env`, publishes its API on `127.0.0.1` only and its media on the node address only; the Caddyfile has `admin off`, no `log`, no `trusted_proxies`, no `X-Forwarded-For` directive, and forwards only `/rtc*` to LiveKit without the cookie.
+Actual Result: As expected: `compose-files.test.ts` and `compose.test.ts` pin both digests, no `--dev`, the private `livekit.env`, the API on 127.0.0.1, the media on the node address, `logging.level: error`, `no-new-privileges`, `restart: on-failure:5`, the Caddyfile (`admin off`, no site `log`, the ERROR `log default` filter, no `trusted_proxies` or `X-Forwarded-For`, `/rtc*` only with `header_up -Cookie`); both `docker compose -f deploy/compose/voice.yml --env-file /dev/null config --quiet` runs (lan and local placeholders) exit 0, nothing pulled. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass (stand-ins)
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0192: `pnpm voice:check` reports every voice prerequisite without printing a secret
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0420
+Type: Functional
+Preconditions: A checkout with dependencies installed; injected seams and stub executables only.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/checks src/__tests__/check.test.ts`.
+  2. From the repository root against a private copy: `pnpm -s voice:check`.
+Expected Result: Whisper health and its cross-origin answer, LiveKit reachability and the keys check, a changed node address, the certificate (warning under 21 days), the hostname's resolution, free disk against `AUDIO_MIN_FREE_MB`, the secure-context reminder, the ports, the backup exclusion and the versions are reported; exit 0, 1 or 2; no output line holds a secret.
+Actual Result: As expected with injected seams and stand-ins: one OK/WARN/FAIL/SKIP line per check, exit 0/1/2, no secret in the report (marker scan), `pnpm -s voice:check` from the root of a private copy exits 1 with nothing running. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass (stand-ins)
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0193: The web server listens on loopback only and the proxy never trusts a client's `X-Forwarded-For`
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0421
+Type: Negative
+Preconditions: The web app built; a runner with a non-internal IPv4 address (the spec skips with a reason otherwise).
+Steps:
+  1. `pnpm --filter @acr/web exec playwright test web-bind`.
+  2. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose.test.ts` (the Caddyfile pins).
+Expected Result: A connection to `127.0.0.1:<port>` is answered; one to the machine's LAN address on the same port is refused; the Caddyfile sets no `trusted_proxies` and no `X-Forwarded-For` header; the BFF still refuses a two-entry list.
+Actual Result: As expected: `web-bind.spec.ts` answers on 127.0.0.1 and is refused on the LAN address; the Caddyfile pins (in `compose-files.test.ts`); `requestAddress refuses a two-entry list` (characterisation). 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0194: A LiveKit outage does not spend the speech worker's restart budget
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0422
+Type: Functional
+Preconditions: A checkout with dependencies installed; fake worker, fake probe and manual timers (no LiveKit).
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/livekit-outage.test.ts src/__tests__/voice/restart.test.ts`.
+Expected Result: Exit 3 with LiveKit unreachable is an outage: not counted, one `livekit_lost` alert, probes after 2, 4, 8, 16 and then every 30 s, a new worker and one `livekit_recovered` alert when LiveKit answers; exit 3 with LiveKit answering, any other exit, and a LiveKit that dies again within 60 s of a recovery are counted and reach voice off after the fifth failed restart.
+Actual Result: As expected with fakes (`livekit-outage.test.ts` 31 tests, `livekit-probe.test.ts`, `restart.test.ts`, `supervisor.voice.test.ts`, `main.test.ts` wiring): not counted, one `livekit_lost`, probes 2, 4, 8, 16 s after the previous answer then every 30 s, one `livekit_recovered` and a new worker; exit 3 with LiveKit answering, a rejected or hanging probe (watchdog), other exits and a re-loss within 60 s of a recovery count; end and shutdown cancel probes and ignore late answers; every listed mutation fails a test. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`). Not yet live: the real outage is TC-0204.
+Status: [x] Pass (stand-ins)
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story. The live claim waits for the plan's Task 15 real outage run.
+
+TC-0195: The timing record holds numbers only and `pnpm voice:timings` summarises it
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0423
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control` and `services/voice-ops`: the timing tests of the plan's Task 12.
+Expected Result: With `VOICE_TIMING_LOG=1` each appended voice line logs only the two millisecond values; `voice:timings <log>` prints count, p50, p95 and max.
+Actual Result: As expected: `voice-host.test.ts` (one line per ack from the injected clock, nothing for a refused or timed-out line), `timing-log.test.ts` (0600, no link, no FIFO, 1 MiB cap, marker scan: no text, role, participant, segment, token or path), `timing-chain.test.ts` (`end_to_append_ms` from the voice-detector end, the hangover included), `timings.test.ts` and the `pnpm -s voice:timings` process test (nearest-rank p50/p95, exit 0/1/2). 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0196: The voice runbook covers start, check, stop and the room test
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0424
+Type: Functional
+Preconditions: The branch's documents.
+Steps:
+  1. Read `docs/VOICE_RUNBOOK.md` and run its commands' tests (the plan's Task 14).
+Expected Result: Start, check, stop, the secure context, router DNS rebinding, the macOS firewall and the native LiveKit failure, headsets, the backup exclusion, the same-room cross-talk risk and the owner-run room test with how to read its results are covered.
+Actual Result: As expected: `docs/VOICE_RUNBOOK.md` sections 1 to 11 (start, check, stop, the secure context, DNS rebinding, the firewall and the native LiveKit failure, the two-device check, headsets, backups, failures including the LiveKit outage and the rejoin click, the room test, reading the results, the owner checklist); its commands and sentences checked against `services/voice-ops` and control. Its real-run steps are TC-0204.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0197: The documents describe A1c and voice stays off by default
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0425
+Type: Regression
+Preconditions: The branch's documents.
+Steps:
+  1. Read the threat model, ROLLBACK, ARCHITECTURE, README, `.env.example`, `findings.md` and the memory files; check the voice settings tests that `VOICE_ENABLED` defaults to `0`.
+Expected Result: Each document describes A1c; `findings.md` lists the two images (no new npm dependency); `VOICE_ENABLED` stays `0` by default.
+Actual Result: As expected: the threat model ("Voice operations, slice A1c"), ROLLBACK ("US-0072"), ARCHITECTURE (deviation note), README ("6. Voice (pre-production)"), `.env.example`, `findings.md` (the two images, no new npm dependency) and the memory files describe A1c; the voice settings tests still default `VOICE_ENABLED` to 0. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-09 with the story.
+
+TC-0198: An `.env` that is not what `voice:up` expects is refused or merged without changing one existing byte
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0418
+Type: Security
+Preconditions: Fabricated `.env` files in private temporary directories (never the owner's `.env`).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/env-file.test.ts` (the `refuses and leaves the file byte-identical for ...` table, `a file without a final newline gets one before the block`).
+Expected Result: A symlink, mode 0644, only `LIVEKIT_API_KEY`, an empty `LIVEKIT_API_SECRET=`, the public `devkey`/`secret` pair, a quoted value, Windows line ends and no final newline are refused or merged with the existing bytes an exact prefix; only variable names are printed.
+Actual Result: As expected. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 1.
+
+TC-0199: `voice:up` failing half way or interrupted leaves nothing `voice:down` cannot stop
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417
+Type: Functional
+Preconditions: Stand-ins only (stub executables, fake world).
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/up.test.ts src/__tests__/cli.process.test.ts` (`compose failure stops whisper-server and clears the state`, `SIGINT during the health wait rolls back`, `repair: a dead whisper-server is started again and compose is not taken down`, `SIGINT through pnpm -s voice:up rolls back`).
+Expected Result: Every start is recorded before the next; a failure or an interrupt rolls back only what this run started; a refusal or an interrupt before the first change leaves a running stack's state untouched; repair never runs `compose down`.
+Actual Result: As expected with stand-ins. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 2. A real Ctrl-C during a real image pull: TC-0204.
+
+TC-0200: `voice:down` never signals a process that is not the whisper-server `voice:up` started
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417
+Type: Security
+Preconditions: Stand-ins only.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/run.test.ts src/__tests__/whisper.test.ts src/__tests__/down.test.ts` (`isOurWhisper is not_ours for a live pid of another program (the test's own pid)`, `down leaves a foreign process alone`, the repeated autumn hour, a `ps` that cannot answer).
+Expected Result: A pid whose command name, start time or `--port` differ is left alone; an unanswerable `ps` keeps the record and asks to run `voice:down` again; no SIGKILL without a fresh identity check.
+Actual Result: As expected. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 3.
+
+TC-0201: The LiveKit outage table, the crash loop and the probe faults
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0422
+Type: Functional
+Preconditions: Fake workers, a scripted probe, manual timers.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/livekit-outage.test.ts` (`a LiveKit that dies again within 60 s of each recovery turns voice off after the fifth such cycle`, `an outage longer than the whole restart budget never turns voice off`, the review C watchdog and fallback tests).
+Expected Result: A LiveKit restart of 10 to 60 s keeps voice (unavailable, then back, one alert each way, no flapping availability); a LiveKit-shaped fault while LiveKit answers reaches voice off after the fifth failed restart, and so does a LiveKit that dies again within 60 s of each recovery; a hanging probe is bounded.
+Actual Result: As expected with fakes. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 4. Live: TC-0204.
+
+TC-0202: A LAN client cannot reach the web port, and its own `X-Forwarded-For` never survives the proxy
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0421
+Type: Security
+Preconditions: The web app built; a runner with a LAN address.
+Steps:
+  1. `pnpm --filter @acr/web exec playwright test web-bind`; from `services/voice-ops`: `pnpm exec vitest run src/__tests__/compose-files.test.ts`; from `apps/web`: `pnpm exec vitest run src/server/__tests__/guards.test.ts`.
+Expected Result: Refused at the socket on the LAN address; the Caddyfile has no `trusted_proxies` and no `X-Forwarded-For` directive; the BFF refuses a two-entry list.
+Actual Result: As expected (configuration pinned; Caddy's real replacement of the header is part of TC-0204). 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 5.
+
+TC-0203: The wrapper and the environment around `voice-ops`
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417, AC-0418
+Type: Functional
+Preconditions: Stand-ins only; a private repository copy.
+Steps:
+  1. From `services/voice-ops`: `pnpm exec vitest run src/__tests__/root-scripts.test.ts src/__tests__/up.test.ts src/__tests__/cli.process.test.ts` (`every voice:* root script names run`, `the real environment setting a managed name is refused`, `SIGINT through pnpm -s voice:up rolls back`, `a changed node address is refused while running`, `a second concurrent run is refused by the lock`).
+Expected Result: No root script can be read as a pnpm built-in; a shell that exports a managed name is refused before anything is written; an interrupt through pnpm rolls back; changed settings while running are refused; two runs at once are excluded.
+Actual Result: As expected. 2026-11-09 (batch 5 gates, macOS arm64, Node 22.23.1; the changed packages also in the node:22 Linux container as root and as `node`).
+Status: [x] Pass
+Defect Raised: None
+Notes: Plan Review Focus 6.
+
+TC-0204: The real stack (owner-approved run; not in CI)
+Related Story: US-0072
+Related Task: TASK-0108
+Related AC: AC-0417, AC-0419, AC-0420, AC-0422, AC-0423
+Type: Functional
+Preconditions: The pilot laptop, the owner's approval for each marked item, a real Docker engine, whisper-server 1.9.5 and a model file; for `lan` the hostname and certificate and a second device.
+Steps:
+  1. `docs/VOICE_RUNBOOK.md` section 11, items 1 to 10, in order.
+Expected Result: `voice:up` and `voice:check` work against the real services (whisper-server's `/health` and prefix, its CORS answer, LiveKit's `GET /` answer, the keys check); no transcript in `whisper.log` or stdout; the A1b live checks pass; a 10 to 60 s LiveKit stop gives one `livekit_lost`, one `livekit_recovered`, a restarted worker without spending the budget, and voice again after the person presses "Join with voice"; the sweep logs one line per 20 s during the outage; the two-device address check passes (or the fallback is recorded); Caddy's log holds no `access_token`, `join_request` or `sid` after a forced 502; real timing numbers are recorded; `voice:down` leaves nothing.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-09. Not run by the agents (no container, image pull or real service in this slice); the owner runs it.
+
+## US-0073: voice audio store (EPIC-0003 voice A2a)
+
+TC-0205: Settings validate and the runtime's ready hands over the identity
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0426
+Type: Unit
+Preconditions: A checkout with dependencies installed; no real runtime or worker process.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-settings.test.ts src/__tests__/voice/voice-host.test.ts src/__tests__/voice/speech-env.test.ts`; from `services/speech`: `pnpm exec vitest run src/__tests__/config.test.ts`.
+Expected Result: Defaults (`<CONTROL_DATA_DIR>/audio`, 2048 MB, 30 days), ranges (1 to 30 days; 512 to 1 000 000 MB) and the absolute-path rule hold in both services; a bad value is refused naming the variable only; the worker learns a 32-hex identity from `ready` (set before the asynchronous seat lookup) and builds no path before it; a malformed identity (`../x`, upper case, 31 or 33 characters, a number) records no audio while voice still works; a kept worker is stopped and respawned only when the identity differs; the worker's `SPEECH_LOG_IDENTITY`, `SPEECH_SESSIONS_DIR`, `AUDIO_DIR` and `AUDIO_MIN_FREE_MB` come from control's values, never the parent environment.
+Actual Result: As expected (audio-settings.test.ts, speech config.test.ts store cases, voice-host.test.ts `VoiceHost log identity hand-off`, speech-env.test.ts R10). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The expected result was widened to name rulings R10 and R11 (control passes the audio settings; the worker allowlist no longer inherits them).
+
+TC-0206: Audio paths and the index file are safe
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427
+Type: Security
+Preconditions: A private temporary directory as `AUDIO_DIR` (real files, real modes; no root-only assertions).
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/paths.test.ts src/__tests__/store/paths-containment.test.ts src/__tests__/store/index-file.test.ts src/__tests__/store/wav.test.ts src/__tests__/store/audio-store.test.ts`.
+Expected Result: Ids containing `..`, a separator or upper-case hex are refused before any join and before the disk is touched; the joined path must still be inside `AUDIO_DIR` (proven with the id check disabled); a symlinked `AUDIO_DIR`, identity folder or role folder, a dangling link and a file where a folder belongs are refused; an existing folder that is group- or world-writable is repaired to 0700 or refused when the repair fails; directories 0700, files 0600; the WAV is a canonical little-endian 44-byte header plus 16 kHz mono 16-bit samples; a torn last index line is skipped and given its newline; a symlinked index is refused; error text never carries a path or a value.
+Actual Result: As expected (paths.test.ts, paths-containment.test.ts, index-file.test.ts, wav.test.ts and audio-store.test.ts all passed). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. `paths-containment.test.ts` was added in Task 10 after the first mutation run showed that removing `assertInside` failed no test (`isFileSafeId` refuses every escaping id first); it mocks the id check to pass and shows containment refusing alone.
+
+TC-0207: The disk guard stops writes
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0428
+Type: Functional
+Preconditions: A fake `statfs` (speech) and the real `DiskGuard` on a tiny fake volume (control end to end).
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/disk-guard.test.ts src/__tests__/store/audio-store.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-store.e2e.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: Writing is refused when free space on either the audio volume or the sessions volume is not strictly greater than `AUDIO_MIN_FREE_MB` plus the next file (an unreadable or odd measure counts as full); nothing is written, the worker sends `store_stopped { disk_low }` exactly once, control raises one facilitator alert and audits `voice.recording_stopped`; the voice lines still go to the runtime; the store stays stopped for the rest of that worker's life (it does not resume when space returns; a respawned worker checks again).
+Actual Result: As expected (disk-guard.test.ts; audio-store.test.ts guard cases; audio-store.e2e.test.ts scenario 4; voice-host.test.ts `store_stopped %s raises the facilitator alert and audits voice.recording_stopped`). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean). No real disk near the floor was used.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The filed expected result said writing resumes when space returns; the built behaviour (and spec section 5 as built) is that a stopped store stays stopped in the same worker, so the case was corrected. A real near-full disk: TC-0218.
+
+TC-0208: Only consented outcomes keep audio
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0429
+Type: Security
+Preconditions: A fake pipeline with accepted, `empty`, `stt_failed`, `paused`, `not_in_scene`, `failed`, `ended`, `not_started`, consent-class and timeout outcomes; the real worker with the real store in one process (control e2e).
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/consent-rule.test.ts src/__tests__/worker-audio.test.ts src/__tests__/store/audio-store.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-store.e2e.test.ts`.
+Expected Result: Exactly the allowlisted outcomes write a WAV (16 kHz mono 16-bit) and an index line (`transcribed` with the seq, `empty`, `stt_failed`, `refused:paused`, `refused:not_in_scene`); every other refusal code (including `failed`, `ended`, `not_started`, the consent and seat class and an unknown future code), a timeout and a segment whose answer never comes write nothing; an opt-out, a reissue or a pause while a segment waits writes nothing even when a late `seq` follows; at most 256 segments wait; the end drops what waits; a crash between the WAV and its index line leaves an orphan, never a line without its WAV.
+Actual Result: As expected (consent-rule.test.ts; worker-audio.test.ts; audio-store.test.ts; audio-store.e2e.test.ts scenarios 1, 2 (three variants), 3 and 3b). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. Review Focus 1 and 5.
+
+TC-0209: The speech worker holds the store lock and keeps pending segments
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0430
+Type: Functional
+Preconditions: Fake lock and runtime answers; a real forked worker for the parent-gone case.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/__tests__/files-export.test.ts`; from `services/speech`: `pnpm exec vitest run src/__tests__/store/ src/__tests__/main-store.test.ts src/__tests__/main-store.process.test.ts src/__tests__/imports.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/bots/imports.test.ts`.
+Expected Result: The `<logIdentity>.store.lock` is held through `SessionLock.acquire` with the `store` suffix (a store and an audit lock of one identity coexist, the same suffix twice is refused, a suffix with a separator is refused, the default lock name is unchanged); a `locked` acquire is retried every 250 ms for about 35 s, then `store_stopped { write_error }` is sent once and the worker runs as transcript-only; another error is not retried; a lost lock stops recording; when the parent goes away during the wait the process exits 0, sends nothing and holds no lock; the speech import guard allows only `@acr/runtime/files` and control allows exactly six `@acr/runtime` subpaths.
+Actual Result: As expected (files-export.test.ts; main-store.test.ts; main-store.process.test.ts, a real forked `main.ts` with the lock held by the test; imports.test.ts in both services). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The 35 s wait is a retry loop on an injected clock; no real 35 s wait was run.
+
+TC-0210: Control audits the store without keeping any content
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0431
+Type: Security
+Preconditions: A private audit directory; fake locks and a fake clock.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audit-log.test.ts src/__tests__/voice/voice-host.test.ts src/__tests__/protocol.drift.test.ts`; from `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-notice.test.ts`; from `apps/web`: `pnpm exec vitest run src/server/__tests__/facilitator-copies.test.ts`.
+Expected Result: `store_stopped` raises the alert (`disk_low` or `write_error`) and appends `voice.recording_stopped`; `voice_choice` appends `voice.opted_in` (notice v3) or `voice.opted_out` with ids only; every line is `{ v: 1, ts, ... }` with only the fields its type declares (a smuggled text, audio or transcript key is never written); appends for one identity keep their order; a held audit lock is retried 3 times 50 ms apart, then one fixed sentence is logged and the append never rejects; a malformed identity, a symlinked directory and an unsafe audit file write nothing; the stop is audited under the sending worker's own identity (also a retiring worker's); both protocol copies and the runtime and web sentences carry the two new codes.
+Actual Result: As expected (audit-log.test.ts; voice-host.test.ts `VoiceHost audit log and store alerts`; protocol.drift.test.ts; the runtime and web copies tests). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. Not tested: a persistent fault in the audit directory over time (a line lost to it is lost; one fixed sentence is logged).
+
+TC-0211: The sweep deletes only what it may
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0432
+Type: Functional
+Preconditions: Temporary audio directories with live, dead, foreign and malformed identities, planted links, and a fake clock and lock.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/sweep.test.ts src/__tests__/main.test.ts src/__tests__/voice/audio-store.e2e.test.ts src/__tests__/voice/audio-store.e2e.real.test.ts`.
+Expected Result: Only expired audio and crash orphans under 32-hex identities whose store lock can be taken are deleted: renamed aside, audited exactly once, removed without following links; a folder is kept one millisecond before the retention (1 and 30 days) and deleted at it; the clock is `ended.json`, else the last `endMs` plus 24 h, else the newest file time, and a time later than now counts as now; a live worker's lock (this process or another live process) skips the folder, also right after a control restart; a leftover `.deleting-*` is finished with no second audit line; links, plain files, non-hex names and other users' folders are left alone; an index that is unreadable, a link or over 64 MiB removes nothing; the sweep runs with `VOICE_ENABLED=0`, never overlaps itself, and stops with the service; **the audit file is never deleted**.
+Actual Result: As expected (sweep.test.ts, main.test.ts, audio-store.e2e.test.ts scenarios 5, 5b, 6 and 7, audio-store.e2e.real.test.ts: a real runtime child and a real forked worker hold the lock, the sweep skips, then deletes and audits once after the end). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. The filed expected result said the audit log is pruned by retention; spec section 7 and the code say it is not (kept as long as the session's log), so the case was corrected.
+
+TC-0212: Audio retention works end to end and is documented
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0433
+Type: Regression
+Preconditions: The fake-ingest stack, a real runtime child and a real forked speech worker, and the branch's documents.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-store.e2e.test.ts src/__tests__/voice/audio-store.e2e.real.test.ts`.
+  2. Check `docs/THREAT_MODEL.md` ("Voice audio store, slice A2a"), `.env.example`, `docs/memory/models-and-providers.md`, `docs/VOICE_RUNBOOK.md` sections 7 and 8, `CHANGELOG.md`, `progress.md` and MEMORY fact 29.
+  3. From the repository root: `pnpm -r typecheck`, `pnpm -r test`, `npm run plan:generate`.
+Expected Result: Write, index, `ended.json` and sweep work end to end (private modes, one transcribed line with the runtime's real seq, one `audio.deleted` line, the audit file kept); each Review Focus failure mode has a test that fails under its mutation; the documents describe A2a; `VOICE_ENABLED` stays `0` by default.
+Actual Result: As expected. The in-process end to end (scenarios 1 to 7) and the real-process test passed; see TC-0214 for the mutation runs. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean). `npm run plan:generate` reported no parse errors.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 with the story. No real room, real hardware or real clock was used (TC-0218).
+
+TC-0213: The store survives faults at every file step
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427, AC-0429
+Type: Negative
+Preconditions: Injected file calls (`StoreFs`) that fail one step at a time; a private temporary directory.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/audio-store.test.ts` (`test_a_fault_inside_appendIndex_before_any_line_keeps_the_wav_as_an_orphan_and_stops`, `test_a_fault_after_the_index_line_was_written_keeps_the_wav_and_stops`, `test_a_failing_unlink_during_cleanup_still_stops_without_throwing`, `test_a_short_write_is_completed`, `test_a_zero_byte_write_is_a_write_error`, `test_a_throwing_onStopped_does_not_escape_write`, `test_the_wav_is_fsynced_and_the_role_folder_fsynced_before_the_index_line`, the `ended.json` fault cases).
+Expected Result: A fault before the index append removes the partial WAV and stops the store with `write_error`; once the append has been tried the WAV is kept (ruling R6) and the store stops; a short write is completed and a zero-byte write is an error; the WAV and its folder are fsynced before the index line; a fault while writing `ended.json` neither throws nor stops the store nor leaves a temp file; `write` never throws and never overwrites an existing WAV.
+Actual Result: As expected. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Review Focus 5. Ruling R6 came from the Task 6 review.
+
+TC-0214: The consent and containment rules fail the named tests when removed (mutation checks)
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0429, AC-0433
+Type: Regression
+Preconditions: A clean working tree; each mutation applied to the working tree only and reverted (Task 10).
+Steps:
+  1. Apply, one at a time: `decide` also keeps `failed`; the allowlist keeps every refusal; the disk guard skipped in `AudioStore.write`; `assertInside` removed from the path join; the id check made a no-op; both of those; the sweep treating a refused lock as acquired; `dropRoles` removed at `gate.update`. Run the narrowest test files for each (the Task 10 report lists them).
+Expected Result: Every mutation fails at least one named test, and the suite is green again after each revert. The `assertInside` removal first failed no test (a gap) and `paths-containment.test.ts` now fails with it.
+Actual Result: As recorded in the Task 10 report (2026-11-11): each of the eight runs failed the named tests (for example `test_the_refusal_keep_set_is_exactly_paused_and_not_in_scene`, `test_a_failing_guard_stops_with_disk_low_and_writes_nothing`, `a refused lock skips the folder: nothing deleted, nothing audited`, `Review Focus 1: an opt-out while the segment waits drops it...`) and was reverted; `git status` showed no production change afterwards. Not repeated in this documents pass.
+Status: [x] Pass (prior evidence, not re-run)
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). The run is evidence from Task 10, not a re-run today.
+
+TC-0215: Identity change, retired workers and the order of stops
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0426, AC-0431
+Type: Functional
+Preconditions: Fake workers; no real process.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/voice-host.test.ts` (`a runtime restart with a DIFFERENT identity stops the kept worker and respawns it with the new one, without counting a failure`, `review fix: a store_stopped between a new runtime's ready (setIdentity NEW) and its attach is audited under the kept worker's OLD identity`, `review fix: a retired worker's store_stopped (still flushing) is audited under its own OLD identity with no alert`, `review fix: a worker spawned without an identity audits nothing even after the session later gets one`).
+Expected Result: A retiring worker is detached at once (its messages are ignored, its slots released) and stopped; the new one is spawned with the new identity; `store_stopped` is audited under the identity of the worker that sent it and never under a newer runtime's; a worker spawned without an identity never audits; a retirement counts no failure and raises no alert (ruling R3).
+Actual Result: As expected. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Not covered by a test (deferred minors): that a retired worker's later messages are ignored and that `forceKill` fires.
+
+TC-0216: The sweep leaves unsafe and live entries alone, and finishes interrupted deletions
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0432
+Type: Security
+Preconditions: Temporary audio directories with planted links, plain files, foreign names, an index that is a link, a 64 MiB sparse index and leftover `.deleting-*` folders.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/sweep.test.ts` (`leaves non-hex names, plain files, symlinks and other leftovers strictly alone`, `a symlink inside a deleted folder is unlinked, never followed`, `an index that is a link or unreadable is not trusted: nothing is removed on a guess`, `an index over 64 MiB (sparse) removes NOTHING`, `a worker that takes the lock right after the sweep's release keeps its lock file (never unlinked by path)`, `exactly one audit line across a removal that fails: the next run finishes it silently`, `only regular files named like a segment: a link, a folder and other names are left alone and never followed`).
+Expected Result: No link is followed or removed as its target; a non-identity name is never touched; an unreadable, linked or oversized index removes nothing (only a missing one means no index); the sweep never unlinks a lock file by path; a deletion whose removal failed is finished by the next run with one audit line in total.
+Actual Result: As expected. 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean). The chmod-0500 cases fail when run as root (they are not skipped for uid 0; deferred).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Not covered: a folder swapped for a link between the listing and the removal (the same-user race, THREAT_MODEL residual risks), an audit append that fails during a deletion (R12, by construction), a plain file named `<hex32>.deleting-x`.
+
+TC-0217: The segment WAV name rule is the shared id rule
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427, AC-0432
+Type: Regression
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/sweep.test.ts` (`segmentIdOf`); from `services/runtime`: `pnpm exec vitest run src/__tests__/id-rules.files.test.ts`.
+Expected Result: `segmentIdOf` accepts exactly `<file-safe id>.wav` through `isFileSafeId`; no source file other than `packages/events/src/ids.ts` spells an identifier rule.
+Actual Result: As expected after the fix `cc7149d` (the sweep had spelled the rule out and failed the US-0020 single-definition test). 2026-11-11 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4537 (+1 skipped), speech 439 (+17 skipped), web 1614, control 1060, all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11).
+
+TC-0218: Audio retention on the real stack (owner-approved run; not in CI)
+Related Story: US-0073
+Related Task: TASK-0109
+Related AC: AC-0427, AC-0428, AC-0432
+Type: Functional
+Preconditions: The pilot laptop with a real session, real speech-to-text and the owner's approval; the audio directory on a real volume; the notice v3 wording to hand.
+Steps:
+  1. `docs/VOICE_RUNBOOK.md` section 11, item 10: record a short session by voice, list the audio folder and check the modes with `ls -lR`, end the session and check `ended.json`, restart control while a second session runs and read the audit file, then, with the owner's approval and only on a throwaway session folder, set `endedAtMs` in its `ended.json` more than `AUDIO_MAX_RETENTION_DAYS` days back, restart control and watch the sweep delete it; read the notice wording against the opt-out behaviour.
+Expected Result: Folders are 0700 and files 0600; one WAV per kept segment; the index and `ended.json` exist; the audit file holds only ids and labels; a restart of control while the worker runs leaves the audio alone; an expired session is removed and audited once; the owner confirms the opt-out sentence and the audit-failure and future-time rulings.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-11 (Task 11). Not run by the agents: no real room, real hardware, real disk near the floor or wall-clock retention run exists for A2a. The owner runs it with the room test.
+
+## US-0074: voice audio listing and audited replay (EPIC-0003 voice A2b-1a)
+
+TC-0219: The audio folder records its session before the first WAV
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0434
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/session-marker.test.ts src/__tests__/store/audio-store.test.ts`.
+Expected Result: The first kept segment of a process writes `session.json` `{ v: 1, sessionId }` (0600) before its WAV and a second write does not rewrite it; a skipped or refused segment and a disk-guard stop leave no folder and no marker; a failure at the temp create, the fsync, the rename or the folder fsync stops the store once with `write_error`, leaves no WAV and no temp file; a symlink planted at `session.json` is replaced, never followed.
+Actual Result: As expected (speech `src/__tests__/store/session-marker.test.ts` `writeSessionMarker` cases; `store/audio-store.test.ts` `AudioStore: session marker (US-0074)`: `test_marker_written_before_the_first_wav`, `a second write does not rewrite the marker`, `test_no_marker_when_nothing_is_written`, `test_marker_failure_stops_the_store_with_write_error` for `openSync`, `fsyncSync`, `renameSync` and `fsyncDir`, `test_marker_never_follows_a_link`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0220: The worker requires a valid session id when it stores audio
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0435
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/config.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/speech-env.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: A store configured without `SPEECH_SESSION_ID`, or with `../x`, 65 characters or a NUL, is refused with an error that names only the variable; control sets it from `extra` only and never inherits it from the parent environment.
+Actual Result: As expected (speech `config.test.ts` `test_store_needs_a_valid_session_id: missing or invalid is a config error naming the variable only` and `no AUDIO_DIR: a missing SPEECH_SESSION_ID is not an error`; control `speech-env.test.ts` `SPEECH_SESSION_ID (US-0074, A2b-1a)` (set from `extra`, an inherited value overridden, invalid ids omit only that variable, never on the allowlist); `voice-host.test.ts` `US-0074: the worker env carries SPEECH_SESSION_ID ...`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0221: The audit log reports success and records audio.played
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0436
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audit-log.test.ts`.
+Expected Result: `append` resolves true after a successful write and false on every failure path (lock, write, bad identity) without rejecting; an `audio.played` line holds exactly `role`, `segment`, `by` plus the common fields, and a smuggled extra key is never written.
+Actual Result: As expected (control `audit-log.test.ts` `AuditLog.append reports success; audio.played (US-0074, A2b-1a Task 3)`: `resolves true after the line is written`, the false cases for a malformed identity, a symlinked or file audio dir, a held lock, a write error and a throwing acquirer, `the audio.played line has exactly v, ts, type, role, segment, by; an extra key is dropped`, `every pre-existing event still serializes exactly as before`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0222: The catalog finds every folder of a session and trusts no bad marker
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0437
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp audio directory.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts`.
+Expected Result: `find` returns every identity whose marker names the session, rescans on each call, and ignores a marker that is missing, torn, a link, of another `v`, larger than 4 KB or naming another session.
+Actual Result: As expected (control `audio-catalog.test.ts` `AudioCatalog.find by marker (US-0074)`: `finds the one identity whose marker names the session`, `returns every identity of a session ... sorted`, the table of bad markers (torn, `v: 2`, `v` as a string, an extra key, another session), `a marker over 4 KB is ignored, one of exactly 4 KB is read`, the symlink, directory and wrong-name cases, `keeps no cache`, and `never probes a path before opening it`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0223: The listing covers every identity and falls back for old folders
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0438
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp store with two identities for one session.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: The listing has the documented shape, never carries `raw`, marks each segment `available`, `deleted` or `missing`, covers both identities, falls back to the session log's `logIdentity` for a folder without a marker, and answers 404 for a session with no audio.
+Actual Result: As expected (control `audio-catalog.test.ts` `AudioCatalog.list (US-0074, Task 5)`, `AudioCatalog.find fallback`, `audio-routes.test.ts` `GET /sessions/:id/audio (the listing)`: exact shape sorted by identity, no `raw`, `recordingStopped`, a marker folder with no segments, `an unknown session, and one whose only folder has no marker, are 404`; `audio-replay.e2e.test.ts` `the listing shows the session's segment, and not another session's` and the pre-marker fallback case). Honest limit: `available` is tested as 'the WAV opens as a regular own file with one link'; the replay size window is not part of it. 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0224: The segment read is safe, whole and audited before any byte
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0439
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp store.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.test.ts`.
+Expected Result: The exact bytes are returned and exactly one `audio.played` line is written after the read and before the bytes are returned; a failing audit returns `audit_unavailable` and no bytes; a role folder or WAV that is a link, `nlink` 2, a size of 43 or 524289, a segment with no index line, a bad id and a missing WAV are refused with nothing outside the audio directory read and no audit line; a deleted segment returns `audio_deleted`.
+Actual Result: As expected (control `audio-replay.test.ts`: `returns the exact bytes and writes exactly one audio.played line with role, segment and by`, `reads the whole WAV and closes it BEFORE the audit append, and returns only after the append resolved`, `append resolving false: audit_unavailable and no bytes anywhere in the result`, the refusals for a link, `nlink 2`, `a WAV of 0, 43 and 524289 bytes`, a deleted segment and a segment with no index line, and `replaySegment: bad ids make no file call`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0225: The HTTP routes answer the right status for every case
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0440
+Type: Functional
+Preconditions: A checkout with dependencies installed; `createApi` over a real temp store.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: Replay answers 200 with the whole file and the documented headers whatever `Range` says; no token is 401 before any file call; a bad `X-Acr-By` is 400 with no file call and no audit line; a deleted segment is 410; an audit failure is 503 `audit_unavailable` with no audio (a JSON body holding only the code); the ninth of nine concurrent replays is 503 `busy`; one `audio.played` line per 200.
+Actual Result: As expected (control `audio-routes.test.ts`: `returns the exact WAV bytes with the binary headers and writes one audio.played line`, `Range ... is ignored: the full 200 body` (five Range values), `a deleted segment is 410 audio_deleted`, `an audit append resolving false is 503 audit_unavailable with NOT ONE audio byte`, `9 concurrent replays held open by a slow audit: the 9th is 503 busy with Retry-After, and the counter recovers`, `... without the service token, or with the wrong one, is 401 with no file call and no audit line`, `X-Acr-By ... is 400 invalid with no file call and no audit line`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0226: Replay works end to end and survives the mutation checks
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0441
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.e2e.test.ts`, then apply each mutation of plan Task 8 (the plan named five; the implementer ran eleven) one at a time and run the narrowest test files (the Task 8 report lists them).
+Expected Result: The real worker store and the real control API list and replay a segment, write one `audio.played` line with no content keys, cover two identities, answer 404 after the sweep and keep working with `VOICE_ENABLED=0`; each mutation fails at least one named test and is reverted.
+Actual Result: The end-to-end part as expected (control `audio-replay.e2e.test.ts`: the listing, `a replay returns the exact WAV bytes and writes exactly one audio.played line ...`, `two identities for one session ...`, `after the real sweep expires the folder ... the listing and the replay are 404`, the pre-marker fallback, `the fallback is ignored when the session log names a folder whose marker names another session`, `the whole startControl with VOICE_ENABLED=0 still lists and replays ...`). The mutation checks are PRIOR EVIDENCE from the Task 8 implementer's report (2026-11-12), not re-run here: eleven mutations (audit after the bytes, `nlink` check dropped, index-line requirement dropped, audit result ignored, any `X-Acr-By` accepted, `Range` honoured with 206, both deleted-mark checks dropped, the token check skipped for the audio paths, the fallback ignoring an existing marker, `audio` not passed to `createApi`, the catalog built without the fallback) each failed at least one named test (for example `a WAV with nlink 2 (hard-linked): not_found and not read`, `an audit append resolving false is 503 audit_unavailable ...`, `Range "bytes=10-20" is ignored: the full 200 body`) and was reverted; no gap was found. 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass (mutation checks: prior evidence, not re-run)
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0227: The catalog refuses a writable root and a fallback folder that has any marker
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0437, AC-0438
+Type: Security
+Preconditions: A temp audio directory; the tests skip the mode cases when run as root.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts`.
+Expected Result: `find` returns `[]` for a root with mode 0770, 0777, 0720 or 0702 even with a valid marker folder (0700, 0750 and 0755 work as before); the pre-marker fallback is asked only when no marker matched and accepts a folder only when it has no `session.json`: a marker for another session, a torn one, one of another `v`, an extra key, an oversized one, a symlink or a directory refuses the fallback's folder.
+Actual Result: As expected (audio-catalog.test.ts `AudioCatalog.find needs a private audio directory (ruling R3)` and `AudioCatalog.find fallback (US-0074, spec section 3)`: `is never consulted when a marker matched`, `is refused when its folder's marker is a symlink (even to a valid marker of this session) or a directory`, and the bad-marker table). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Added by the Task 4 review fix round (findings I1 and R3). The mode cases skip at uid 0.
+
+TC-0228: The session-log identity reader only trusts the first line
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0438
+Type: Unit
+Preconditions: A temp sessions directory.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/log-identity.test.ts`.
+Expected Result: `readLogIdentity` returns the `logIdentity` of a complete first line `session.started` with `seq` 1, the same session id and 32 lower-case hex; anything else (another first event, another session, a torn or over-long first line (more than 64 KiB), a missing, linked, directory or FIFO log, an invalid session id or sessions directory) is `undefined`; it reads only the head of a large log.
+Actual Result: As expected (log-identity.test.ts: `returns the logIdentity of a session.started first line`, `accepts a complete first line with no newline yet`, `reads only the head: a large log with a short first line still answers`, `returns undefined when the first line is longer than the head it reads`, `returns undefined for a missing log, a symlinked log, a directory or a FIFO (never hangs)`, `makeFallbackIdentity binds the sessions directory`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). The reader is new in control (the plan assumed one existed; ruling R4).
+
+TC-0229: The replay holds when files or folders change under it
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0439
+Type: Security
+Preconditions: A temp store; no root-only assertions (the FIFO case skips where `mkfifo` is missing).
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.test.ts`.
+Expected Result: A WAV that shrinks between `fstat` and the read is refused (no partial body); a deleted mark written while the WAV is read gives `audio_deleted`; an index line gone after the read is `not_found`; a role folder, an identity folder or the audio directory swapped under its name during the read, a FIFO named like the WAV, a WAV that is a directory or a link and an index line whose WAV is missing are all refused with no audit line; the first identity with an index line for a segment decides, and a deleted mark in it stops the search.
+Actual Result: As expected (audio-replay.test.ts: `a WAV that shrinks between fstat and the read: not_found (a short read is never served)`, `a deleted mark written while the WAV was being read: audio_deleted (the index is required again after the read)`, `an index line gone after the read (index replaced): not_found`, `a role folder swapped under its name during the read: not_found`, `an identity folder swapped under its name during the read: not_found`, `audioDir swapped under its name during the read: not_found`, `a FIFO named <segment>.wav: not_found without hanging`, `the same segment id in both: the FIRST identity with an index line decides`, `a deleted mark in the FIRST identity stops the search even when the second has the segment available`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Known untested: a WAV that grows after `fstat` and the `after === undefined` guard on its own (deferred minors); the untrusted-index fall-through to the next identity is a documented residual, not a tested guarantee.
+
+TC-0230: The routes refuse odd requests before any file call
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0440
+Type: Security
+Preconditions: `createApi` over a temp store with a recording file-call seam.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: `parseBy` accepts only `<name>-console` with a safe name of at most 56 characters (a whole header of at most 64) and refuses a missing, empty, suffix-less, over-long, control-character, comma or non-string value; a bad path id (dot-dot, upper case, 65 characters, a NUL, a bad escape, a dot or a slash) is 404 and is checked before `X-Acr-By`; `%2E%2E` is resolved by the URL parser into another route and never reaches a file; `HEAD`, `POST`, `PUT` and `DELETE` fall through to 404 with no file call and no audit line; with no audio dependency both routes are 404; the fs-call seam is shown live by a positive control.
+Actual Result: As expected (audio-routes.test.ts: `parseBy (the review layer's console name: <name>-console)` cases, `a control character ... in X-Acr-By (written raw on the socket) is 400 with no file call`, `a bad path id (role ..., segment ...) is 404 with no file call and no audit line`, `a %2E%2E segment is a dot-dot the URL parser resolves first ...`, `a path id is checked before X-Acr-By`, `%s on these paths falls through to not found ...`, `with no audio dep both routes are 404`, `positive control: the fs-call seam is live ...`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). The positive control and the `HEAD` case were added in Task 8 under ruling R7.
+
+TC-0231: The listing's index reader skips what it cannot trust
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0438
+Type: Unit
+Preconditions: A temp store with hand-written `index.jsonl` files.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts`.
+Expected Result: A torn last line is skipped; a line of another `v`, with no `v`, or a bad shape is ignored; the first segment line of an id wins; a `deleted` line for an unknown segment is ignored; an index over 64 MiB contributes nothing for that role only (one of exactly 64 MiB is read); a symlinked, directory or FIFO index contributes nothing and never hangs; a role folder that is a link, a file or not file-safe is ignored; `recordingStopped` is read by parsing, never by substring, from an audit file of at most 64 MiB; `raw` and the timings never leave.
+Actual Result: As expected (audio-catalog.test.ts: `a torn last line is skipped and the lines before it are kept`, `a second segment line for the same id does not duplicate it (the first wins)`, `an index over 64 MiB (sparse) contributes nothing for that role only; one of exactly 64 MiB is read`, `an index that is a symlink, a directory or a FIFO contributes nothing (and never hangs)`, `a role folder that is a symlink, a file, or has a name that is not file-safe is ignored`, `AudioCatalog.list recordingStopped` cases, `readSegmentIndex (US-0074, ruling R1)`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Parser tests still missing (deferred minors): a deleted line BEFORE its segment line, and a later duplicate segment line after a deleted line; the parser also accepts a free-text `refused:` status and a non-integer time (to tighten).
+
+TC-0232: Replay and its audit line on a real recorded session (owner-run)
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0439, AC-0440
+Type: Manual
+Preconditions: The owner's real stack with the room test (`docs/VOICE_RUNBOOK.md` section 11 item 10): a session recorded with the real worker, and the control service's service token.
+Steps:
+  1. After the session, call `GET /sessions/<id>/audio` and then `GET /sessions/<id>/audio/<role>/<segment>` with `x-service-token` and `X-Acr-By: <name>-console`, and play the file.
+  2. Check `<logIdentity>.audio-audit.jsonl` for one `audio.played` line per successful replay and none for the listing; make the audit file unwritable once and confirm `503 audit_unavailable` and no audio.
+Expected Result: The WAV plays, the listing never shows transcript text, exactly one audit line per replay, and nothing is sent when the audit line cannot be written.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-1a. The owner runs it with the room test.
