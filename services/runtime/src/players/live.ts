@@ -16,6 +16,8 @@ export type LiveLine = { ok: true; text: string; cut: boolean } | { ok: false; r
  */
 export async function generateLiveLine(o: {
   provider: ModelProvider; scenario: Scenario; view: PlayerView; trigger: Trigger; hint?: string | null; settings: AiPlayerSettings; signal?: AbortSignal;
+  /** US-0081: the human seat a nudge addresses. */
+  target?: string | null;
 }): Promise<LiveLine> {
   const { settings, view } = o;
   const ac = new AbortController();
@@ -24,7 +26,7 @@ export async function generateLiveLine(o: {
   o.signal?.addEventListener("abort", onOuter, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const req = buildLiveRequest({ view, trigger: o.trigger, hint: o.hint, maxTokens: settings.maxTokens, temperature: settings.temperature });
+    const req = buildLiveRequest({ view, trigger: o.trigger, hint: o.hint, target: o.target, maxTokens: settings.maxTokens, temperature: settings.temperature });
     const hard = new Promise<"hard">((r) => { timer = setTimeout(() => r("hard"), settings.hardTimeoutMs); });
     const got = await Promise.race([
       collectModelReply(o.provider, req, { firstTokenTimeoutMs: settings.firstTokenTimeoutMs, replyTimeoutMs: settings.replyTimeoutMs, signal: ac.signal }),

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initialState, reduce, type SessionEvent, type SessionState } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
-import { NO_REPEAT_RULE, SHARE_SECTION, buildNpcRequest, npcIntro, stableNpcPrefix } from "../npc-prompt.js";
+import { ADDRESS_RULE, NO_REPEAT_RULE, SHARE_SECTION, buildNpcRequest, npcIntro, stableNpcPrefix } from "../npc-prompt.js";
 
 // US-0019, AC-0061 (TC-0022): the AI character prompt puts its stable content first, so the cached prefix survives an NPC update.
 const role: NpcRole = {
@@ -81,5 +81,30 @@ describe("test_npc_prompt_stable_prefix_survives_updates (AC-0061, TC-0022)", ()
     const all = req.system + JSON.stringify(req.messages);
     expect(all).not.toContain("HIDDEN_FACT_c3");
     expect(all).not.toContain("Kamal");
+  });
+});
+
+// US-0081 (AC-0472, TC-0252): an AI character addresses the players by role title only, never by a name it was not given.
+describe("test_npc_prompt_addresses_players_by_role_title (US-0081)", () => {
+  it("the stable prefix holds the addressing rule (so the cache breakpoint is unchanged per turn)", () => {
+    expect(stableNpcPrefix(role)).toContain(ADDRESS_RULE);
+  });
+
+  it("the changing part lists the scene's players by role title and speaker tag, marks an AI player, and names no participant", () => {
+    let s = ev(initialState(), { type: "session.started", scenarioId: "x", version: "1", aiRoles: ["tech"], roles: { lead: { kind: "player", participantId: "Kamal Syed" }, tech: { kind: "player", participantId: "ai-1" }, client_sponsor: { kind: "npc" } } });
+    s = ev(s, { type: "scene.entered", sceneId: "s1", participants: ["lead", "tech", "client_sponsor"] });
+    const req = buildNpcRequest({ role, scene: { ...s1, participants: ["lead", "tech", "client_sponsor"] }, state: s });
+    const cut = req.cachePrefixChars!;
+    const tail = req.system.slice(cut);
+    expect(tail).toContain("## Players in this scene");
+    expect(tail).toContain("- Lead: their lines are shown as [lead]");
+    expect(tail).toContain("- Tech, an AI player: their lines are shown as [tech]");
+    expect(req.system).not.toContain("Kamal");
+    expect(req.system.indexOf("## Players in this scene")).toBeGreaterThan(req.system.indexOf("## Current scene"));
+  });
+
+  it("a scene without players has no players section", () => {
+    const req = buildNpcRequest({ role, scene: { ...s1, participants: ["client_sponsor"] }, state: start() });
+    expect(req.system).not.toContain("## Players in this scene");
   });
 });
