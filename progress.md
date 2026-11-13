@@ -704,3 +704,10 @@ After the final review's fixes (ac122f45): control 71 files, 1599 passed (+1 ski
 ### Next
 
 The PR into `develop` (US-0075 stays Complete on the branch; nothing is merged or pushed); then A2b-2 (BFF and console panel, brainstorm and plan first), then A3.
+## Client demo prep — 2026-11-13
+
+- **Ask (owner):** a client demo this afternoon of whatever works, run locally with several browser windows and AI players. Plan reviewed by Opus (verdict: ship with changes); no new scenario was built (the existing Friday Escalation is driven with Move on; a third scenario folder would also break `services/control/src/__tests__/scenarios.test.ts`).
+- **Model:** LM Studio at `http://192.168.139.3:1234/v1`, `qwen3.8-27b-uncensored-splash` for NPC, Game Master, evaluator and players (kept by the owner because it was already loaded). It is a reasoning model, so the root `.env` got `NPC_MAX_TOKENS=2000`, `GM_MAX_TOKENS=2500`, `EVAL_MAX_TOKENS=8000`, `GM_TIMEOUT_MS=120000` and faster AI-player pacing; two in-character replies took 5.7 s and 7.8 s. The previous `.env` is in `.env.bak-before-lmstudio` (both git-ignored).
+- **Findings (Opus, verified in code):** the control service reads `<worktree>/.env`, so a worktree without one silently runs the mock model (symlink the root `.env`); the web build must match the checked-out commit; one browser cookie (`__Host-scenecoach`) holds one seat, so each human needs a separate browser; always use `http://localhost:3000`, never `127.0.0.1`; Prompt AI player is disabled in scene 2 and while paused; the `cfo_pressure` inject is at minute 7 and goes to Priya only, so fire it by hand; self-rating must happen before Release.
+- **Added:** `docs/demo/CLIENT_DEMO.md` (cue card) and `docs/demo/demo-up.sh` (`check`, start, `secret`; secrets generated once into `~/.scenecoach/demo.env`, mode 600).
+- **Verified:** pre-flight passes; control (8787) and web (3000) start and the console page loads. Not verified: a full browser session, Evaluate and report release on this model (do the rehearsal).
