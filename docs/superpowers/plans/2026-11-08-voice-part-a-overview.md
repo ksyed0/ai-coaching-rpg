@@ -143,10 +143,10 @@ Voice state per seat (what `joined.voice` and, in A1b, the roster show): `none` 
   "status": "transcribed" | "empty" | "stt_failed" | "refused:<VoiceRefusal>", "raw": "<raw text or absent>",
   "timings": { "vadEndMs": 0, "sttMs": 0 } }
 { "v": 1, "kind": "seq", "segment": "<id>", "seq": 42 }            // back-fill, appended when control relays voice_line_result
-{ "v": 1, "kind": "deleted", "segment": "<id>", "at": 0 }          // written by control on delete (A2), so a deleted segment shows as "audio deleted"
+{ "v": 1, "kind": "deleted", "segment": "<id>", "op": "<16 hex>", "ts": 0 }  // written by control's delete (A2b-1b) through `appendDeletedLines` in `@acr/speech/protocol`, under the store lock, so a deleted segment shows as "audio deleted"
 ```
 
-Back-fill and deletion are appended, never rewritten; a reader merges by `segment` (the last `kind` wins per field). Audio: `<segment>.wav`, 16 kHz mono 16-bit PCM. Write order: audio file, then the `segment` line, then (control → worker) the `seq` line.
+Back-fill (`seq`) and `deleted` marks are appended, never rewritten; a reader merges by `segment` (the last `kind` wins per field). Audio: `<segment>.wav`, 16 kHz mono 16-bit PCM. Write order: audio file, then the `segment` line, then (control → worker) the `seq` line.
 
 ### 6. Audio audit log (A2; spec §8)
 
