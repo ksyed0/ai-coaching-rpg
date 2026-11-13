@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isFileSafeId, isSafeId } from "@acr/events";
 import { REPORT_REFUSALS, type ReportRefusal } from "../lib/messages";
 import { readConsoleCookie } from "./console-session";
+import type { ConsoleCaller } from "./console-handlers";
 import { failure, guard, isId, sessionIdOf } from "./console-sessions";
 import { fail, ok } from "./envelope";
 import type { Deps } from "./handlers";
@@ -11,8 +12,10 @@ import { realTimer } from "./runtime-connection";
 
 // The facilitator's evaluate and review routes (US-0064), mirroring services/control/src/moderation-routes.ts under
 // /api/v1/console/sessions/:id/report. Plain Request -> Response. Every write: console cookie (401), then Origin and Fetch-Metadata (403),
-// and only then the write throttle. The author is the name the facilitator TYPED, sent as `by`; control appends `-console`. The cookie's
-// name is never used. Control's text and headers never reach the browser: only a fixed sentence per closed code (lib/messages.ts).
+// then the session's ownership (the neutral 404), and only then the write throttle. The author (`by`, control appends `-console`) is, for an
+// account (US-0083), `accountSlug` of the account's name and id, set here: a `by` in the body is ignored. A legacy (shared secret) sign-in
+// keeps the old rule: the name the facilitator TYPED, sent as `by` in the body. Control's text and headers never reach the browser: only a
+// fixed sentence per closed code (lib/messages.ts).
 
 /** Control may be slow: its lock retries (about 1.5 s) and its per-session queue. */
 export const CONTROL_TIMEOUT_MS = 15_000;
@@ -127,15 +130,33 @@ type Spec = {
   build?(data: unknown): Response;
 };
 
-/** SHA-256 of the console cookie (an in-memory key only: never logged or returned). */
-const throttleKey = (req: Request): string => createHash("sha256").update(readConsoleCookie(req) ?? "").digest("hex").slice(0, 32);
+/**
+ * The write throttle's key (an in-memory key only: never logged or returned): a digest of the account's id, so signing in again (a new
+ * cookie) does not reset its budget; for a legacy sign-in, a digest of the console cookie as before.
+ */
+const throttleKey = (req: Request, who: ConsoleCaller): string =>
+  createHash("sha256").update(who.accountId !== null ? `account\0${who.accountId}` : `cookie\0${readConsoleCookie(req) ?? ""}`).digest("hex").slice(0, 32);
+
+const SLUG_NAME_MAX = 40;
+const SLUG_ID_HEX = 6;
+/**
+ * US-0083: an account's review author name: its display name lower-cased, every character that is not [a-z0-9] as `-`, at most 40
+ * characters, then `-` and the first 6 hex characters of the account id (control's ids are hex; an id with fewer is hashed for them).
+ * Always matches NAME, so with control's `-console` it stays a safe id; two accounts with the same name differ by the id part.
+ */
+export function accountSlug(name: string, accountId: string): string {
+  const base = Array.from(name.toLowerCase(), (c) => (/^[a-z0-9]$/.test(c) ? c : "-")).slice(0, SLUG_NAME_MAX).join("");
+  let hex = accountId.toLowerCase().replace(/[^0-9a-f]/g, "");
+  if (hex.length < SLUG_ID_HEX) hex = createHash("sha256").update(accountId).digest("hex");
+  return `${base}-${hex.slice(0, SLUG_ID_HEX)}`;
+}
 
 function write(req: Request, deps: Deps, s: Spec): Promise<Response> {
   return safely(async () => {
     const g = await guard(req, deps, true); // the console cookie, then Origin and Fetch-Metadata: both before anything is counted
     if ("response" in g) return priv(g.response);
     const t = deps.consoleReportThrottle;
-    const key = throttleKey(req);
+    const key = throttleKey(req, g.who);
     const blocked = t.blockedForMs(key, WRITE_ROLE);
     if (blocked > 0) return throttled(blocked);
     t.fail(key, WRITE_ROLE);
@@ -153,7 +174,10 @@ function write(req: Request, deps: Deps, s: Spec): Promise<Response> {
     if (b === "too_big") return tooLarge();
     if (b === null || !s.valid(b)) return badRequest();
     let by = "";
-    if (s.named) {
+    if (s.named && g.who.accountId !== null) {
+      // Set here, from the account: whatever `by` the body carries is ignored.
+      by = accountSlug(g.who.name, g.who.accountId);
+    } else if (s.named) {
       if (!isStr(b.by)) return badRequest();
       if (!NAME.test(b.by)) return say(400, "invalid_name");
       by = b.by;

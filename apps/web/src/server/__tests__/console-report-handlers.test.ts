@@ -12,7 +12,7 @@ import { LauncherClient } from "../launcher-client";
 import { JoinThrottle } from "../throttle";
 import { seal } from "../seal";
 import { manualTimers } from "./fakes";
-import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
+import { legacyCookieValue, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -24,8 +24,10 @@ const config: Config = {
   runtimeUrl: "ws://127.0.0.1:1", publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10,
   facilitatorSecret: SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: TOKEN,
 };
+// US-0083 Task 6: a LEGACY (shared secret) cookie, so this file keeps testing the typed-name rule (`by` from the body) and the per-cookie
+// write throttle that legacy sign-ins keep. An account's server-side `by` (accountSlug) and per-account throttle: console-ownership.test.ts.
 const consoleCookie = (name = "Cookie Name") =>
-  `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed(name), { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 })}`;
+  `${CONSOLE_COOKIE}=${legacyCookieValue(name, { keys: KEYS, now: T0, secret: SECRET, expiresAt: T0 + 3_600_000 })}`;
 
 /** One browser session: the same cookie value on every request (a fresh seal differs each time, so it is made once). */
 const COOKIE = consoleCookie();

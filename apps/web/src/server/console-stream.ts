@@ -1,5 +1,5 @@
 import { requireConsole } from "./console-handlers";
-import { sessionIdOf } from "./console-sessions";
+import { mayUse, sessionIdOf, sessionInfo } from "./console-sessions";
 import { fail } from "./envelope";
 import { FacilitatorSocketError, openFacilitatorSocket } from "./facilitator-socket";
 import { checkFetchSite } from "./guards";
@@ -32,7 +32,10 @@ export async function handleConsoleStream(req: Request, deps: Deps): Promise<Res
   if (!deps.launcher) return unreachable();
 
   try {
-    const info = await deps.launcher.session(id);
+    const info = await sessionInfo(req, deps, id);
+    // US-0083: the one console route that does not use `guard`, so it applies guard's ownership rule itself, before anything else
+    // about the session (even whether it ended) is answered: another facilitator's session is the unknown session's 404.
+    if (!mayUse(who, info)) return notFound();
     if (info.status === "ended") return sseFinal("ended");
     if (info.status === "stopped") return sseFinal("stopped");
   } catch (err) {

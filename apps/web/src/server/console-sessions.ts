@@ -18,7 +18,8 @@ import { entryOf } from "./console-roster";
 import type { FacilitatorRosterEntry, SessionStatus } from "./wire";
 
 // The facilitator console's session API: plain Request -> Response, no Next imports (routes.ts wires them). Every handler calls
-// requireConsole first; state changes then check Origin, the custom header and Fetch-Metadata exactly as the player POSTs do. The
+// requireConsole first; state changes then check Origin, the custom header and Fetch-Metadata exactly as the player POSTs do; then a
+// route that names a session checks its ownership (US-0083, `guard`: a facilitator reaches only its own sessions). The
 // facilitator's name comes only from the sealed cookie. The launcher's text, ports, tokens and URLs never reach a browser, and join
 // codes appear only in the responses that create them. Log lines are fixed text: no id, name, code, token or URL.
 
@@ -49,11 +50,17 @@ const log = (line: string) => console.error(`web: console: ${line}`);
 
 // ---- guards ----
 
-/** requireConsole first; for a state change, then Origin + custom header + Fetch-Metadata (the player POSTs' checks). */
+/**
+ * requireConsole first; for a state change, then Origin + custom header + Fetch-Metadata (the player POSTs' checks); with `adminOnly`, a
+ * caller that is not an admin is refused 403; then, when the path names a session, ownership (US-0083): an admin (an admin account or,
+ * while the latch is open, a legacy sign-in) may use any session; a facilitator only one whose `owner` is its account id. Anything else,
+ * an unknown session included, is the same neutral 404, and it comes before the handler has done anything at all.
+ */
 export async function guard(
   req: Request,
   deps: Deps,
   change: boolean,
+  o: { adminOnly?: boolean } = {},
 ): Promise<{ who: ConsoleCaller } | { response: Response }> {
   const who = await requireConsole(req, deps);
   if (who instanceof Response) return { response: who };
@@ -62,7 +69,50 @@ export async function guard(
     (!checkOrigin(req, deps.config.publicOrigin) || !checkFetchSite(req))
   )
     return { response: forbidden() };
+  if (o.adminOnly === true && who.role !== "admin") return { response: forbidden() };
+  const denied = await sessionAccess(req, deps, who);
+  if (denied !== null) return { response: denied };
   return { who };
+}
+
+/** One `launcher.session` answer per request and session id: the ownership check and the handler share it. */
+const lookups = new WeakMap<Request, Map<string, Promise<SessionInfo>>>();
+
+/** The session's info for this request (asked of the control service at most once per request). */
+export function sessionInfo(req: Request, deps: Deps, id: string): Promise<SessionInfo> {
+  let m = lookups.get(req);
+  if (m === undefined) {
+    m = new Map();
+    lookups.set(req, m);
+  }
+  let p = m.get(id);
+  if (p === undefined) {
+    // Checked by the callers (they answer unreachable first); a missing launcher is a refusal here, never a call.
+    p = deps.launcher ? deps.launcher.session(id) : Promise.reject(new LauncherError("unavailable"));
+    m.set(id, p);
+  }
+  return p;
+}
+
+/** Whether this caller may use this session: an admin always, a facilitator only as its owner (a session without one is admin only). */
+export const mayUse = (who: ConsoleCaller, info: SessionInfo): boolean =>
+  who.role === "admin" || (who.accountId !== null && info.owner === who.accountId);
+
+/**
+ * Null when the request names no session or the caller may use it; otherwise the response: the neutral 404 for a session that is not
+ * the facilitator's or does not exist, or the lookup's own failure (control unreachable: the same for every id, so it reveals nothing).
+ */
+export async function sessionAccess(req: Request, deps: Deps, who: ConsoleCaller): Promise<Response | null> {
+  const id = sessionIdOf(req);
+  if (id === null || who.role === "admin") return null;
+  if (!deps.launcher) return unreachable();
+  let info: SessionInfo;
+  try {
+    info = await sessionInfo(req, deps, id);
+  } catch (err) {
+    return err instanceof LauncherError && err.reason === "not_found" ? notFound() : failure(err);
+  }
+  return mayUse(who, info) ? null : notFound();
 }
 
 /** The segment after /sessions/, kept only when it is a valid session id (so nothing path-like reaches the launcher). */
@@ -167,11 +217,13 @@ export function failure(err: unknown): Response {
 
 // ---- shapes ----
 
-const listed = (s: SessionInfo) => ({
+/** `owner` only for an admin (US-0083): a facilitator only ever sees its own sessions. */
+const listed = (s: SessionInfo, who: ConsoleCaller) => ({
   sessionId: s.sessionId,
   scenarioId: s.scenarioId,
   status: s.status,
   ...(s.modelLabel !== undefined && { modelLabel: s.modelLabel }),
+  ...(who.role === "admin" && s.owner !== undefined && { owner: s.owner }),
 });
 
 /** People who have not joined and consented. An AI seat never consents, so it is never counted here. */
@@ -217,7 +269,8 @@ export async function handleConsoleSessionsList(
   if ("response" in g) return g.response;
   if (!deps.launcher) return unreachable();
   try {
-    return ok((await deps.launcher.sessions()).map(listed));
+    const who = g.who;
+    return ok((await deps.launcher.sessions()).filter((s) => mayUse(who, s)).map((s) => listed(s, who)));
   } catch (err) {
     return failure(err);
   }
@@ -234,7 +287,7 @@ export async function handleConsoleSessionGet(
   if (id === null) return notFound();
   if (!deps.launcher) return unreachable();
   try {
-    return ok(listed(await deps.launcher.session(id)));
+    return ok(listed(await sessionInfo(req, deps, id), g.who));
   } catch (err) {
     return failure(err);
   }
@@ -256,7 +309,7 @@ export async function handleConsoleReadiness(
   if (!deps.launcher) return unreachable();
   let info: SessionInfo;
   try {
-    info = await deps.launcher.session(id);
+    info = await sessionInfo(req, deps, id);
   } catch (err) {
     return failure(err);
   }
@@ -307,7 +360,7 @@ export async function handleConsoleReadiness(
 
 // ---- state changes ----
 
-/** POST /api/v1/console/sessions { scenarioId } */
+/** POST /api/v1/console/sessions { scenarioId }: an account becomes the new session's owner (US-0083); a legacy sign-in records none. */
 export async function handleConsoleSessionsCreate(
   req: Request,
   deps: Deps,
@@ -318,7 +371,8 @@ export async function handleConsoleSessionsCreate(
   if (body === null || !isId(body.scenarioId)) return badRequest();
   if (!deps.launcher) return unreachable();
   try {
-    const c = await deps.launcher.createSession(body.scenarioId);
+    const owner = g.who.accountId;
+    const c = owner === null ? await deps.launcher.createSession(body.scenarioId) : await deps.launcher.createSession(body.scenarioId, owner);
     return ok({
       sessionId: c.sessionId,
       modelLabel: c.modelLabel,

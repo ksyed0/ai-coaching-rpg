@@ -271,7 +271,9 @@ const isAccountId = (v: unknown): v is string =>
 const isEpoch = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 /** The `account` of an account answer, picked field by field; anything that does not fit fails closed. */
 function toAccount(d: unknown): AccountInfo {
-  const a = isObject(d) ? d.account : undefined;
+  return toAccountFields(isObject(d) ? d.account : undefined);
+}
+function toAccountFields(a: unknown): AccountInfo {
   if (!isObject(a) || !isAccountId(a.id) || !isStr(a.login) || !isStr(a.name) || !isEpoch(a.epoch) || typeof a.mustChange !== "boolean") return bad();
   if ((a.role !== "admin" && a.role !== "facilitator") || (a.status !== "invited" && a.status !== "active" && a.status !== "revoked")) return bad();
   return { id: a.id, login: a.login, name: a.name, role: a.role, status: a.status, mustChange: a.mustChange, epoch: a.epoch };
@@ -572,11 +574,12 @@ export class LauncherClient {
     );
   }
 
-  async createSession(scenarioId: string): Promise<CreatedSession> {
+  /** US-0083: `owner` (an account id) is recorded by control as the session's owner; without it the session is admin-only. */
+  async createSession(scenarioId: string, owner?: string): Promise<CreatedSession> {
     const d = await this.call(
       "POST",
       "/sessions",
-      { scenarioId },
+      owner === undefined ? { scenarioId } : { scenarioId, owner },
       this.longTimeoutMs,
     );
     if (!isObject(d)) return bad();
@@ -594,6 +597,23 @@ export class LauncherClient {
       modelLabel: info.modelLabel,
       codes: toRoleCodes(d.codes),
     };
+  }
+
+  /**
+   * US-0083: every account (GET /accounts), picked field by field (never a hash). The BFF uses it to check that an account id exists
+   * before it records it as a session's owner (control's PUT /sessions/:id/owner records any id it is given). Any malformed entry fails
+   * the whole call (`failed`).
+   */
+  async accountsList(): Promise<AccountInfo[]> {
+    const d = await this.call("GET", "/accounts", undefined, this.timeoutMs);
+    if (!isObject(d) || !Array.isArray(d.accounts)) return bad();
+    return d.accounts.map(toAccountFields);
+  }
+
+  /** US-0083: records (or with null clears) the session's owner; the answer is the session's info. An unknown session is `not_found`. */
+  async setOwner(id: string, owner: string | null): Promise<SessionInfo> {
+    if (owner !== null && !isAccountId(owner)) throw new LauncherError("bad_request");
+    return toInfo(await this.call("PUT", `/sessions/${this.id(id)}/owner`, { owner }, this.timeoutMs));
   }
 
   async sessions(): Promise<SessionInfo[]> {

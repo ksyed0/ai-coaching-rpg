@@ -65,7 +65,8 @@ function streamDeps(auth: ConsoleAuth = consoleAuth()) {
     facilitatorHub: new FacilitatorHub({ setTimer: timers.setTimer, now: () => T0, recheck: consoleRecheck(auth.launcher) }),
     setTimer: timers.setTimer,
     launcher: {
-      session: vi.fn(async () => ({ sessionId: SID, scenarioId: "pitch", status: "running", port: 1 })),
+      // US-0083 Task 6: owned by FACILITATOR, so its stream opens (admins and legacy open any session's stream).
+      session: vi.fn(async () => ({ sessionId: SID, scenarioId: "pitch", status: "running", port: 1, owner: FACILITATOR.id })),
       facilitator: vi.fn(async () => ({ port: 43_211, token: "facilitator-token-" + "f".repeat(20) })),
     },
   });

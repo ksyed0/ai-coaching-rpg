@@ -397,7 +397,8 @@ describe("console session API", () => {
         { roleId: "b", code: CODE_B },
       ],
     });
-    expect(launcher.createSession).toHaveBeenCalledWith("pitch");
+    // US-0083: the signed-in account (here an admin account) is recorded as the new session's owner.
+    expect(launcher.createSession).toHaveBeenCalledWith("pitch", adminNamed(NAME).id);
     for (const r of [
       await a.get(get(`/sessions/${SID}`)),
       await a.list(get("/sessions")),

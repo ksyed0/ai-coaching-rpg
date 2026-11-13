@@ -5,6 +5,7 @@ import {
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
 import { handleConsoleAiIntents, handleConsoleAiPrompt, handleConsoleAiRoles } from "./console-ai";
+import { handleConsoleSetOwner } from "./console-accounts";
 import {
   handleConsoleReportAccept, handleConsoleReportCancel, handleConsoleReportComment, handleConsoleReportEdit, handleConsoleReportEditSummary,
   handleConsoleReportEvaluate, handleConsoleReportOpen, handleConsoleReportOverview, handleConsoleReportSubject,
@@ -183,6 +184,7 @@ export const consoleReissueAllPOST = route(handleConsoleReissueAll);
 export const consoleRemovePOST = route(handleConsoleRemove);
 export const consoleRestartPOST = route(handleConsoleRestart);
 export const consoleStreamGET = route(handleConsoleStream);
+export const consoleSessionOwnerPOST = route(handleConsoleSetOwner);
 export const consoleCommandPOST = route(handleConsoleCommand);
 export const consoleFactsPOST = route(handleConsoleFacts);
 export const consoleAiRolesPOST = route(handleConsoleAiRoles);
