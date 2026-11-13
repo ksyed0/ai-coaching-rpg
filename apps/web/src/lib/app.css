@@ -180,3 +180,13 @@ table.compare th, table.compare td { border: 1px solid var(--line, #ccc); paddin
 /* Part B: the release dialog's subjects sit apart; the release bar and export menu use the card and field styles above. */
 .report-release-list > li { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .report-release-list > li:last-child { padding-bottom: 0; border-bottom: 0; }
+/* US-0082: who is composing a reply, "Waiting for you", the @ list and an addressed line (colour is never the only sign: text says it). */
+.thinking-line { margin: 6px 0 0; }
+.thinking-line .pill { margin: 0 6px; }
+.banner.waiting-you { background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink); }
+.banner.waiting-you .pill { background: var(--accent); color: var(--accent-ink); margin-right: 6px; }
+.addr-list { list-style: none; margin: 4px 0 0; padding: 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); max-width: 420px; }
+.addr-opt { padding: 6px 12px; cursor: pointer; }
+.addr-opt.on { background: var(--accent-soft); outline: 2px solid var(--accent); outline-offset: -2px; }
+.msg .to { margin-left: 6px; }
+.msg.to-me { border-left: 3px solid var(--accent); padding-left: 8px; }

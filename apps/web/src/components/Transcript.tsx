@@ -37,12 +37,16 @@ export function Transcript({ lines, selfRole, names, playerRoles, aiRoles }: Tra
         // typed name, so it is named by its role (never by a name a model might invent).
         const name = self ? "You" : Object.hasOwn(names, l.roleId) && !aiPlayer ? names[l.roleId]! : roleLabel(l.roleId);
         const aiKind = aiPlayer ? "AI player" : "AI character";
+        // US-0082: a line directed at one role says so (the line stays public); one addressed to this player is highlighted (and says "you").
+        const toMe = l.to === selfRole;
+        const toName = l.to === undefined ? null : toMe ? "you" : Object.hasOwn(names, l.to) && !aiRoles.has(l.to) ? names[l.to]! : roleLabel(l.to);
         return (
-          <li className="msg" key={l.seq}>
+          <li className={toMe ? "msg to-me" : "msg"} key={l.seq}>
             <div className="h">
               <b>{name}</b>
               {ai ? <span className="pill ai">AI</span> : null}
               {ai ? <span className="muted">{aiKind}</span> : self || Object.hasOwn(names, l.roleId) ? <span className="muted">{roleLabel(l.roleId)}</span> : null}
+              {toName !== null ? <span className="muted to">to <b><bdi>{toName}</bdi></b></span> : null}
             </div>
             <p className="line">{l.text}</p>
           </li>

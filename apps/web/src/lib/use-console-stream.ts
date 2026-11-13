@@ -4,6 +4,7 @@ import { useEffect, useReducer, useRef } from "react";
 import { initialState, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import { applyConsoleEvent, viewFromReset, type ConsoleView } from "./console-view";
 import { pickVoice } from "./console-voice";
+import { activityAfterEvent, applyActivity, toActivity, type ActivityMap } from "./activity";
 import { MESSAGES } from "./messages";
 import { roleLabel } from "./names";
 import type { EventSourceLike, SessionDeps } from "./use-session";
@@ -38,6 +39,8 @@ export type ConsoleStreamUi = {
   view: ConsoleView | null;
   roster: FacilitatorRosterEntry[];
   notice: string | null;
+  /** US-0082: per role, the latest transient activity report (thinking, or idle with why a turn ended without its line). Never stored. Absent = none. */
+  activity?: ActivityMap;
 };
 export type ConsoleStreamState = ConsoleStreamUi & { gaps: number; pendingGap: boolean; epoch: number };
 
@@ -61,13 +64,14 @@ type Action =
   | { type: "roster"; entries: FacilitatorRosterEntry[] }
   | { type: "notice"; text: string }
   | { type: "dropped" }
-  | { type: "final"; kind: ConsoleFinal };
+  | { type: "final"; kind: ConsoleFinal }
+  | { type: "activity"; roleId: string; state: "thinking" | "idle"; outcome?: "timed_out" | "failed"; at: number };
 
 /** The roles an AI player holds: the session state's `aiRoles` and the roster's `ai` flag. Never decided by a name. */
 export const aiPlayerRoles = (aiRoles: readonly string[] | undefined, roster: readonly FacilitatorRosterEntry[]): Set<string> =>
   new Set([...(aiRoles ?? []), ...roster.filter((r) => r.ai === true).map((r) => r.roleId)]);
 
-export const initialConsoleState: ConsoleStreamState = { conn: "connecting", final: null, channel: null, scenes: [], characters: [], view: null, roster: [], notice: null, gaps: 0, pendingGap: false, epoch: 0 };
+export const initialConsoleState: ConsoleStreamState = { conn: "connecting", final: null, channel: null, scenes: [], characters: [], view: null, roster: [], notice: null, activity: {}, gaps: 0, pendingGap: false, epoch: 0 };
 
 export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleStreamState {
   switch (a.type) {
@@ -96,8 +100,11 @@ export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleS
         return { ...s, view, gaps, pendingGap: true, epoch: s.epoch + 1 };
       }
       // An in-order event: the stream recovered, so earlier resyncs no longer count toward `lost`.
-      return { ...s, view, gaps: 0, notice: null };
+      return { ...s, view, gaps: 0, notice: null, activity: activityAfterEvent(s.activity ?? {}, a.event) };
     }
+    case "activity":
+      if (s.final) return s;
+      return { ...s, activity: applyActivity(s.activity ?? {}, { roleId: a.roleId, state: a.state, ...(a.outcome !== undefined ? { outcome: a.outcome } : {}) }, a.at) };
     case "characters":
       if (s.final) return s;
       return { ...s, characters: a.characters };
@@ -204,6 +211,8 @@ export function useConsoleStream(sessionId: string, deps: SessionDeps, o: { enab
     // A server-sent `event: error` carries JSON; the browser's own connection error (also named "error") carries no data.
     on("error", (d) => { if (isObj(d)) dispatch({ type: "notice", text: MESSAGES.consoleServerError }); });
     on("reconnecting", () => dispatch({ type: "dropped" }));
+    // US-0082: transient "is composing a reply" reports (the page clears a stale one itself).
+    on("activity", (d) => { const a = toActivity(d); if (a) dispatch({ type: "activity", ...a, at: Date.now() }); });
     for (const kind of SERVER_FINALS) on(kind, () => finish(kind));
     es.onerror = (e) => {
       if (finished) return;
