@@ -116,14 +116,14 @@ test("facilitator creates a session, makes Tech lead an AI player on the created
 
   const line = "Can someone take the rollback plan to the customer?";
   await say(players.delivery_lead.page, line);
-  // The AI player answers the human line (a reply, no prompt): its line is in the human's transcript, marked AI, as Tech lead.
+  // The AI player answers the human line (a reply, no prompt): its line is in the human's transcript, marked AI: named by its role, then the AI badge and "AI player".
   const ai = transcript(players.delivery_lead.page)
     .locator("li.msg")
     .filter({ hasText: MOCK_REPLY });
   await expect(ai).toHaveCount(1);
-  await expect(ai.locator(".h b")).toHaveText("AI player");
+  await expect(ai.locator(".h b")).toHaveText(ROLE_LABEL.tech_lead);
   await expect(ai.locator(".pill.ai")).toHaveText("AI");
-  await expect(ai.locator(".h .muted")).toHaveText(ROLE_LABEL.tech_lead);
+  await expect(ai.locator(".h .muted")).toHaveText("AI player");
   // The other human sees the same line, and the facilitator's timeline too.
   await expect(
     transcript(players.account_manager.page).locator("li.msg").filter({ hasText: MOCK_REPLY }),
