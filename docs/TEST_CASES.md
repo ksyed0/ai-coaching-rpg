@@ -3328,3 +3328,202 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-11 (Task 11). Not run by the agents: no real room, real hardware, real disk near the floor or wall-clock retention run exists for A2a. The owner runs it with the room test.
+
+## US-0074: voice audio listing and audited replay (EPIC-0003 voice A2b-1a)
+
+TC-0219: The audio folder records its session before the first WAV
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0434
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/store/session-marker.test.ts src/__tests__/store/audio-store.test.ts`.
+Expected Result: The first kept segment of a process writes `session.json` `{ v: 1, sessionId }` (0600) before its WAV and a second write does not rewrite it; a skipped or refused segment and a disk-guard stop leave no folder and no marker; a failure at the temp create, the fsync, the rename or the folder fsync stops the store once with `write_error`, leaves no WAV and no temp file; a symlink planted at `session.json` is replaced, never followed.
+Actual Result: As expected (speech `src/__tests__/store/session-marker.test.ts` `writeSessionMarker` cases; `store/audio-store.test.ts` `AudioStore: session marker (US-0074)`: `test_marker_written_before_the_first_wav`, `a second write does not rewrite the marker`, `test_no_marker_when_nothing_is_written`, `test_marker_failure_stops_the_store_with_write_error` for `openSync`, `fsyncSync`, `renameSync` and `fsyncDir`, `test_marker_never_follows_a_link`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0220: The worker requires a valid session id when it stores audio
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0435
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/config.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/voice/speech-env.test.ts src/__tests__/voice/voice-host.test.ts`.
+Expected Result: A store configured without `SPEECH_SESSION_ID`, or with `../x`, 65 characters or a NUL, is refused with an error that names only the variable; control sets it from `extra` only and never inherits it from the parent environment.
+Actual Result: As expected (speech `config.test.ts` `test_store_needs_a_valid_session_id: missing or invalid is a config error naming the variable only` and `no AUDIO_DIR: a missing SPEECH_SESSION_ID is not an error`; control `speech-env.test.ts` `SPEECH_SESSION_ID (US-0074, A2b-1a)` (set from `extra`, an inherited value overridden, invalid ids omit only that variable, never on the allowlist); `voice-host.test.ts` `US-0074: the worker env carries SPEECH_SESSION_ID ...`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0221: The audit log reports success and records audio.played
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0436
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audit-log.test.ts`.
+Expected Result: `append` resolves true after a successful write and false on every failure path (lock, write, bad identity) without rejecting; an `audio.played` line holds exactly `role`, `segment`, `by` plus the common fields, and a smuggled extra key is never written.
+Actual Result: As expected (control `audit-log.test.ts` `AuditLog.append reports success; audio.played (US-0074, A2b-1a Task 3)`: `resolves true after the line is written`, the false cases for a malformed identity, a symlinked or file audio dir, a held lock, a write error and a throwing acquirer, `the audio.played line has exactly v, ts, type, role, segment, by; an extra key is dropped`, `every pre-existing event still serializes exactly as before`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0222: The catalog finds every folder of a session and trusts no bad marker
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0437
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp audio directory.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts`.
+Expected Result: `find` returns every identity whose marker names the session, rescans on each call, and ignores a marker that is missing, torn, a link, of another `v`, larger than 4 KB or naming another session.
+Actual Result: As expected (control `audio-catalog.test.ts` `AudioCatalog.find by marker (US-0074)`: `finds the one identity whose marker names the session`, `returns every identity of a session ... sorted`, the table of bad markers (torn, `v: 2`, `v` as a string, an extra key, another session), `a marker over 4 KB is ignored, one of exactly 4 KB is read`, the symlink, directory and wrong-name cases, `keeps no cache`, and `never probes a path before opening it`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0223: The listing covers every identity and falls back for old folders
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0438
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp store with two identities for one session.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: The listing has the documented shape, never carries `raw`, marks each segment `available`, `deleted` or `missing`, covers both identities, falls back to the session log's `logIdentity` for a folder without a marker, and answers 404 for a session with no audio.
+Actual Result: As expected (control `audio-catalog.test.ts` `AudioCatalog.list (US-0074, Task 5)`, `AudioCatalog.find fallback`, `audio-routes.test.ts` `GET /sessions/:id/audio (the listing)`: exact shape sorted by identity, no `raw`, `recordingStopped`, a marker folder with no segments, `an unknown session, and one whose only folder has no marker, are 404`; `audio-replay.e2e.test.ts` `the listing shows the session's segment, and not another session's` and the pre-marker fallback case). Honest limit: `available` is tested as 'the WAV opens as a regular own file with one link'; the replay size window is not part of it. 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0224: The segment read is safe, whole and audited before any byte
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0439
+Type: Unit
+Preconditions: A checkout with dependencies installed; a temp store.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.test.ts`.
+Expected Result: The exact bytes are returned and exactly one `audio.played` line is written after the read and before the bytes are returned; a failing audit returns `audit_unavailable` and no bytes; a role folder or WAV that is a link, `nlink` 2, a size of 43 or 524289, a segment with no index line, a bad id and a missing WAV are refused with nothing outside the audio directory read and no audit line; a deleted segment returns `audio_deleted`.
+Actual Result: As expected (control `audio-replay.test.ts`: `returns the exact bytes and writes exactly one audio.played line with role, segment and by`, `reads the whole WAV and closes it BEFORE the audit append, and returns only after the append resolved`, `append resolving false: audit_unavailable and no bytes anywhere in the result`, the refusals for a link, `nlink 2`, `a WAV of 0, 43 and 524289 bytes`, a deleted segment and a segment with no index line, and `replaySegment: bad ids make no file call`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0225: The HTTP routes answer the right status for every case
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0440
+Type: Functional
+Preconditions: A checkout with dependencies installed; `createApi` over a real temp store.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: Replay answers 200 with the whole file and the documented headers whatever `Range` says; no token is 401 before any file call; a bad `X-Acr-By` is 400 with no file call and no audit line; a deleted segment is 410; an audit failure is 503 `audit_unavailable` with no audio (a JSON body holding only the code); the ninth of nine concurrent replays is 503 `busy`; one `audio.played` line per 200.
+Actual Result: As expected (control `audio-routes.test.ts`: `returns the exact WAV bytes with the binary headers and writes one audio.played line`, `Range ... is ignored: the full 200 body` (five Range values), `a deleted segment is 410 audio_deleted`, `an audit append resolving false is 503 audit_unavailable with NOT ONE audio byte`, `9 concurrent replays held open by a slow audit: the 9th is 503 busy with Retry-After, and the counter recovers`, `... without the service token, or with the wrong one, is 401 with no file call and no audit line`, `X-Acr-By ... is 400 invalid with no file call and no audit line`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0226: Replay works end to end and survives the mutation checks
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0441
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.e2e.test.ts`, then apply each mutation of plan Task 8 (the plan named five; the implementer ran eleven) one at a time and run the narrowest test files (the Task 8 report lists them).
+Expected Result: The real worker store and the real control API list and replay a segment, write one `audio.played` line with no content keys, cover two identities, answer 404 after the sweep and keep working with `VOICE_ENABLED=0`; each mutation fails at least one named test and is reverted.
+Actual Result: The end-to-end part as expected (control `audio-replay.e2e.test.ts`: the listing, `a replay returns the exact WAV bytes and writes exactly one audio.played line ...`, `two identities for one session ...`, `after the real sweep expires the folder ... the listing and the replay are 404`, the pre-marker fallback, `the fallback is ignored when the session log names a folder whose marker names another session`, `the whole startControl with VOICE_ENABLED=0 still lists and replays ...`). The mutation checks are PRIOR EVIDENCE from the Task 8 implementer's report (2026-11-12), not re-run here: eleven mutations (audit after the bytes, `nlink` check dropped, index-line requirement dropped, audit result ignored, any `X-Acr-By` accepted, `Range` honoured with 206, both deleted-mark checks dropped, the token check skipped for the audio paths, the fallback ignoring an existing marker, `audio` not passed to `createApi`, the catalog built without the fallback) each failed at least one named test (for example `a WAV with nlink 2 (hard-linked): not_found and not read`, `an audit append resolving false is 503 audit_unavailable ...`, `Range "bytes=10-20" is ignored: the full 200 body`) and was reverted; no gap was found. 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass (mutation checks: prior evidence, not re-run)
+Defect Raised: None
+Notes: Filed 2026-11-12 with the story; run 2026-11-12 in the Task 9 documents pass.
+
+TC-0227: The catalog refuses a writable root and a fallback folder that has any marker
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0437, AC-0438
+Type: Security
+Preconditions: A temp audio directory; the tests skip the mode cases when run as root.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts`.
+Expected Result: `find` returns `[]` for a root with mode 0770, 0777, 0720 or 0702 even with a valid marker folder (0700, 0750 and 0755 work as before); the pre-marker fallback is asked only when no marker matched and accepts a folder only when it has no `session.json`: a marker for another session, a torn one, one of another `v`, an extra key, an oversized one, a symlink or a directory refuses the fallback's folder.
+Actual Result: As expected (audio-catalog.test.ts `AudioCatalog.find needs a private audio directory (ruling R3)` and `AudioCatalog.find fallback (US-0074, spec section 3)`: `is never consulted when a marker matched`, `is refused when its folder's marker is a symlink (even to a valid marker of this session) or a directory`, and the bad-marker table). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Added by the Task 4 review fix round (findings I1 and R3). The mode cases skip at uid 0.
+
+TC-0228: The session-log identity reader only trusts the first line
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0438
+Type: Unit
+Preconditions: A temp sessions directory.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/log-identity.test.ts`.
+Expected Result: `readLogIdentity` returns the `logIdentity` of a complete first line `session.started` with `seq` 1, the same session id and 32 lower-case hex; anything else (another first event, another session, a torn or over-long first line (more than 64 KiB), a missing, linked, directory or FIFO log, an invalid session id or sessions directory) is `undefined`; it reads only the head of a large log.
+Actual Result: As expected (log-identity.test.ts: `returns the logIdentity of a session.started first line`, `accepts a complete first line with no newline yet`, `reads only the head: a large log with a short first line still answers`, `returns undefined when the first line is longer than the head it reads`, `returns undefined for a missing log, a symlinked log, a directory or a FIFO (never hangs)`, `makeFallbackIdentity binds the sessions directory`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). The reader is new in control (the plan assumed one existed; ruling R4).
+
+TC-0229: The replay holds when files or folders change under it
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0439
+Type: Security
+Preconditions: A temp store; no root-only assertions (the FIFO case skips where `mkfifo` is missing).
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.test.ts`.
+Expected Result: A WAV that shrinks between `fstat` and the read is refused (no partial body); a deleted mark written while the WAV is read gives `audio_deleted`; an index line gone after the read is `not_found`; a role folder, an identity folder or the audio directory swapped under its name during the read, a FIFO named like the WAV, a WAV that is a directory or a link and an index line whose WAV is missing are all refused with no audit line; the first identity with an index line for a segment decides, and a deleted mark in it stops the search.
+Actual Result: As expected (audio-replay.test.ts: `a WAV that shrinks between fstat and the read: not_found (a short read is never served)`, `a deleted mark written while the WAV was being read: audio_deleted (the index is required again after the read)`, `an index line gone after the read (index replaced): not_found`, `a role folder swapped under its name during the read: not_found`, `an identity folder swapped under its name during the read: not_found`, `audioDir swapped under its name during the read: not_found`, `a FIFO named <segment>.wav: not_found without hanging`, `the same segment id in both: the FIRST identity with an index line decides`, `a deleted mark in the FIRST identity stops the search even when the second has the segment available`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Known untested: a WAV that grows after `fstat` and the `after === undefined` guard on its own (deferred minors); the untrusted-index fall-through to the next identity is a documented residual, not a tested guarantee.
+
+TC-0230: The routes refuse odd requests before any file call
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0440
+Type: Security
+Preconditions: `createApi` over a temp store with a recording file-call seam.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-routes.test.ts`.
+Expected Result: `parseBy` accepts only `<name>-console` with a safe name of at most 56 characters (a whole header of at most 64) and refuses a missing, empty, suffix-less, over-long, control-character, comma or non-string value; a bad path id (dot-dot, upper case, 65 characters, a NUL, a bad escape, a dot or a slash) is 404 and is checked before `X-Acr-By`; `%2E%2E` is resolved by the URL parser into another route and never reaches a file; `HEAD`, `POST`, `PUT` and `DELETE` fall through to 404 with no file call and no audit line; with no audio dependency both routes are 404; the fs-call seam is shown live by a positive control.
+Actual Result: As expected (audio-routes.test.ts: `parseBy (the review layer's console name: <name>-console)` cases, `a control character ... in X-Acr-By (written raw on the socket) is 400 with no file call`, `a bad path id (role ..., segment ...) is 404 with no file call and no audit line`, `a %2E%2E segment is a dot-dot the URL parser resolves first ...`, `a path id is checked before X-Acr-By`, `%s on these paths falls through to not found ...`, `with no audio dep both routes are 404`, `positive control: the fs-call seam is live ...`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). The positive control and the `HEAD` case were added in Task 8 under ruling R7.
+
+TC-0231: The listing's index reader skips what it cannot trust
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0438
+Type: Unit
+Preconditions: A temp store with hand-written `index.jsonl` files.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts`.
+Expected Result: A torn last line is skipped; a line of another `v`, with no `v`, or a bad shape is ignored; the first segment line of an id wins; a `deleted` line for an unknown segment is ignored; an index over 64 MiB contributes nothing for that role only (one of exactly 64 MiB is read); a symlinked, directory or FIFO index contributes nothing and never hangs; a role folder that is a link, a file or not file-safe is ignored; `recordingStopped` is read by parsing, never by substring, from an audit file of at most 64 MiB; `raw` and the timings never leave.
+Actual Result: As expected (audio-catalog.test.ts: `a torn last line is skipped and the lines before it are kept`, `a second segment line for the same id does not duplicate it (the first wins)`, `an index over 64 MiB (sparse) contributes nothing for that role only; one of exactly 64 MiB is read`, `an index that is a symlink, a directory or a FIFO contributes nothing (and never hangs)`, `a role folder that is a symlink, a file, or has a name that is not file-safe is ignored`, `AudioCatalog.list recordingStopped` cases, `readSegmentIndex (US-0074, ruling R1)`). 2026-11-12 (macOS arm64, Node 22.23.1; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 454 (+17 skipped), web 1614, control 1403 (+1 skipped), all passed; `pnpm -r typecheck` clean).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Parser tests still missing (deferred minors): a deleted line BEFORE its segment line, and a later duplicate segment line after a deleted line; the parser also accepts a free-text `refused:` status and a non-integer time (to tighten).
+
+TC-0232: Replay and its audit line on a real recorded session (owner-run)
+Related Story: US-0074
+Related Task: TASK-0110
+Related AC: AC-0439, AC-0440
+Type: Manual
+Preconditions: The owner's real stack with the room test (`docs/VOICE_RUNBOOK.md` section 11 item 10): a session recorded with the real worker, and the control service's service token.
+Steps:
+  1. After the session, call `GET /sessions/<id>/audio` and then `GET /sessions/<id>/audio/<role>/<segment>` with `x-service-token` and `X-Acr-By: <name>-console`, and play the file.
+  2. Check `<logIdentity>.audio-audit.jsonl` for one `audio.played` line per successful replay and none for the listing; make the audit file unwritable once and confirm `503 audit_unavailable` and no audio.
+Expected Result: The WAV plays, the listing never shows transcript text, exactly one audit line per replay, and nothing is sent when the audit line cannot be written.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-12 (Task 9). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-1a. The owner runs it with the room test.

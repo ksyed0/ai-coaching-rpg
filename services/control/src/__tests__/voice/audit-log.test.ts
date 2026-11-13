@@ -18,6 +18,7 @@ const EVENTS: AuditEvent[] = [
   { type: "voice.opted_in", role: "tech_lead", participant: "p-1", noticeVersion: "v3" },
   { type: "voice.opted_out", role: "tech_lead", participant: "p-1" },
   { type: "audio.deleted", scope: { kind: "session" }, reason: "expired", by: "system", segments: 4 },
+  { type: "audio.played", role: "tech_lead", segment: "seg-0001", by: "ann-console" },
 ];
 
 beforeEach(() => {
@@ -79,7 +80,7 @@ describe("AuditLog (US-0073, A2a Task 8)", () => {
       sleep: async (ms) => { sleeps.push(ms); },
       acquireLock: (dir, id, o) => { attempts++; return SessionLock.acquire(dir, id, o); },
     });
-    await expect(a.append(ID, EVENTS[2]!)).resolves.toBeUndefined();
+    await expect(a.append(ID, EVENTS[2]!)).resolves.toBe(false);
     held.release();
     expect(attempts).toBe(3);
     expect(sleeps).toEqual([50, 50]);
@@ -155,5 +156,107 @@ describe("AuditLog (US-0073, A2a Task 8)", () => {
   it("the log sentence never names a path or the identity", async () => {
     await make().append("A".repeat(32), EVENTS[0]!);
     for (const m of logs) { expect(m).not.toContain(root); expect(m).not.toContain("A".repeat(32)); }
+  });
+});
+
+describe("AuditLog.append reports success; audio.played (US-0074, A2b-1a Task 3)", () => {
+  it("resolves true after the line is written (and it is on disk)", async () => {
+    const a = make();
+    await expect(a.append(ID, EVENTS[0]!)).resolves.toBe(true);
+    expect(lines()).toEqual([{ v: 1, ts: 1000, ...EVENTS[0] }]);
+    expect(logs).toEqual([]);
+  });
+
+  it("resolves true after a lock retry that then succeeds", async () => {
+    mkdirSync(audioDir, { mode: 0o700 });
+    const held = SessionLock.acquire(audioDir, ID, { suffix: "audio-audit" });
+    const a = make({ sleep: async () => { held.release(); } });
+    await expect(a.append(ID, EVENTS[0]!)).resolves.toBe(true);
+  });
+
+  it.each([["A".repeat(32)], ["a".repeat(31)], [""], ["../" + "a".repeat(29)]])("resolves false for a malformed identity (%j), logs once, never rejects", async (bad) => {
+    await expect(make().append(bad, EVENTS[0]!)).resolves.toBe(false);
+    expect(logs).toEqual([AUDIT_APPEND_FAILED]);
+  });
+
+  it("resolves false for a symlinked audio dir and for a group-writable one that cannot be repaired", async () => {
+    const real = path.join(root, "real");
+    mkdirSync(real, { mode: 0o700 });
+    symlinkSync(real, audioDir);
+    await expect(make().append(ID, EVENTS[0]!)).resolves.toBe(false);
+    expect(logs).toEqual([AUDIT_APPEND_FAILED]);
+  });
+
+  it("resolves false for an audio dir that is a file", async () => {
+    writeFileSync(audioDir, "x");
+    await expect(make().append(ID, EVENTS[0]!)).resolves.toBe(false);
+    expect(logs).toEqual([AUDIT_APPEND_FAILED]);
+  });
+
+  it("resolves false when the lock stays held past every attempt, then a later append succeeds (chain intact)", async () => {
+    mkdirSync(audioDir, { mode: 0o700 });
+    const held = SessionLock.acquire(audioDir, ID, { suffix: "audio-audit" });
+    const a = make();
+    await expect(a.append(ID, EVENTS[0]!)).resolves.toBe(false);
+    expect(logs).toEqual([AUDIT_APPEND_FAILED]);
+    held.release();
+    await expect(a.append(ID, EVENTS[1]!)).resolves.toBe(true);
+    expect(lines()).toHaveLength(1);
+    expect(logs).toHaveLength(1);
+  });
+
+  it("resolves false on a write error (the audit file is a directory), logging one sentence", async () => {
+    mkdirSync(audioDir, { mode: 0o700 });
+    mkdirSync(auditFile(audioDir, ID));
+    await expect(make().append(ID, EVENTS[0]!)).resolves.toBe(false);
+    expect(logs).toEqual([AUDIT_APPEND_FAILED]);
+  });
+
+  it("resolves false when the lock acquirer throws something unexpected, and the next append still works", async () => {
+    let n = 0;
+    const a = make({ acquireLock: (dir, id, o) => { if (n++ < 3) throw new Error("boom"); return SessionLock.acquire(dir, id, o); } });
+    await expect(a.append(ID, EVENTS[0]!)).resolves.toBe(false);
+    await expect(a.append(ID, EVENTS[1]!)).resolves.toBe(true);
+    expect(logs).toEqual([AUDIT_APPEND_FAILED]);
+  });
+
+  it("resolves false (nothing written) for an unknown event type, and for a now() that throws", async () => {
+    await expect(make().append(ID, { type: "voice.transcript", text: "s" } as unknown as AuditEvent)).resolves.toBe(false);
+    const a = new AuditLog({ audioDir, now: () => { throw new Error("clock"); }, log: (m) => logs.push(m) });
+    await expect(a.append(ID, EVENTS[0]!)).resolves.toBe(false);
+    expect(logs).toEqual([AUDIT_APPEND_FAILED, AUDIT_APPEND_FAILED]);
+  });
+
+  it("a failure in the middle of a queue fails only its own append; the others report true", async () => {
+    const a = make();
+    const rs = await Promise.all([
+      a.append(ID, EVENTS[0]!),
+      a.append(ID, { type: "voice.transcript" } as unknown as AuditEvent),
+      a.append(ID, EVENTS[1]!),
+    ]);
+    expect(rs).toEqual([true, false, true]);
+    expect(lines()).toHaveLength(2);
+  });
+
+  it("the audio.played line has exactly v, ts, type, role, segment, by; an extra key is dropped", async () => {
+    const a = make();
+    const e = { type: "audio.played", role: "tech_lead", segment: "seg-0001", by: "ann-console" } as const;
+    await a.append(ID, { ...e, text: "secret", raw: "x", participant: "p-1" } as unknown as AuditEvent);
+    const [l] = lines();
+    expect(Object.keys(l!)).toEqual(["v", "ts", "type", "role", "segment", "by"]);
+    expect(l).toEqual({ v: 1, ts: 1000, ...e });
+    expect(readFileSync(auditFile(audioDir, ID), "utf8")).not.toContain("secret");
+  });
+
+  it("every pre-existing event still serializes exactly as before", async () => {
+    const a = make();
+    for (const e of EVENTS.slice(0, 5)) await a.append(ID, e);
+    expect(readFileSync(auditFile(audioDir, ID), "utf8").split("\n").filter(Boolean)).toEqual([
+      '{"v":1,"ts":1000,"type":"voice.recording_stopped","reason":"disk_low"}',
+      '{"v":1,"ts":1001,"type":"voice.recording_stopped","reason":"write_error"}',
+      '{"v":1,"ts":1002,"type":"voice.opted_in","role":"tech_lead","participant":"p-1","noticeVersion":"v3"}',
+      '{"v":1,"ts":1003,"type":"voice.opted_out","role":"tech_lead","participant":"p-1"}',
+      '{"v":1,"ts":1004,"type":"audio.deleted","scope":{"kind":"session"},"reason":"expired","by":"system","segments":4}',
+    ]);
   });
 });

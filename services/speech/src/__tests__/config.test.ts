@@ -162,7 +162,7 @@ describe("STT_MODEL shared rules (US-0072)", () => {
 
 describe("parseWorkerConfig store (US-0073)", () => {
   const ID = "0123456789abcdef0123456789abcdef";
-  const withStore = (o: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => base({ AUDIO_DIR: "/srv/audio", SPEECH_LOG_IDENTITY: ID, SPEECH_SESSIONS_DIR: "/srv/sessions", ...o });
+  const withStore = (o: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => base({ AUDIO_DIR: "/srv/audio", SPEECH_LOG_IDENTITY: ID, SPEECH_SESSION_ID: "sess-1", SPEECH_SESSIONS_DIR: "/srv/sessions", ...o });
 
   it("no AUDIO_DIR: no store, voice still works", () => {
     const r = parseWorkerConfig(base({ SPEECH_LOG_IDENTITY: ID, SPEECH_SESSIONS_DIR: "/srv/sessions" }));
@@ -172,7 +172,7 @@ describe("parseWorkerConfig store (US-0073)", () => {
 
   it("builds the store with the default free-space floor", () => {
     const r = parseWorkerConfig(withStore());
-    expect(r.ok && r.cfg.store).toEqual({ audioDir: "/srv/audio", minFreeMb: 2048, logIdentity: ID, sessionsDir: "/srv/sessions" });
+    expect(r.ok && r.cfg.store).toEqual({ audioDir: "/srv/audio", minFreeMb: 2048, logIdentity: ID, sessionId: "sess-1", sessionsDir: "/srv/sessions" });
   });
 
   it("AUDIO_MIN_FREE_MB 512..1000000", () => {
@@ -194,6 +194,24 @@ describe("parseWorkerConfig store (US-0073)", () => {
   });
 
   it("AUDIO_DIR without an identity or sessions dir: no store (control did not offer one)", () => {
-    expect(parseWorkerConfig(base({ AUDIO_DIR: "/srv/audio" })).ok && (parseWorkerConfig(base({ AUDIO_DIR: "/srv/audio" })) as { cfg: WorkerConfig }).cfg.store).toBeUndefined();
+    const r = parseWorkerConfig(base({ AUDIO_DIR: "/srv/audio", SPEECH_SESSION_ID: "sess-1" }));
+    expect(r.ok && (r as { cfg: WorkerConfig }).cfg.store).toBeUndefined();
+  });
+
+  it("test_store_needs_a_valid_session_id: missing or invalid is a config error naming the variable only", () => {
+    const want = ["SPEECH_SESSION_ID must be a valid session id when AUDIO_DIR is set"];
+    const { SPEECH_SESSION_ID: _drop, ...noId } = withStore();
+    expect(errorsOf(noId)).toEqual(want);
+    for (const v of ["../x", "a".repeat(65), "", "a/b", "a\0b"]) {
+      const e = errorsOf(withStore({ SPEECH_SESSION_ID: v }));
+      expect(e, v).toEqual(want);
+      if (v !== "") expect(JSON.stringify(e)).not.toContain(v);
+    }
+    const ok = parseWorkerConfig(withStore({ SPEECH_SESSION_ID: "a".repeat(64) }));
+    expect(ok.ok && ok.cfg.store?.sessionId).toBe("a".repeat(64));
+  });
+
+  it("no AUDIO_DIR: a missing SPEECH_SESSION_ID is not an error", () => {
+    expect(parseWorkerConfig(base()).ok).toBe(true);
   });
 });

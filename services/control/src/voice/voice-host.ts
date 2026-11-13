@@ -247,7 +247,7 @@ export class VoiceHost {
     const identity = s.logIdentity; // US-0073: absent or invalid: the worker records no audio
     try {
       // R10: the audio settings come from control's config (the directory control audits and sweeps), only with a valid identity.
-      const extra = identity === undefined ? {} : { logIdentity: identity, sessionsDir: this.o.config.sessionsDir, audioDir: this.o.config.audioDir, minFreeMb: this.o.config.audioMinFreeMb };
+      const extra = identity === undefined ? {} : { logIdentity: identity, sessionsDir: this.o.config.sessionsDir, audioDir: this.o.config.audioDir, minFreeMb: this.o.config.audioMinFreeMb, sessionId };
       handle = this.o.spawn({ env: buildSpeechEnv(this.o.parentEnv, s.roles, extra), logFile: path.join(this.o.config.logDir, `${sessionId}.speech.log`) });
     } catch (err) {
       this.o.log(`session ${sessionId} speech worker could not start (${err instanceof Error ? err.name : "error"})`);

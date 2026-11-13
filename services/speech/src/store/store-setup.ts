@@ -57,7 +57,7 @@ export async function openStore(o: {
     }
     const held = lock;
     if (o.signal?.aborted) { held.release(); return gone(); }
-    store = make({ audioDir: o.cfg.audioDir, logIdentity: o.cfg.logIdentity, sessionsDir: o.cfg.sessionsDir, minFreeMb: o.cfg.minFreeMb, now: o.now, lock: held, onStopped: reportStopped });
+    store = make({ audioDir: o.cfg.audioDir, logIdentity: o.cfg.logIdentity, sessionId: o.cfg.sessionId, sessionsDir: o.cfg.sessionsDir, minFreeMb: o.cfg.minFreeMb, now: o.now, lock: held, onStopped: reportStopped });
     let released = false;
     return { store, release: () => { if (released) return; released = true; try { held.release(); } catch { /* nothing more to do */ } } };
   } catch {

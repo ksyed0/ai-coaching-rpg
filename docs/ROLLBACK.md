@@ -557,3 +557,51 @@ Rollback trigger: a text-only operator who served the web app on the LAN with th
 ### Rolling forward again
 
 Redeploy control and the runtime together (the two alert codes), then the web app; run `pnpm voice:up` and `pnpm voice:check` (`docs/VOICE_RUNBOOK.md`).
+
+## US-0073: voice audio store and retention sweep (EPIC-0003 voice slice A2a)
+
+```
+Release: unreleased (merged into develop, PR #137)
+Date: not deployed
+Rollback trigger: recordings are written somewhere unexpected or fill a disk, the hourly sweep removes something it should not, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, any event or the consent file.**
+- **New folder `AUDIO_DIR`** (default `<CONTROL_DATA_DIR>/audio`) holding `<logIdentity>/<role>/<segment>.wav`, `index.jsonl`, `ended.json`, and beside the folders `<logIdentity>.store.lock`, `<logIdentity>.audio-audit.jsonl` and `<logIdentity>.audio-audit.lock`. New settings `AUDIO_DIR`, `AUDIO_MIN_FREE_MB` and `AUDIO_MAX_RETENTION_DAYS`.
+- **A retention sweep in control** runs at start-up and then hourly, whatever `VOICE_ENABLED` is.
+
+### Rolling back
+
+- **Stop recording:** `VOICE_ENABLED=0`. The sweep keeps deleting expired audio that is already on disk.
+- **Rolling back the code:** an earlier build ignores the audio folder, the lock files and the audit file (plain files). Remove `AUDIO_DIR` by hand if the recordings are no longer wanted (they hold transcript text in the index files).
+
+### Rolling forward again
+
+Redeploy control and the speech worker together; check that `AUDIO_DIR` is a private folder of the user running control (`chmod 700`), which the sweep requires.
+
+## US-0074: audio listing and audited replay (EPIC-0003 voice slice A2b-1a)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0074-voice-audio-replay)
+Date: not deployed
+Rollback trigger: a speech worker that no longer starts after the upgrade, a replay that behaves unexpectedly, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, any event, the consent file or the voice record.**
+- **`<AUDIO_DIR>/<logIdentity>/session.json`** (`{ "v": 1, "sessionId": ... }`, 0600), written by the speech worker once before its first WAV.
+- **`audio.played` lines** appended to `<logIdentity>.audio-audit.jsonl` by every successful replay.
+- **Control sets a new worker variable `SPEECH_SESSION_ID`, and the worker requires it:** with `AUDIO_DIR` set and `SPEECH_SESSION_ID` missing or invalid, the worker's whole configuration fails (it prints its fixed error and exits with code 2), so voice transcription stops for that session, not only recording. An older control never sets the variable.
+- **Two new control routes** (`GET /sessions/:id/audio` and `.../audio/:role/:segment`), available whatever `VOICE_ENABLED` is.
+
+### Rolling back
+
+- **Deploy control and the speech worker together, in either direction.** The mix older control with the new worker fails as above. The mix older worker with the new control is safe: folders without a marker are found through the session log's first line.
+- **Rolling back the code is safe:** an earlier build never reads `session.json`; the earlier sweep removes the audio folders whole (the marker with them); `audio.played` lines are only ever appended and the sweep never reads audit files; markers left on disk are harmless. An earlier control build has no audio routes (404).
+
+### Rolling forward again
+
+Redeploy control and the speech worker together. Folders recorded before the upgrade have no marker and are found through the session log; a session that also has a newer marked folder lists only the marked one (`docs/VOICE_RUNBOOK.md` section 8).

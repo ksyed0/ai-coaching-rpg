@@ -1,38 +1,16 @@
-import { closeSync, constants as fc, fsyncSync, openSync, renameSync, statfsSync, unlinkSync, writeSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { statfsSync } from "node:fs";
 import path from "node:path";
-import { fsyncDirSync, type SessionLock } from "@acr/runtime/files";
+import type { SessionLock } from "@acr/runtime/files";
 import { decide, type SegmentOutcome } from "./consent-rule.js";
 import { DiskGuard } from "./disk-guard.js";
-import { appendIndexLine, writeFully, type IndexEntry } from "./index-file.js";
+import { writeFileAtomic } from "./atomic-file.js";
+import { writeFully, type IndexEntry } from "./index-file.js";
 import { ensureRoleDir, ensureSessionDir, segmentFile } from "./paths.js";
+import { writeSessionMarker } from "./session-marker.js";
+import { CREATE_FLAGS, nodeStoreFs, type StoreFs } from "./store-fs.js";
 import { wavBytes } from "./wav.js";
 
-/**
- * The file calls the store makes, injected so tests can fail any one step. The default is the real node fs. (Folder creation goes
- * through `paths.ts`, which owns its own safety checks.)
- */
-export type StoreFs = {
-  openSync(file: string, flags: number, mode: number): number;
-  writeSync(fd: number, buf: Buffer, offset: number, length: number): number;
-  fsyncSync(fd: number): void;
-  closeSync(fd: number): void;
-  unlinkSync(file: string): void;
-  renameSync(from: string, to: string): void;
-  fsyncDir(dir: string): void;
-  appendIndex(file: string, entry: IndexEntry): void;
-};
-
-export const nodeStoreFs: StoreFs = {
-  openSync: (file, flags, mode) => openSync(file, flags, mode),
-  writeSync: (fd, buf, offset, length) => writeSync(fd, buf, offset, length),
-  fsyncSync: (fd) => fsyncSync(fd),
-  closeSync: (fd) => closeSync(fd),
-  unlinkSync: (file) => unlinkSync(file),
-  renameSync: (from, to) => renameSync(from, to),
-  fsyncDir: (dir) => fsyncDirSync(dir),
-  appendIndex: (file, entry) => appendIndexLine(file, entry),
-};
+export { nodeStoreFs, type StoreFs };
 
 export type StopReason = "disk_low" | "write_error";
 export type WriteResult = "written" | "skipped" | "stopped";
@@ -49,7 +27,6 @@ export type StoreSegment = {
   timings?: IndexEntry["timings"];
 };
 
-const CREATE_FLAGS = fc.O_WRONLY | fc.O_CREAT | fc.O_EXCL | fc.O_NOFOLLOW;
 const INDEX_NAME = "index.jsonl";
 const ENDED_NAME = "ended.json";
 
@@ -81,13 +58,16 @@ export class AudioStore {
   private readonly onStopped: (reason: StopReason) => void;
   private stoppedFlag = false;
   private endedFlag = false;
+  private markerDone = false;
+  private readonly sessionId: string;
 
   constructor(o: {
-    audioDir: string; logIdentity: string; sessionsDir: string; minFreeMb: number; now: () => number;
+    audioDir: string; logIdentity: string; sessionId: string; sessionsDir: string; minFreeMb: number; now: () => number;
     lock: Pick<SessionLock, "lost">; guard?: Pick<DiskGuard, "check">; fs?: StoreFs; onStopped: (reason: StopReason) => void;
   }) {
     this.audioDir = o.audioDir;
     this.identity = o.logIdentity;
+    this.sessionId = o.sessionId;
     this.now = o.now;
     this.lock = o.lock;
     this.guard = o.guard ?? new DiskGuard({ volumes: [o.audioDir, o.sessionsDir], minFreeMb: o.minFreeMb, statfs: statfsNearest });
@@ -116,6 +96,11 @@ export class AudioStore {
     let created = false;
     try {
       file = segmentFile(this.audioDir, this.identity, seg.roleId, seg.segmentId);
+      // The session marker goes in once, before the first WAV of this process (a failure here is a write error like any other).
+      if (!this.markerDone) {
+        writeSessionMarker(ensureSessionDir(this.audioDir, this.identity), this.sessionId, this.fs);
+        this.markerDone = true;
+      }
       const role = ensureRoleDir(this.audioDir, this.identity, seg.roleId);
       fd = this.fs.openSync(file, CREATE_FLAGS, 0o600);
       created = true;
@@ -147,25 +132,11 @@ export class AudioStore {
    */
   markEnded(): void {
     if (this.endedFlag) return;
-    let tmp: string | null = null;
-    let fd: number | null = null;
-    let created = false;
     try {
       const dir = ensureSessionDir(this.audioDir, this.identity);
-      tmp = path.join(dir, `.${ENDED_NAME}.${randomBytes(8).toString("hex")}.tmp`);
-      fd = this.fs.openSync(tmp, CREATE_FLAGS, 0o600);
-      created = true;
-      this.writeAll(fd, Buffer.from(JSON.stringify({ v: 1, endedAtMs: this.now() }), "utf8"));
-      this.fs.fsyncSync(fd);
-      const open = fd; fd = null; this.fs.closeSync(open);
-      this.fs.renameSync(tmp, path.join(dir, ENDED_NAME));
-      tmp = null;
-      this.fs.fsyncDir(dir);
+      writeFileAtomic(this.fs, dir, ENDED_NAME, Buffer.from(JSON.stringify({ v: 1, endedAtMs: this.now() }), "utf8"));
       this.endedFlag = true;
-    } catch {
-      if (fd !== null) { try { this.fs.closeSync(fd); } catch { /* best effort */ } }
-      if (tmp !== null && created) { try { this.fs.unlinkSync(tmp); } catch { /* best effort */ } }
-    }
+    } catch { /* silent: stops nothing and may be retried */ }
   }
 
   private writeAll(fd: number, buf: Buffer): void {

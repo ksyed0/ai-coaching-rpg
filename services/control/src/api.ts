@@ -3,7 +3,8 @@ import type { IncomingMessage, RequestListener, ServerResponse } from "node:http
 import { isFileSafeId, isSafeId, isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { z } from "zod";
 import { ParticipantIdSchema, RoleIdSchema } from "./protocol.js";
-import { BAD_REQUEST, fail, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse } from "./http-util.js";
+import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse, sendBytes } from "./http-util.js";
+import { parseBy, type AudioService } from "./voice/audio-routes.js";
 import type { ControlConfig } from "./config.js";
 import type { ParticipantWriteService, WriteOutcome } from "./participant-writes.js";
 import { handleReportRoute } from "./moderation-routes.js";
@@ -26,6 +27,9 @@ const STATUS: Record<ControlErrorCode, number> = {
 export { MAX_BODY_BYTES };
 const UNAUTHORIZED = "Unauthorized.";
 const INTERNAL = "Something went wrong.";
+const NO_AUDIO = "That session has no audio.";
+const REPLAY_BUSY = "Too many recordings are playing. Try again in a moment.";
+const WAV_HEADERS: Record<string, string> = { "Content-Type": "audio/wav", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "none" };
 const MAX_FIELD = 200;
 
 const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD) });
@@ -85,8 +89,10 @@ export function createApi(deps: {
   /** The evaluate job and the facilitator's review operations (EPIC-0002). Optional: the routes answer 404 when absent. */
   jobs?: ReportJobService;
   moderation?: ModerationService;
+  /** The facilitator's audio listing and replay (US-0074). Optional: the routes answer 404 when it is absent. */
+  audio?: AudioService;
 }): RequestListener {
-  const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation } = deps;
+  const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation, audio } = deps;
   const log = deps.log ?? (() => {});
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -121,6 +127,32 @@ export function createApi(deps: {
       return notFound();
     }
     const id = sessionId(seg[1]!);
+    if (seg[2] === "audio" && (seg.length === 3 || seg.length === 5) && method === "GET") {
+      // US-0074 (voice A2b-1a): facilitator-only. Never asks the supervisor (a finished session's audio is still listed and replayed).
+      if (!audio) return notFound();
+      let role = "", segment = "";
+      if (seg.length === 5) {
+        try { role = decodeURIComponent(seg[3]!); segment = decodeURIComponent(seg[4]!); } catch { return notFound(); }
+        if (!isFileSafeId(role) || !isFileSafeId(segment)) return notFound(); // before anything reads a file
+      }
+      const header = req.headers["x-acr-by"];
+      const by = parseBy(typeof header === "string" ? header : undefined);
+      if (by === null) return fail(res, 400, "invalid", BAD_REQUEST); // before anything reads a file; no audit line
+      // Each call reads files synchronously: a listing reads every role index of every identity, a replay reads the role index of each
+      // identity up to the owner, the owner's twice (each read capped at 64 MiB), plus one WAV of at most 512 KiB. Those caps and the
+      // replay in-flight limit (AudioService, default 8) are what bound it; the listing has the caps only.
+      if (seg.length === 3) {
+        const body = await audio.list(id);
+        return body === null ? fail(res, 404, "not_found", NO_AUDIO) : ok(res, body);
+      }
+      // `Range` and every other request header are ignored: the whole file or nothing, one audit line per 200 (spec section 5).
+      const r = await audio.play(id, role, segment, by);
+      if (r.ok) return sendBytes(res, 200, WAV_HEADERS, r.bytes);
+      if (r.code === "busy") return fail(res, 503, "busy", REPLAY_BUSY, false, 1);
+      if (r.code === "audio_deleted") return failClosed(res, 410, "audio_deleted");
+      if (r.code === "audit_unavailable") return failClosed(res, 503, "audit_unavailable"); // not one audio byte leaves unaudited
+      return notFound();
+    }
     if (seg.length === 2 && method === "GET") {
       const info = supervisor.get(id);
       if (!info) throw new HttpError(404, "not_found", "That session does not exist.");
