@@ -1,5 +1,5 @@
 import http from "node:http";
-import { cpSync, existsSync, mkdirSync, writeFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, writeFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -359,5 +359,23 @@ describe("startControl accounts (US-0083)", () => {
     writeFileSync(path.join(root, "data", "accounts.json"), "{not json", { mode: 0o600 });
     await expect(startControl(env, { port: 0 })).rejects.toThrow(/accounts file/);
     expect(readFileSync(path.join(root, "data", "accounts.json"), "utf8")).toBe("{not json");
+  });
+  it("refuses to start on a corrupt session owners file and leaves it untouched", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    writeFileSync(path.join(root, "data", "session-owners.json"), "{not json", { mode: 0o600 });
+    await expect(startControl(env, { port: 0 })).rejects.toThrow(/session owners file/);
+    expect(readFileSync(path.join(root, "data", "session-owners.json"), "utf8")).toBe("{not json");
+  });
+  it("refuses to start on a group-writable session owners file and leaves it untouched", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    const f = path.join(root, "data", "session-owners.json");
+    writeFileSync(f, '{"owners":{}}', { mode: 0o600 });
+    chmodSync(f, 0o660);
+    await expect(startControl(env, { port: 0 })).rejects.toThrow(/session owners file/);
+    expect(readFileSync(f, "utf8")).toBe('{"owners":{}}');
+  });
+  it("starts when the session owners file is missing", async () => {
+    running = await startControl(env, { port: 0 });
+    expect(running.port).toBeGreaterThan(0);
   });
 });
