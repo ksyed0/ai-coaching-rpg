@@ -1,7 +1,8 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { ModelProvider } from "@acr/adapters";
 import type { Scenario } from "@acr/script";
-import { TurnPolicy, cleanHint, generateLiveLine, type AiPlayerSettings, type PlayerView, type PolicyEvent, type Trigger, type TurnTicket } from "@acr/runtime/players";
+import { TurnPolicy, cleanHint, generateLiveLine, liveRoster, pickNudgeTarget, type AiPlayerSettings, type PlayerView, type PolicyEvent, type Trigger, type TurnTicket } from "@acr/runtime/players";
+import { NudgeFloor } from "./nudge-floor.js";
 import type { SetTimer } from "../supervisor.js";
 import { BOT_AUTH_BACKOFF_MS, BotSocket } from "./bot-socket.js";
 import type { BotEvent, BotFrame } from "./bot-frames.js";
@@ -38,11 +39,13 @@ export type BotDeps = {
   onJoined?: () => void;
   /** Receives short, secret-free diagnostics (an error name only) from the socket's handlers. */
   log?: (m: string) => void;
+  /** US-0081: the session's shared nudge floor (BotHost gives every bot of a session the same one); a bot alone gets its own. */
+  floor?: NudgeFloor;
 };
 
 type Skip = "model_failed" | "timeout" | "unusable";
 const SKIP_ALERT: Record<Skip, BotAlert> = { model_failed: "skippedModel", timeout: "skippedTimeout", unusable: "skippedUnusable" };
-type Turn = { ticket: TurnTicket; hint: string | null; ac: AbortController };
+type Turn = { ticket: TurnTicket; hint: string | null; ac: AbortController; /** US-0081: the human seat a nudge addresses. */ target: string | null };
 type Joined = Extract<BotFrame, { type: "joined" }>;
 const noop = (): void => undefined;
 
@@ -93,9 +96,22 @@ export class AiPlayerBot {
   private voiceOpen = false;
   /** US-0070: the speaker of the last human line seen while the voice turn was open; observed once when it closes. */
   private deferred: string | null = null;
+  /** US-0081: the current scene's participants and the speaker of each of its lines, in order (for the nudge target and the roster). */
+  private participants: string[] = [];
+  private sceneSpeakers: string[] = [];
+  /** US-0081: the human seats the peers roster shows ready. */
+  private readyHumans = new Set<string>();
+  private readonly floor: NudgeFloor;
+  private readonly leaveFloor: () => void;
 
   constructor(private readonly d: BotDeps) {
     this.policy = new TurnPolicy({ roleId: d.roleId, settings: d.settings.turn, now: d.now });
+    this.floor = d.floor ?? new NudgeFloor();
+    this.leaveFloor = this.floor.join(d.roleId, {
+      // Another AI player's nudge was said in our scene: no nudge from us either until a human speaks.
+      nudged: (sceneId) => { if (!this.dead && sceneId === this.sceneId) { this.observe({ kind: "nudged" }); this.arm(); } },
+      free: () => { if (!this.dead) this.arm(); },
+    });
   }
 
   /** The socket is open. It does NOT mean the bot has joined: see `joinedOk`. */
@@ -126,6 +142,7 @@ export class AiPlayerBot {
   async stop(): Promise<void> {
     this.dead = true;
     this.drop();
+    this.leaveFloor();
     await this.closing;
   }
 
@@ -168,7 +185,7 @@ export class AiPlayerBot {
     if (open) { this.wake?.(); this.wake = null; return; }
     const roleId = this.deferred;
     this.deferred = null;
-    if (roleId !== null) this.observe({ kind: "line", roleId, ai: false });
+    if (roleId !== null) this.observe({ kind: "line", roleId, ai: false, ...(this.isHuman(roleId) ? { human: true as const } : {}) });
     this.arm();
   }
 
@@ -221,6 +238,7 @@ export class AiPlayerBot {
     if (a) { a.cancel(); this.record(a.turn, "dropped"); }
     this.current?.ac.abort();
     this.current = null;
+    this.floor.release(this.d.roleId); // US-0081: a nudge in flight is gone with the room
     this.resetPolicy();
     this.humans = false;
     this.deferred = null;
@@ -244,6 +262,7 @@ export class AiPlayerBot {
       case "event": this.onEvent(f.event); return;
       case "roster":
         this.humans = f.entries.some((e) => !e.ai && e.ready);
+        this.readyHumans = new Set(f.entries.filter((e) => !e.ai && e.ready).map((e) => e.roleId));
         this.observe({ kind: "humans", connected: this.humans });
         this.arm();
         return;
@@ -271,17 +290,32 @@ export class AiPlayerBot {
     this.seen = new Set(j.state.transcript.map((t) => t.seq));
     const cs = j.state.currentScene;
     this.sceneId = cs?.id ?? null;
+    this.participants = cs?.participants ?? [];
+    this.sceneSpeakers = cs ? j.state.transcript.filter((t) => t.sceneId === cs.id).map((t) => t.roleId) : [];
     // Host contract: `scene` first, then the current scene's lines as replayed history.
     if (j.state.status === "running") this.observe({ kind: "started" });
     if (j.state.status === "ended") this.observe({ kind: "ended" });
     if (cs) this.observe({ kind: "scene", sceneId: cs.id, participants: cs.participants });
     if (j.state.paused) this.observe({ kind: "paused" });
-    if (cs) for (const t of j.state.transcript) if (t.sceneId === cs.id) this.observe({ kind: "line", roleId: t.roleId, ai: this.isAi(t.roleId), replayed: true });
+    if (cs) for (const t of j.state.transcript) if (t.sceneId === cs.id) this.observe(this.lineEvent(t.roleId, true));
     this.observe({ kind: "humans", connected: this.humans });
     this.arm();
   }
 
   private isAi(roleId: string): boolean { return roleId === this.d.roleId || this.aiRoles.has(roleId); }
+  /** US-0081: a HUMAN player seat: a player role of the scenario that no AI plays (AI characters and AI players are not). */
+  private isHuman(roleId: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.d.scenario.roles, roleId) && this.d.scenario.roles[roleId]!.type === "player" && !this.isAi(roleId);
+  }
+  private lineEvent(roleId: string, replayed: boolean): Extract<PolicyEvent, { kind: "line" }> {
+    return { kind: "line", roleId, ai: this.isAi(roleId), ...(this.isHuman(roleId) ? { human: true as const } : {}), ...(replayed ? { replayed: true as const } : {}) };
+  }
+
+  /** US-0081 (AC-0470): the human seat a nudge addresses: of the scene's human seats the roster shows ready, the one that spoke least (pickNudgeTarget); null when none. */
+  private nudgeTarget(): string | null {
+    const candidates = this.participants.filter((r) => this.isHuman(r) && this.readyHumans.has(r));
+    return pickNudgeTarget({ candidates, sceneSpeakers: this.sceneSpeakers, order: Object.keys(this.d.scenario.roles) });
+  }
 
   private onEvent(e: BotEvent): void {
     const replayed = e.seq <= this.lastSeq;
@@ -295,6 +329,8 @@ export class AiPlayerBot {
       case "scene.entered":
         if (e.sceneId === this.sceneId) return;
         this.sceneId = e.sceneId;
+        this.participants = e.participants;
+        this.sceneSpeakers = [];
         this.observe({ kind: "scene", sceneId: e.sceneId, participants: e.participants });
         break;
       case "scene.exited": return;
@@ -311,7 +347,8 @@ export class AiPlayerBot {
     if (replayed && this.seen.has(e.seq)) return; // a duplicate of a line the snapshot already carried
     this.lines.push({ roleId: e.roleId, text: e.text });
     if (this.lines.length > BOT_MAX_VIEW_LINES) this.lines.shift();
-    const ev: PolicyEvent = { kind: "line", roleId: e.roleId, ai: this.isAi(e.roleId), ...(replayed ? { replayed: true as const } : {}) };
+    if (this.sceneId !== null) this.sceneSpeakers.push(e.roleId);
+    const ev = this.lineEvent(e.roleId, replayed);
     // US-0070: during an open voice turn a human line is kept for the close (only the last one), not observed now.
     if (!replayed && !ev.ai && this.voiceOpen) {
       this.deferred = e.roleId;
@@ -357,16 +394,20 @@ export class AiPlayerBot {
     if (this.dead || this.sock === null || this.current !== null) return;
     const due = this.policy.due();
     if (!due) { this.arm(); return; }
-    // Nothing re-arms here: a human line (or any other event) does.
-    if (due.trigger === "nudge" && this.nudgeFails >= BOT_MAX_FAILED_NUDGES) return;
-    this.beginTurn(due.trigger, null);
+    if (due.trigger === "reply") { this.beginTurn("reply", null); return; }
+    // A nudge. Nothing re-arms on a refusal here: a human line (or any other event, or the floor coming free) does.
+    if (this.nudgeFails >= BOT_MAX_FAILED_NUDGES) return;
+    // US-0081: a nudge prompts the quietest human seat in the scene (none: no nudge), and only one AI player of the session nudges at a time.
+    const target = this.nudgeTarget();
+    if (target === null || !this.floor.claim(this.d.roleId)) return;
+    if (!this.beginTurn("nudge", null, target)) this.floor.release(this.d.roleId);
   }
 
-  private beginTurn(trigger: Trigger, hint: string | null): boolean {
+  private beginTurn(trigger: Trigger, hint: string | null, target: string | null = null): boolean {
     const ticket = this.policy.begin(trigger);
     if (!ticket) return false;
     this.wake?.(); this.wake = null;
-    const turn: Turn = { ticket, hint, ac: new AbortController() };
+    const turn: Turn = { ticket, hint, ac: new AbortController(), target };
     this.current = turn;
     void this.runTurn(turn, this.gen);
     return true;
@@ -375,7 +416,8 @@ export class AiPlayerBot {
   /** The role's own view. `injects` is always empty: the bot's frames carry no inject events. */
   private buildView(sceneId: string): PlayerView {
     const scene = this.scenes.get(sceneId) ?? { title: sceneId, goal: "" };
-    return { roleId: this.d.roleId, brief: this.brief, privateFacts: this.privateFacts, scene, injects: [], lines: this.lines.map((l) => ({ roleId: l.roleId, text: l.text })) };
+    const roster = liveRoster({ scenario: this.d.scenario, participants: this.participants, aiRoles: this.aiRoles, self: this.d.roleId });
+    return { roleId: this.d.roleId, brief: this.brief, privateFacts: this.privateFacts, scene, injects: [], lines: this.lines.map((l) => ({ roleId: l.roleId, text: l.text })), roster };
   }
 
   private async runTurn(turn: Turn, gen: number): Promise<void> {
@@ -388,13 +430,14 @@ export class AiPlayerBot {
       return;
     }
     const line = await generateLiveLine({
-      signal: turn.ac.signal, provider: this.d.provider, scenario: this.d.scenario, view: this.buildView(ticket.sceneId), trigger: ticket.trigger, hint: turn.hint, settings: this.d.settings,
+      signal: turn.ac.signal, provider: this.d.provider, scenario: this.d.scenario, view: this.buildView(ticket.sceneId), trigger: ticket.trigger, hint: turn.hint, target: turn.target, settings: this.d.settings,
     });
     if (gen !== this.gen || !this.policy.isCurrent(ticket)) {
       if (this.dead) return;
       this.record(turn, "dropped");
       if (this.current === turn) this.current = null;
       this.policy.finish(ticket, false);
+      if (ticket.trigger === "nudge") this.floor.release(this.d.roleId);
       this.arm();
       return;
     }
@@ -415,6 +458,8 @@ export class AiPlayerBot {
     this.policy.finish(turn.ticket, spoke);
     if (this.current === turn) this.current = null;
     if (countNudge && !spoke && turn.ticket.trigger === "nudge") this.nudgeFails += 1;
+    // US-0081: a said nudge closes the floor for every AI player of the session (until a human line); an unsaid one frees it.
+    if (turn.ticket.trigger === "nudge") { if (spoke) this.floor.spoke(this.d.roleId, turn.ticket.sceneId); else this.floor.release(this.d.roleId); }
     this.arm();
   }
 
