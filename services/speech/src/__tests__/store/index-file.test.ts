@@ -12,6 +12,12 @@ afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 const entry = (n: number, extra: Partial<IndexEntry> = {}): IndexEntry => ({ v: 1, kind: "segment", segment: `s${n}`, participantId: "p1", startMs: n * 10, endMs: n * 10 + 5, status: "transcribed", ...extra });
 
 describe("index file", () => {
+  it("test_readIndex_skips_a_deleted_line_and_keeps_the_segments (US-0075)", () => {
+    appendIndexLine(file, entry(1));
+    appendFileSync(file, `${JSON.stringify({ v: 1, kind: "deleted", segment: "s1", op: "0123456789abcdef", ts: 5 })}\n`);
+    appendIndexLine(file, entry(2));
+    expect(readIndex(file)).toEqual([entry(1), entry(2)]);
+  });
   it("test_a_short_write_is_continued_until_the_whole_line_is_written", () => {
     appendIndexLine(file, entry(1));
     appendFileSync(file, '{"v":1,"kind":"segm'); // a torn line, so the prefix newline is written too

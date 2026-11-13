@@ -7,12 +7,16 @@ import { isLowerHex } from "@acr/speech/protocol";
  * US-0073 (A2a Task 8, spec sections 3 and 7): the session's audio audit log, `<audioDir>/<logIdentity>.audio-audit.jsonl`, one JSON line
  * per event (`{ v: 1, ts, ...event }`). It holds participant ids and facilitator labels only: no event type has a text, audio or
  * transcript field, and each line is rebuilt field by field from the event, so an extra key a caller smuggles in is never written.
+ * `audio.deleted` (US-0075, A2b-1b) covers the retention sweep (session scope, reason "expired", by "system", no `op`) and a
+ * facilitator's delete (role or participant scope, reason "facilitator" or "participant_request", `op` = the request's operation id).
  */
+export type DeleteScope = { kind: "session" } | { kind: "role"; role: string } | { kind: "participant"; participant: string };
+
 export type AuditEvent =
   | { type: "voice.recording_stopped"; reason: "disk_low" | "write_error" }
   | { type: "voice.opted_in"; role: string; participant: string; noticeVersion: "v3" }
   | { type: "voice.opted_out"; role: string; participant: string }
-  | { type: "audio.deleted"; scope: { kind: "session" }; reason: "expired"; by: "system"; segments: number }
+  | { type: "audio.deleted"; scope: DeleteScope; reason: "expired" | "facilitator" | "participant_request"; by: string; segments: number; op?: string }
   | { type: "audio.played"; role: string; segment: string; by: string };
 
 /** The one sentence a failed append logs (never a path, an identity or an event). */
@@ -76,13 +80,26 @@ export function ensureAuditRoot(audioDir: string): void {
   } finally { closeSync(fd); }
 }
 
+/** The scope of a delete, rebuilt per kind: `role` only on a role scope, `participant` only on a participant scope. */
+function scopeOf(s: DeleteScope): Record<string, unknown> {
+  switch (s.kind) {
+    case "role": return { kind: s.kind, role: s.role };
+    case "participant": return { kind: s.kind, participant: s.participant };
+    default: return { kind: "session" };
+  }
+}
+
 /** The line written for an event: only the fields its type declares, whatever else the object carries. */
 function lineOf(ts: number, e: AuditEvent): Record<string, unknown> {
   switch (e.type) {
     case "voice.recording_stopped": return { v: 1, ts, type: e.type, reason: e.reason };
     case "voice.opted_in": return { v: 1, ts, type: e.type, role: e.role, participant: e.participant, noticeVersion: e.noticeVersion };
     case "voice.opted_out": return { v: 1, ts, type: e.type, role: e.role, participant: e.participant };
-    case "audio.deleted": return { v: 1, ts, type: e.type, scope: { kind: e.scope.kind }, reason: e.reason, by: e.by, segments: e.segments };
+    case "audio.deleted": {
+      const line: Record<string, unknown> = { v: 1, ts, type: e.type, scope: scopeOf(e.scope), reason: e.reason, by: e.by, segments: e.segments };
+      if (typeof e.op === "string") line.op = e.op;
+      return line;
+    }
     case "audio.played": return { v: 1, ts, type: e.type, role: e.role, segment: e.segment, by: e.by };
     default: throw new AuditPathError("unknown audit event"); // only reachable past the type system: nothing is written
   }

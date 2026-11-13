@@ -260,3 +260,52 @@ describe("AuditLog.append reports success; audio.played (US-0074, A2b-1a Task 3)
     ]);
   });
 });
+
+describe("audio.deleted widened for facilitator deletes (US-0075, A2b-1b Task 2)", () => {
+  const raw = () => readFileSync(auditFile(audioDir, ID), "utf8");
+
+  it("a facilitator role-scope line has exactly v, ts, type, scope, reason, by, segments, op", async () => {
+    const e = { type: "audio.deleted", scope: { kind: "role", role: "tech_lead" }, reason: "facilitator", by: "ann-console", segments: 3, op: "op-1" } as const;
+    await make().append(ID, e);
+    const [l] = lines();
+    expect(Object.keys(l!)).toEqual(["v", "ts", "type", "scope", "reason", "by", "segments", "op"]);
+    expect(l).toEqual({ v: 1, ts: 1000, ...e });
+  });
+
+  it("a participant-scope participant_request line carries the participant id only in scope", async () => {
+    const e = { type: "audio.deleted", scope: { kind: "participant", participant: "p-1" }, reason: "participant_request", by: "ann-console", segments: 2, op: "op-2" } as const;
+    await make().append(ID, e);
+    const [l] = lines();
+    expect(Object.keys(l!)).toEqual(["v", "ts", "type", "scope", "reason", "by", "segments", "op"]);
+    expect(l).toEqual({ v: 1, ts: 1000, ...e });
+    expect(Object.keys(l!.scope as object)).toEqual(["kind", "participant"]);
+  });
+
+  it("a sweep line has no op key", async () => {
+    await make().append(ID, { type: "audio.deleted", scope: { kind: "session" }, reason: "expired", by: "system", segments: 4 });
+    const [l] = lines();
+    expect(l).not.toHaveProperty("op");
+    expect(Object.keys(l!)).toEqual(["v", "ts", "type", "scope", "reason", "by", "segments"]);
+  });
+
+  it("an op that is not a string is not written", async () => {
+    await make().append(ID, { type: "audio.deleted", scope: { kind: "session" }, reason: "expired", by: "system", segments: 1, op: 7 } as unknown as AuditEvent);
+    expect(lines()[0]).not.toHaveProperty("op");
+  });
+
+  it("smuggled keys on the event and on the scope are dropped (raw, path, role on a participant scope)", async () => {
+    await make().append(ID, {
+      type: "audio.deleted", scope: { kind: "participant", participant: "p-1", role: "tech_lead", raw: "r", path: "/x/y" },
+      reason: "facilitator", by: "ann-console", segments: 1, op: "op-3", raw: "secret", path: "/etc/passwd", text: "t",
+    } as unknown as AuditEvent);
+    const [l] = lines();
+    expect(Object.keys(l!)).toEqual(["v", "ts", "type", "scope", "reason", "by", "segments", "op"]);
+    expect(l!.scope).toEqual({ kind: "participant", participant: "p-1" });
+    expect(raw()).not.toMatch(/secret|passwd|"raw"|"path"|tech_lead/);
+  });
+
+  it("a session scope drops a smuggled role or participant", async () => {
+    await make().append(ID, { type: "audio.deleted", scope: { kind: "session", role: "x", participant: "p" }, reason: "expired", by: "system", segments: 0 } as unknown as AuditEvent);
+    expect(lines()[0]!.scope).toEqual({ kind: "session" });
+  });
+});

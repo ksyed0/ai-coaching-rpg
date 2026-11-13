@@ -3,8 +3,9 @@ import type { IncomingMessage, RequestListener, ServerResponse } from "node:http
 import { isFileSafeId, isSafeId, isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { z } from "zod";
 import { ParticipantIdSchema, RoleIdSchema } from "./protocol.js";
-import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse, sendBytes } from "./http-util.js";
+import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse, send, sendBytes } from "./http-util.js";
 import { parseBy, type AudioService } from "./voice/audio-routes.js";
+import type { DeleteOutcome, PendingReason } from "./voice/audio-delete.js";
 import type { ControlConfig } from "./config.js";
 import type { ParticipantWriteService, WriteOutcome } from "./participant-writes.js";
 import { handleReportRoute } from "./moderation-routes.js";
@@ -29,6 +30,7 @@ const UNAUTHORIZED = "Unauthorized.";
 const INTERNAL = "Something went wrong.";
 const NO_AUDIO = "That session has no audio.";
 const REPLAY_BUSY = "Too many recordings are playing. Try again in a moment.";
+const DELETE_BUSY = "Too many deletes are running. Try again in a moment.";
 const WAV_HEADERS: Record<string, string> = { "Content-Type": "audio/wav", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "none" };
 const MAX_FIELD = 200;
 
@@ -61,6 +63,29 @@ const hasControlChar = (v: string): boolean => { for (let i = 0; i < v.length; i
 /** US-0071 (A1b Task 5): the BFF names the cookie's own seat; the participant id follows the parent channel's rule. */
 const VoiceTokenBody = z.strictObject({ roleId: RoleIdSchema, participantId: ParticipantIdSchema.refine((v) => !hasControlChar(v), { message: "invalid participant id" }) });
 
+/**
+ * US-0075 (spec section 4): the delete body. Exactly one scope kind (strict objects, so a second kind's key is an unknown key); the role
+ * is file-safe; the participant follows the protocol's participant-id rule (compared as a string, never used as a path); `by` must also
+ * pass `parseBy` (checked in the route).
+ */
+const DeleteAudioBody = z.strictObject({
+  scope: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("session") }),
+    z.strictObject({ kind: z.literal("role"), role: z.string().refine(isFileSafeId) }),
+    z.strictObject({ kind: z.literal("participant"), participant: ParticipantIdSchema }),
+  ]),
+  reason: z.enum(["facilitator", "participant_request"]),
+  by: z.string(),
+});
+/** The 503 code when an identity is pending: the worst reason present (owner, 2026-11-13). */
+const PENDING_ORDER: readonly PendingReason[] = ["store_unsafe", "audit_unavailable", "busy"];
+/** The response body, field by field (never `live`, never anything a later outcome field might add): identities and counts only. */
+const deleteBody = (o: DeleteOutcome) => ({
+  deleted: o.deleted, gone: [...o.gone],
+  identities: o.identities.map((i) => ({ identity: i.identity, deleted: i.deleted, state: i.state })),
+  pending: o.pending.map((p) => ({ identity: p.identity, reason: p.reason })),
+});
+
 const digest = (s: string): Buffer => createHash("sha256").update(s).digest();
 
 /** Constant time: both sides are hashed to the same length first, so neither the length nor the content leaks through timing. */
@@ -89,7 +114,7 @@ export function createApi(deps: {
   /** The evaluate job and the facilitator's review operations (EPIC-0002). Optional: the routes answer 404 when absent. */
   jobs?: ReportJobService;
   moderation?: ModerationService;
-  /** The facilitator's audio listing and replay (US-0074). Optional: the routes answer 404 when it is absent. */
+  /** The facilitator's audio listing and replay (US-0074) and delete (US-0075). Optional: the routes answer 404 when it is absent. */
   audio?: AudioService;
 }): RequestListener {
   const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation, audio } = deps;
@@ -127,6 +152,31 @@ export function createApi(deps: {
       return notFound();
     }
     const id = sessionId(seg[1]!);
+    if (seg[2] === "audio" && seg.length === 3 && method === "DELETE") {
+      // US-0075 (voice A2b-1b): the facilitator's audited delete. Every refusal before the service is one 400 (the GET route's bad-by
+      // answer), with no file call and no audit line: a bad, missing or non-JSON body, a bad `by`, or an X-Acr-By that differs. A body
+      // over the cap is the global 413 payload_too_large (with the connection closed), exactly like every other body route.
+      if (!audio) return notFound();
+      const invalid = (closeConnection = false): void => fail(res, 400, "invalid", BAD_REQUEST, closeConnection);
+      let raw: unknown;
+      try { raw = await jsonBody(req); } catch (err) {
+        if (err instanceof HttpError && err.status !== 413) return invalid(err.closeConnection);
+        throw err; // a 413 (and anything unexpected) goes to the global handler
+      }
+      const parsed = DeleteAudioBody.safeParse(raw);
+      if (!parsed.success || parseBy(parsed.data.by) === null) return invalid();
+      const header = req.headers["x-acr-by"];
+      if (header !== undefined && header !== parsed.data.by) return invalid();
+      const r = await audio.delete(id, parsed.data);
+      if (!r.ok) return fail(res, 503, "busy", DELETE_BUSY, false, 1);
+      if (r.outcome === null) return fail(res, 404, "not_found", NO_AUDIO);
+      const body = deleteBody(r.outcome);
+      if (r.outcome.live) return failClosed(res, 409, "session_live", body);
+      const worst = PENDING_ORDER.find((c) => r.outcome!.pending.some((p) => p.reason === c));
+      // Retry-After only with busy: a store or audit failure cannot clear on its own and is never retried blindly.
+      if (worst !== undefined) return send(res, 503, { success: false, data: body, error: { code: worst } }, false, worst === "busy" ? 1 : undefined);
+      return ok(res, body);
+    }
     if (seg[2] === "audio" && (seg.length === 3 || seg.length === 5) && method === "GET") {
       // US-0074 (voice A2b-1a): facilitator-only. Never asks the supervisor (a finished session's audio is still listed and replayed).
       if (!audio) return notFound();
@@ -139,7 +189,7 @@ export function createApi(deps: {
       const by = parseBy(typeof header === "string" ? header : undefined);
       if (by === null) return fail(res, 400, "invalid", BAD_REQUEST); // before anything reads a file; no audit line
       // Each call reads files synchronously: a listing reads every role index of every identity, a replay reads the role index of each
-      // identity up to the owner, the owner's twice (each read capped at 64 MiB), plus one WAV of at most 512 KiB. Those caps and the
+      // identity up to the owner, the owner's three times (each read capped at 64 MiB), plus one WAV of at most 512 KiB. Those caps and the
       // replay in-flight limit (AudioService, default 8) are what bound it; the listing has the caps only.
       if (seg.length === 3) {
         const body = await audio.list(id);
@@ -151,6 +201,8 @@ export function createApi(deps: {
       if (r.code === "busy") return fail(res, 503, "busy", REPLAY_BUSY, false, 1);
       if (r.code === "audio_deleted") return failClosed(res, 410, "audio_deleted");
       if (r.code === "audit_unavailable") return failClosed(res, 503, "audit_unavailable"); // not one audio byte leaves unaudited
+      // US-0075: an index that cannot be trusted fails closed (no Retry-After: retrying will not make the store safe).
+      if (r.code === "store_unsafe") return failClosed(res, 503, "store_unsafe");
       return notFound();
     }
     if (seg.length === 2 && method === "GET") {

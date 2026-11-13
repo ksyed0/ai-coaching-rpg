@@ -15,16 +15,18 @@ vi.mock("node:fs", async (orig) => {
   return {
     ...actual,
     openSync: wrap("openSync"), readdirSync: wrap("readdirSync"), lstatSync: wrap("lstatSync"), statSync: wrap("statSync"),
-    readFileSync: wrap("readFileSync"), mkdirSync: wrap("mkdirSync"), accessSync: wrap("accessSync"),
+    readFileSync: wrap("readFileSync"), mkdirSync: wrap("mkdirSync"), accessSync: wrap("accessSync"), unlinkSync: wrap("unlinkSync"),
+    renameSync: wrap("renameSync"), writeFileSync: wrap("writeFileSync"),
     existsSync: ((p: string) => { rec("existsSync", p); return actual.existsSync(p); }) as typeof actual.existsSync,
   };
 });
 const fs = await import("node:fs");
-const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = fs;
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } = fs;
 const { createApi } = await import("../../api.js");
 const { AudioCatalog } = await import("../../voice/audio-catalog.js");
 const { AuditLog } = await import("../../voice/audit-log.js");
 const { AudioService, parseBy } = await import("../../voice/audio-routes.js");
+const { IdentityMutex } = await import("../../voice/store-lock.js");
 type ControlConfig = import("../../config.js").ControlConfig;
 type AuditEvent = import("../../voice/audit-log.js").AuditEvent;
 
@@ -52,7 +54,7 @@ afterEach(async () => {
 const SECRET = "the secret words somebody said";
 const segLine = (segment: string, startMs: number, extra: Record<string, unknown> = {}) =>
   ({ v: 1, kind: "segment", segment, participantId: `p-${segment}`, startMs, endMs: startMs + 500, status: "transcribed", raw: SECRET, ...extra });
-const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "op-1", ts: 1 });
+const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "0123456789abcdef", ts: 1 });
 const jsonl = (lines: unknown[]): string => lines.map((l) => `${JSON.stringify(l)}\n`).join("");
 const wavBytes = (size: number, seed = 1): Buffer => Buffer.from(Array.from({ length: size }, (_, i) => (i * 7 + seed) & 0xff));
 /** `<audioDir>/<identity>/session.json` (unless `sessionId` is null). */
@@ -80,14 +82,23 @@ const playedLines = (identity: string) => auditLines(identity).filter((l) => l.t
 const untouchable = new Proxy({}, { get: () => { throw new Error("the audio routes must not use the supervisor"); } });
 
 type Audit = { append: (identity: string, e: AuditEvent) => Promise<boolean> };
-async function boot(o: { audit?: Audit; maxInFlight?: number; audio?: false; catalog?: InstanceType<typeof AudioCatalog> } = {}) {
+async function boot(o: {
+  audit?: Audit; maxInFlight?: number; audio?: false; catalog?: InstanceType<typeof AudioCatalog>;
+  /** US-0075: the delete's deps. */
+  isLive?: (id: string) => boolean; mutex?: InstanceType<typeof IdentityMutex>; maxDeletesInFlight?: number;
+} = {}) {
   const real = new AuditLog({ audioDir, now: () => 1234 });
   const append = vi.fn((identity: string, e: AuditEvent) => (o.audit ?? real).append(identity, e));
   const catalog = o.catalog ?? new AudioCatalog({ audioDir });
   const audio = o.audio === false ? undefined
-    : new AudioService({ catalog, audit: { append }, audioDir, ...(o.maxInFlight !== undefined ? { maxInFlight: o.maxInFlight } : {}) });
+    : new AudioService({
+      catalog, audit: { append }, audioDir, ...(o.maxInFlight !== undefined ? { maxInFlight: o.maxInFlight } : {}),
+      ...(o.isLive ? { isLive: o.isLive } : {}), ...(o.mutex ? { mutex: o.mutex } : {}),
+      ...(o.maxDeletesInFlight !== undefined ? { maxDeletesInFlight: o.maxDeletesInFlight } : {}),
+    });
+  const log = vi.fn((_m: string) => {});
   const handler = createApi({
-    config: { serviceToken: TOKEN } as ControlConfig, supervisor: untouchable as never, scenarios: () => Promise.resolve([]),
+    config: { serviceToken: TOKEN } as ControlConfig, supervisor: untouchable as never, scenarios: () => Promise.resolve([]), log,
     ...(audio ? { audio } : {}),
   });
   const server = http.createServer(handler);
@@ -109,7 +120,24 @@ async function boot(o: { audit?: Audit; maxInFlight?: number; audio?: false; cat
       req.on("error", reject);
       req.end();
     });
-  return { get, append, port };
+  /** A DELETE with a body: an object is sent as JSON, a string as written (with `type` as its Content-Type), undefined as no body. */
+  const del = (p: string, body: unknown, headers: Record<string, string | string[]> = {}, o2: { token?: string | null; type?: string } = {}) =>
+    new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }>((resolve, reject) => {
+      const h: Record<string, string | string[]> = { ...headers };
+      const token = o2.token === undefined ? TOKEN : o2.token;
+      if (token !== null) h["x-service-token"] = token;
+      const text = body === undefined ? "" : typeof body === "string" ? body : JSON.stringify(body);
+      if (text !== "") { h["content-type"] = o2.type ?? "application/json"; h["content-length"] = String(Buffer.byteLength(text)); }
+      const req = http.request({ host: "127.0.0.1", port, path: p, method: "DELETE", headers: h, agent: false }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+        res.on("error", reject);
+      });
+      req.on("error", reject);
+      req.end(text);
+    });
+  return { get, del, append, port, log };
 }
 const by = (v: string | string[] = BY) => ({ "x-acr-by": v });
 const json = (b: Buffer) => JSON.parse(b.toString("utf8")) as { success: boolean; data: unknown; error: { code: string; message?: string } | null };
@@ -306,6 +334,29 @@ describe("GET /sessions/:id/audio/:role/:segment (the replay)", () => {
     expect(append).toHaveBeenCalledTimes(1);
   });
 
+  it("an untrusted role index is 503 store_unsafe with no Retry-After, no audio byte and no audit line (US-0075)", async () => {
+    const { s1 } = twoIdentities();
+    // A's alpha index becomes a link to a valid copy elsewhere: it cannot be trusted, so the replay fails closed.
+    const idx = path.join(audioDir, A, "alpha", "index.jsonl");
+    const moved = path.join(root, "moved-index.jsonl");
+    renameSync(idx, moved);
+    symlinkSync(moved, idx);
+    const { get, append } = await boot();
+    const r = await get(`/sessions/${S}/audio/alpha/s1`, by());
+    expect(r.status).toBe(503);
+    expectJsonEnvelope(r);
+    expect(json(r.body)).toStrictEqual({ success: false, data: null, error: { code: "store_unsafe" } });
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(r.body.includes(s1.subarray(0, 16))).toBe(false);
+    expect(append).not.toHaveBeenCalled();
+    expect(playedLines(A)).toEqual([]);
+    // the listing still answers: the untrusted role is omitted, the other identity's segments are listed
+    const list = await get(`/sessions/${S}/audio`, by());
+    expect(list.status).toBe(200);
+    expect((json(list.body).data as { segments: { identity: string; role: string; segment: string }[] }).segments.map((x) => `${x.role}/${x.segment}`))
+      .toEqual(["beta/s2", "beta/s3"]);
+  });
+
   it("a throwing audit is 503 audit_unavailable and frees the in-flight slot", async () => {
     const { s1 } = twoIdentities();
     let fail = true;
@@ -474,11 +525,12 @@ describe("refusals before any file call", () => {
     expect(hooks.calls.length).toBeGreaterThan(0);
   });
 
+  // DELETE on the listing path is the delete route (US-0075, its own tests below); DELETE on the replay path still falls through.
   it.each(["HEAD", "POST", "PUT", "DELETE"])("%s on these paths falls through to not found with no file call, no audit line and no audio bytes", async (method) => {
     const { s1 } = twoIdentities();
     const { get, append } = await boot();
     hooks.calls = [];
-    for (const p of routes) {
+    for (const p of method === "DELETE" ? routes.slice(1) : routes) {
       const r = await get(p, by(), { method });
       expect(r.status, p).toBe(404);
       expect(r.headers["content-type"], p).not.toBe("audio/wav");
@@ -506,5 +558,524 @@ describe("refusals before any file call", () => {
     const { get } = await boot();
     expect((await get(`/sessions/${S}/audio/alpha`, by())).status).toBe(404);
     expect((await get(`/sessions/${S}/audio/alpha/s1/more`, by())).status).toBe(404);
+  });
+});
+
+// --- US-0075 (voice A2b-1b, Task 8): DELETE /sessions/:id/audio ---
+type Outcome = { deleted: number; gone: string[]; identities: { identity: string; deleted: number; state: string }[]; pending: { identity: string; reason: string }[] };
+const SESSION_BODY = { scope: { kind: "session" }, reason: "facilitator", by: BY };
+const C = id(0xc), D = id(0xd);
+const deletedLines = (identity: string) => auditLines(identity).filter((l) => l.type === "audio.deleted");
+const wavExists = (identity: string, role: string, segment: string): boolean => {
+  const was = hooks.calls; hooks.calls = null;
+  try { return existsSync(path.join(audioDir, identity, role, `${segment}.wav`)); } finally { hooks.calls = was; }
+};
+/** Nothing a caller or the log sees names the store: no temp root, no audio folder, no file name. */
+function expectNoPath(texts: string[]): void {
+  for (const t of texts) {
+    expect(t).not.toContain(root);
+    expect(t).not.toContain(audioDir);
+    expect(t).not.toContain(".wav");
+    expect(t).not.toContain("index.jsonl");
+    expect(t).not.toContain("session.json");
+  }
+}
+/** An audit whose append answers false for the given identities and appends for real otherwise. */
+const auditFailingFor = (...ids: string[]): Audit => {
+  const real = new AuditLog({ audioDir, now: () => 1234 });
+  return { append: async (i, e) => (ids.includes(i) ? false : real.append(i, e)) };
+};
+/** Makes `identity`'s role index a link to a valid copy elsewhere: it cannot be trusted. */
+function linkIndex(identity: string, role: string): void {
+  const idx = path.join(audioDir, identity, role, "index.jsonl");
+  const moved = path.join(root, `moved-${identity}-${role}.jsonl`);
+  renameSync(idx, moved);
+  symlinkSync(moved, idx);
+}
+
+describe("DELETE /sessions/:id/audio: refusals before any file call", () => {
+  it("without the service token, or with the wrong one, is 401 with no file call and no audit line", async () => {
+    twoIdentities();
+    const { del, append } = await boot();
+    hooks.calls = [];
+    for (const token of [null, "w".repeat(40)]) {
+      const r = await del(`/sessions/${S}/audio`, SESSION_BODY, by(), { token });
+      expect(r.status).toBe(401);
+      expectJsonEnvelope(r);
+      expect(json(r.body).error?.code).toBe("unauthorized");
+    }
+    expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+    expect(wavExists(A, "alpha", "s1")).toBe(true);
+  });
+
+  it.each(["%E0%A4%A", "a".repeat(65), "bad.id", "%00"])("a bad session id %j is 404 with no file call", async (sid) => {
+    twoIdentities();
+    const { del, append } = await boot();
+    hooks.calls = [];
+    const r = await del(`/sessions/${sid}/audio`, SESSION_BODY);
+    expect(r.status).toBe(404);
+    expectJsonEnvelope(r);
+    expect(json(r.body).error?.code).toBe("not_found");
+    expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it("with no audio dep it is 404 with no file call", async () => {
+    twoIdentities();
+    const { del } = await boot({ audio: false });
+    hooks.calls = [];
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(404);
+    expectJsonEnvelope(r);
+    expect(hooks.calls).toEqual([]);
+    expect(wavExists(A, "alpha", "s1")).toBe(true);
+  });
+
+  it("DELETE on a longer audio path is not the route (404, nothing deleted)", async () => {
+    twoIdentities();
+    const { del, append } = await boot();
+    hooks.calls = [];
+    for (const p of [`/sessions/${S}/audio/alpha`, `/sessions/${S}/audio/alpha/s1`]) expect((await del(p, SESSION_BODY)).status, p).toBe(404);
+    expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  const P = (participant: unknown) => ({ scope: { kind: "participant", participant }, reason: "facilitator", by: BY });
+  const badBodies: [string, unknown, Record<string, string | string[]>?, { type?: string }?][] = [
+    ["no body", undefined],
+    ["an empty object", {}],
+    ["not JSON", "{not json", {}, {}],
+    ["a JSON body sent as text/plain", JSON.stringify(SESSION_BODY), {}, { type: "text/plain" }],
+    ["a JSON array", [SESSION_BODY]],
+    ["null", "null"],
+    ["an unknown top-level key", { ...SESSION_BODY, extra: 1 }],
+    ["an unknown key in the scope", { ...SESSION_BODY, scope: { kind: "session", all: true } }],
+    ["two scope kinds (session + role)", { ...SESSION_BODY, scope: { kind: "session", role: "alpha" } }],
+    ["two scope kinds (role + participant)", { ...SESSION_BODY, scope: { kind: "role", role: "alpha", participant: "p-s1" } }],
+    ["an unknown scope kind", { ...SESSION_BODY, scope: { kind: "identity" } }],
+    ["a scope with no kind", { ...SESSION_BODY, scope: {} }],
+    ["no scope", { reason: "facilitator", by: BY }],
+    ["a role scope with no role", { ...SESSION_BODY, scope: { kind: "role" } }],
+    ["a role that is not file-safe (a path)", { ...SESSION_BODY, scope: { kind: "role", role: "../alpha" } }],
+    ["a role with a slash", { ...SESSION_BODY, scope: { kind: "role", role: "al/pha" } }],
+    ["a non-string role", { ...SESSION_BODY, scope: { kind: "role", role: 1 } }],
+    ["an empty participant", P("")],
+    ["a 129-character participant", P("p".repeat(129))],
+    ["the rebind-pending participant", P("rebind-pending")],
+    ["a non-string participant", P(7)],
+    ["a reason outside the enum", { ...SESSION_BODY, reason: "expired" }],
+    ["no reason", { scope: { kind: "session" }, by: BY }],
+    ["no by in the body (even with the header)", { scope: { kind: "session" }, reason: "facilitator" }, by()],
+    ["a bad by (no -console)", { ...SESSION_BODY, by: "kamal" }],
+    ["a bad by (57-character name)", { ...SESSION_BODY, by: `${"a".repeat(57)}-console` }],
+    ["a non-string by", { ...SESSION_BODY, by: 5 }],
+    ["an X-Acr-By header that differs from body.by", SESSION_BODY, by("other-console")],
+    ["a repeated X-Acr-By header", SESSION_BODY, by([BY, BY])],
+  ];
+  it.each(badBodies)("%s is 400 invalid (the GET route's bad-by answer) with no file call and no audit line", async (_label, body, headers = {}, o2 = {}) => {
+    twoIdentities();
+    const { del, append } = await boot();
+    hooks.calls = [];
+    const r = await del(`/sessions/${S}/audio`, body, headers, o2);
+    expect(r.status).toBe(400);
+    expectJsonEnvelope(r);
+    expect(json(r.body)).toStrictEqual({ success: false, data: null, error: { code: "invalid", message: "That request is not valid." } });
+    expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+    expect(wavExists(A, "alpha", "s1")).toBe(true);
+  });
+
+  const OVERSIZE = { ...SESSION_BODY, scope: { kind: "participant", participant: "p" }, pad: "x".repeat(5000) };
+  /** The 413 every other body route gives: payload_too_large, the connection closed, no file call, no audit line, nothing removed. */
+  function expectTooLarge(r: { status: number; headers: http.IncomingHttpHeaders; body: Buffer }, append: unknown): void {
+    expect(r.status).toBe(413);
+    expectJsonEnvelope(r);
+    expect(json(r.body).error?.code).toBe("payload_too_large");
+    expect(r.headers.connection).toBe("close");
+    expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+    expect(wavExists(A, "alpha", "s1")).toBe(true);
+  }
+
+  it("a body over 4096 bytes with a declared Content-Length is 413 payload_too_large (like every other body route), not 400", async () => {
+    twoIdentities();
+    const { del, append } = await boot();
+    hooks.calls = [];
+    expectTooLarge(await del(`/sessions/${S}/audio`, OVERSIZE), append);
+  });
+
+  it("a streamed (chunked, undeclared) body over 4096 bytes is 413 payload_too_large", async () => {
+    twoIdentities();
+    const { append, port } = await boot();
+    hooks.calls = [];
+    const r = await new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }>((resolve, reject) => {
+      let answered = false;
+      const req = http.request({
+        host: "127.0.0.1", port, path: `/sessions/${S}/audio`, method: "DELETE", agent: false,
+        headers: { "x-service-token": TOKEN, "content-type": "application/json", "transfer-encoding": "chunked" },
+      }, (res) => {
+        answered = true;
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+        res.on("error", reject);
+      });
+      req.on("error", (e) => { if (!answered) reject(e); }); // the server may close while the rest is still being written
+      req.end(JSON.stringify(OVERSIZE));
+    });
+    expect(r.headers["content-length"]).toBeDefined();
+    expectTooLarge(r, append);
+  });
+
+  it("live (VoiceHost.isLive) is 409 session_live with the empty outcome body and NO file call: checked before the catalog", async () => {
+    twoIdentities();
+    const isLive = vi.fn(() => true);
+    const { del, append } = await boot({ isLive });
+    hooks.calls = [];
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(409);
+    expectJsonEnvelope(r);
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(json(r.body)).toStrictEqual({ success: false, data: { deleted: 0, gone: [], identities: [], pending: [] }, error: { code: "session_live" } });
+    expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+    expect(isLive).toHaveBeenCalledWith(S);
+    expect(wavExists(A, "alpha", "s1")).toBe(true);
+  });
+
+  it("an isLive that throws counts as live (409, no file call)", async () => {
+    twoIdentities();
+    const { del } = await boot({ isLive: () => { throw new Error("boom"); } });
+    hooks.calls = [];
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(409);
+    expect(json(r.body).error?.code).toBe("session_live");
+    expect(hooks.calls).toEqual([]);
+  });
+});
+
+describe("DELETE /sessions/:id/audio: outcomes", () => {
+  it("session scope: 200 with every identity done, the WAVs gone, one audio.deleted line each, and replay then 410", async () => {
+    twoIdentities();
+    const { del, get } = await boot();
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY, by());
+    expect(r.status).toBe(200);
+    expectJsonEnvelope(r);
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(json(r.body)).toStrictEqual({
+      success: true, error: null,
+      data: { deleted: 2, gone: [], identities: [{ identity: A, deleted: 1, state: "done" }, { identity: B, deleted: 1, state: "done" }], pending: [] },
+    });
+    expect(wavExists(A, "alpha", "s1")).toBe(false);
+    expect(wavExists(B, "beta", "s2")).toBe(false);
+    for (const i of [A, B]) {
+      const lines = deletedLines(i);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ type: "audio.deleted", scope: { kind: "session" }, reason: "facilitator", by: BY, segments: 1 });
+    }
+    expect((await get(`/sessions/${S}/audio/alpha/s1`, by())).status).toBe(410);
+    expect((await get(`/sessions/${S}/audio/beta/s2`, by())).status).toBe(410);
+  });
+
+  it("a retry when everything is already deleted is a normal 200 with deleted 0", async () => {
+    twoIdentities();
+    const { del } = await boot();
+    expect((await del(`/sessions/${S}/audio`, SESSION_BODY)).status).toBe(200);
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(200);
+    expect(json(r.body).data).toStrictEqual({
+      deleted: 0, gone: [], identities: [{ identity: A, deleted: 0, state: "done" }, { identity: B, deleted: 0, state: "done" }], pending: [],
+    });
+  });
+
+  it("role scope: only that role's segments go", async () => {
+    twoIdentities();
+    const { del } = await boot();
+    const r = await del(`/sessions/${S}/audio`, { scope: { kind: "role", role: "beta" }, reason: "facilitator", by: BY });
+    expect(r.status).toBe(200);
+    expect(json(r.body).data).toStrictEqual({
+      deleted: 1, gone: [], identities: [{ identity: A, deleted: 0, state: "done" }, { identity: B, deleted: 1, state: "done" }], pending: [],
+    });
+    expect(wavExists(A, "alpha", "s1")).toBe(true);
+    expect(wavExists(B, "beta", "s2")).toBe(false);
+    expect(deletedLines(A)).toEqual([]); // a facilitator request with nothing in scope writes nothing
+    expect(deletedLines(B)[0]).toMatchObject({ scope: { kind: "role", role: "beta" }, segments: 1 });
+  });
+
+  it("participant scope (participant_request): only that participant's segments go, across identities; the id is compared, never a path", async () => {
+    twoIdentities();
+    const { del } = await boot();
+    const r = await del(`/sessions/${S}/audio`, { scope: { kind: "participant", participant: "p-s1" }, reason: "participant_request", by: BY });
+    expect(r.status).toBe(200);
+    expect(json(r.body).data).toStrictEqual({
+      deleted: 1, gone: [], identities: [{ identity: A, deleted: 1, state: "done" }, { identity: B, deleted: 0, state: "done" }], pending: [],
+    });
+    expect(wavExists(A, "alpha", "s1")).toBe(false);
+    expect(wavExists(B, "beta", "s2")).toBe(true);
+    expect(deletedLines(A)[0]).toMatchObject({ scope: { kind: "participant", participant: "p-s1" }, reason: "participant_request", segments: 1 });
+    expect(deletedLines(B)[0]).toMatchObject({ reason: "participant_request", segments: 0 }); // proof the request was honoured
+  });
+
+  it("a 128-character participant and a matching X-Acr-By header are accepted", async () => {
+    twoIdentities();
+    const { del } = await boot();
+    const r = await del(`/sessions/${S}/audio`, { scope: { kind: "participant", participant: "p".repeat(128) }, reason: "facilitator", by: BY }, by());
+    expect(r.status).toBe(200);
+    expect((json(r.body).data as Outcome).deleted).toBe(0);
+  });
+
+  it("an identity the catalog found but that no longer belongs under the lock is listed in gone (200)", async () => {
+    twoIdentities();
+    const catalog = new AudioCatalog({ audioDir });
+    vi.spyOn(catalog, "find").mockResolvedValue([A, D]); // D has no folder
+    const { del } = await boot({ catalog });
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(200);
+    expect(json(r.body).data).toStrictEqual({ deleted: 1, gone: [D], identities: [{ identity: A, deleted: 1, state: "done" }], pending: [] });
+  });
+
+  it("an unknown session (and one whose only folder has no marker) is 404 with the listing's no-audio answer", async () => {
+    twoIdentities();
+    mkIdentity(C, null);
+    const { del, get } = await boot();
+    const listing = await get(`/sessions/${OTHER}/audio`, by());
+    for (const sid of [OTHER, "nobody"]) {
+      const r = await del(`/sessions/${sid}/audio`, SESSION_BODY);
+      expect(r.status).toBe(404);
+      expectJsonEnvelope(r);
+      expect(json(r.body)).toStrictEqual(json(listing.body));
+      expect(json(r.body).error).toStrictEqual({ code: "not_found", message: "That session has no audio." });
+    }
+  });
+
+  it("an upper-case session id works", async () => {
+    const UP = "Session-UPPER";
+    mkIdentity(C, UP);
+    mkRole(C, "alpha", [segLine("s9", 100)], { s9: wavBytes(100) });
+    const { del } = await boot();
+    const r = await del(`/sessions/${UP}/audio`, SESSION_BODY);
+    expect(r.status).toBe(200);
+    expect(json(r.body).data).toStrictEqual({ deleted: 1, gone: [], identities: [{ identity: C, deleted: 1, state: "done" }], pending: [] });
+    expect(wavExists(C, "alpha", "s9")).toBe(false);
+  });
+
+  it("live after some identities are done: 409 session_live carrying the work done so far", async () => {
+    twoIdentities();
+    let calls = 0;
+    // service (1), deleteAudio before the loop (2), before A (3), before B (4): live from the 4th ask on
+    const { del } = await boot({ isLive: () => ++calls >= 4 });
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(409);
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(json(r.body)).toStrictEqual({
+      success: false, data: { deleted: 1, gone: [], identities: [{ identity: A, deleted: 1, state: "done" }], pending: [] }, error: { code: "session_live" },
+    });
+    expect(wavExists(B, "beta", "s2")).toBe(true);
+  });
+
+  it("an identity held by the sweep or another delete is 503 busy with Retry-After: 1 and the partial body; a retry finishes it", async () => {
+    twoIdentities();
+    const mutex = new IdentityMutex();
+    const releaseB = mutex.tryTake(B)!;
+    const { del } = await boot({ mutex });
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(503);
+    expectJsonEnvelope(r);
+    expect(r.headers["retry-after"]).toBe("1");
+    expect(json(r.body)).toStrictEqual({
+      success: false, data: { deleted: 1, gone: [], identities: [{ identity: A, deleted: 1, state: "done" }], pending: [{ identity: B, reason: "busy" }] },
+      error: { code: "busy" },
+    });
+    expect(wavExists(B, "beta", "s2")).toBe(true);
+    releaseB();
+    const again = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(again.status).toBe(200);
+    expect((json(again.body).data as Outcome).deleted).toBe(1);
+    expect(wavExists(B, "beta", "s2")).toBe(false);
+  });
+
+  it("an identity whose folder can no longer be judged under the lock (a file in its place) is 503 store_unsafe, not gone", async () => {
+    twoIdentities();
+    const catalog = new AudioCatalog({ audioDir });
+    const aside = path.join(root, "aside-A");
+    vi.spyOn(catalog, "find").mockImplementation(async () => {
+      renameSync(path.join(audioDir, A), aside);
+      writeFileSync(path.join(audioDir, A), "x");
+      return [A];
+    });
+    const { del, append } = await boot({ catalog });
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(503);
+    expectJsonEnvelope(r);
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(json(r.body)).toStrictEqual({
+      success: false, data: { deleted: 0, gone: [], identities: [], pending: [{ identity: A, reason: "store_unsafe" }] }, error: { code: "store_unsafe" },
+    });
+    expect(append).not.toHaveBeenCalled();
+    expect(existsSync(path.join(aside, "alpha", "s1.wav"))).toBe(true);
+  });
+
+  it("an untrusted index is 503 store_unsafe with NO Retry-After and the partial body", async () => {
+    twoIdentities();
+    linkIndex(A, "alpha");
+    const { del } = await boot();
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(503);
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(json(r.body)).toStrictEqual({
+      success: false, data: { deleted: 1, gone: [], identities: [{ identity: B, deleted: 1, state: "done" }], pending: [{ identity: A, reason: "store_unsafe" }] },
+      error: { code: "store_unsafe" },
+    });
+    expect(deletedLines(A)).toEqual([]);
+  });
+
+  it("an audit that cannot append is 503 audit_unavailable with NO Retry-After, and that identity keeps its audio", async () => {
+    twoIdentities();
+    const { del } = await boot({ audit: auditFailingFor(B) });
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(503);
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(json(r.body)).toStrictEqual({
+      success: false, data: { deleted: 1, gone: [], identities: [{ identity: A, deleted: 1, state: "done" }], pending: [{ identity: B, reason: "audit_unavailable" }] },
+      error: { code: "audit_unavailable" },
+    });
+    expect(wavExists(B, "beta", "s2")).toBe(true);
+  });
+
+  /** Three identities of S: A (alpha), B (beta), C (gamma), each with one WAV. */
+  function threeIdentities(): void {
+    for (const [i, role, seg] of [[A, "alpha", "s1"], [B, "beta", "s2"], [C, "gamma", "s3"]] as const) {
+      mkIdentity(i);
+      mkRole(i, role, [segLine(seg, 100)], { [seg]: wavBytes(100) });
+    }
+  }
+  it.each([
+    ["busy + audit_unavailable", { busy: [A], audit: [B], unsafe: [] as string[] }, "audit_unavailable"],
+    ["busy + store_unsafe", { busy: [A], audit: [], unsafe: [B] }, "store_unsafe"],
+    ["audit_unavailable + store_unsafe", { busy: [], audit: [A], unsafe: [B] }, "store_unsafe"],
+    ["all three", { busy: [C], audit: [A], unsafe: [B] }, "store_unsafe"],
+  ])("worst reason first (%s): the code is %s, Retry-After only for busy", async (_label, o, code) => {
+    threeIdentities();
+    const roles: Record<string, string> = { [A]: "alpha", [B]: "beta", [C]: "gamma" };
+    for (const i of o.unsafe) linkIndex(i, roles[i]!);
+    const mutex = new IdentityMutex();
+    for (const i of o.busy) mutex.tryTake(i);
+    const { del } = await boot({ mutex, audit: auditFailingFor(...o.audit) });
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(503);
+    expect(json(r.body).error).toStrictEqual({ code });
+    expect(r.headers["retry-after"]).toBeUndefined();
+    const reasons = Object.fromEntries((json(r.body).data as Outcome).pending.map((p) => [p.identity, p.reason]));
+    expect(reasons).toStrictEqual(Object.fromEntries([...o.busy.map((i) => [i, "busy"]), ...o.audit.map((i) => [i, "audit_unavailable"]), ...o.unsafe.map((i) => [i, "store_unsafe"])]));
+  });
+
+  it("5 concurrent deletes while 4 are held open: the 5th is 503 busy at once with Retry-After: 1, and the slot comes back", async () => {
+    const sessions = [1, 2, 3, 4, 5, 6].map((n) => ({ sid: `session-c${n}`, identity: id(0x100 + n) }));
+    for (const { sid, identity } of sessions) { mkIdentity(identity, sid); mkRole(identity, "alpha", [segLine("s1", 100)], { s1: wavBytes(100) }); }
+    const real = new AuditLog({ audioDir, now: () => 1234 });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let held = 0, slow = true;
+    let allHeld!: () => void;
+    const four = new Promise<void>((r) => { allHeld = r; });
+    const { del } = await boot({ audit: { append: async (i, e) => { if (slow) { held++; if (held === 4) allHeld(); await gate; } return real.append(i, e); } } });
+    const first = sessions.slice(0, 4).map(({ sid }) => del(`/sessions/${sid}/audio`, SESSION_BODY));
+    await four;
+    hooks.calls = [];
+    const fifth = await del(`/sessions/${sessions[4]!.sid}/audio`, SESSION_BODY);
+    expect(fifth.status).toBe(503);
+    expectJsonEnvelope(fifth);
+    expect(fifth.headers["retry-after"]).toBe("1");
+    expect(json(fifth.body).error?.code).toBe("busy");
+    expect(json(fifth.body).data).toBeNull();
+    expect(hooks.calls).toEqual([]); // refused before any file call
+    expect(held).toBe(4);
+    slow = false;
+    release();
+    for (const r of await Promise.all(first)) expect(r.status).toBe(200);
+    expect((await del(`/sessions/${sessions[4]!.sid}/audio`, SESSION_BODY)).status).toBe(200);
+    expect((await del(`/sessions/${sessions[5]!.sid}/audio`, SESSION_BODY)).status).toBe(200);
+  });
+
+  it("the delete cap is its own: 4 deletes held open do not stop a replay", async () => {
+    const { s1 } = twoIdentities();
+    const sessions = [1, 2, 3, 4].map((n) => ({ sid: `session-c${n}`, identity: id(0x100 + n) }));
+    for (const { sid, identity } of sessions) { mkIdentity(identity, sid); mkRole(identity, "alpha", [segLine("s1", 100)], { s1: wavBytes(100) }); }
+    const real = new AuditLog({ audioDir, now: () => 1234 });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let held = 0;
+    let allHeld!: () => void;
+    const four = new Promise<void>((r) => { allHeld = r; });
+    const { del, get } = await boot({
+      audit: { append: async (i, e) => { if (e.type === "audio.deleted") { held++; if (held === 4) allHeld(); await gate; } return real.append(i, e); } },
+    });
+    const first = sessions.map(({ sid }) => del(`/sessions/${sid}/audio`, SESSION_BODY));
+    await four;
+    const play = await get(`/sessions/${S}/audio/alpha/s1`, by());
+    expect(play.status).toBe(200);
+    expect(play.body.equals(s1)).toBe(true);
+    release();
+    for (const r of await Promise.all(first)) expect(r.status).toBe(200);
+  });
+
+  it("the slot is freed on every path: success, 404, 409, 503 pending and a throw (cap 1)", async () => {
+    twoIdentities();
+    const catalog = new AudioCatalog({ audioDir });
+    const find = vi.spyOn(catalog, "find");
+    let live = false;
+    const mutex = new IdentityMutex();
+    const { del } = await boot({ catalog, mutex, maxDeletesInFlight: 1, isLive: () => live });
+    // a throw: an identity list whose iteration fails escapes deleteAudio (500)
+    find.mockResolvedValueOnce({ length: 1, [Symbol.iterator]: () => { throw new Error("boom"); } } as unknown as string[]);
+    expect((await del(`/sessions/${S}/audio`, SESSION_BODY)).status).toBe(500);
+    expect((await del(`/sessions/${OTHER}/audio`, SESSION_BODY)).status).toBe(404);
+    live = true;
+    expect((await del(`/sessions/${S}/audio`, SESSION_BODY)).status).toBe(409);
+    live = false;
+    const releaseA = mutex.tryTake(A)!;
+    expect((await del(`/sessions/${S}/audio`, SESSION_BODY)).status).toBe(503);
+    releaseA();
+    expect((await del(`/sessions/${S}/audio`, SESSION_BODY)).status).toBe(200);
+    expect((await del(`/sessions/${S}/audio`, SESSION_BODY)).status).toBe(200);
+  });
+
+  it("nothing in any response, and nothing logged, contains a path", async () => {
+    twoIdentities();
+    linkIndex(B, "beta");
+    const catalog = new AudioCatalog({ audioDir });
+    const find = vi.spyOn(catalog, "find");
+    const { del, log } = await boot({ catalog });
+    const texts: string[] = [];
+    const push = (r: { body: Buffer; headers: http.IncomingHttpHeaders }) => { texts.push(r.body.toString("utf8"), JSON.stringify(r.headers)); };
+    push(await del(`/sessions/${S}/audio`, SESSION_BODY)); // 503 store_unsafe with A done
+    push(await del(`/sessions/${S}/audio`, { ...SESSION_BODY, extra: 1 })); // 400
+    push(await del(`/sessions/${OTHER}/audio`, SESSION_BODY)); // 404
+    find.mockResolvedValueOnce({ length: 1, [Symbol.iterator]: () => { throw new Error(`boom ${audioDir}`); } } as unknown as string[]);
+    push(await del(`/sessions/${S}/audio`, SESSION_BODY)); // 500
+    expect(texts.join("")).toContain(A); // positive control: the body is there to search
+    expectNoPath([...texts, ...log.mock.calls.map((c) => String(c[0]))]);
+    expect(log).toHaveBeenCalled(); // positive control: the 500 was logged (by error name only)
+  });
+});
+
+describe("production code never sets deleteAudio's acquireLock test seam", () => {
+  const src = path.resolve(import.meta.dirname, "../..");
+  const read = (rel: string): string => fs.readFileSync(path.join(src, rel), "utf8");
+  it("audio-routes.ts, api.ts and main.ts never name acquireLock", () => {
+    for (const rel of ["voice/audio-routes.ts", "api.ts", "main.ts"]) expect(read(rel), rel).not.toMatch(/acquireLock/);
+  });
+  it("audio-routes.ts is the only non-test caller of deleteAudio (so the scan above covers every caller)", () => {
+    const callers: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== "__tests__") walk(p); continue; }
+        if (e.name.endsWith(".ts") && fs.readFileSync(p, "utf8").includes("deleteAudio(")) callers.push(path.relative(src, p));
+      }
+    };
+    walk(src);
+    expect(callers.sort()).toStrictEqual(["voice/audio-delete.ts", "voice/audio-routes.ts"]);
   });
 });
