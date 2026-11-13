@@ -631,3 +631,38 @@ Rollback trigger: a delete that behaves unexpectedly, a replay answering `store_
 ### Rolling forward again
 
 Redeploy control. A delete interrupted by a rollback is finished by the next sweep run once the new build is back. Nothing to migrate.
+
+## US-0083: facilitator accounts and the admin console (EPIC-0002)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0083-facilitator-accounts)
+Date: not deployed
+Rollback trigger: facilitators cannot sign in, a revoked or changed sign-in still works, a facilitator reaches another facilitator's session or cannot reach their own, the admin is locked out, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **Two new files in `CONTROL_DATA_DIR`, mode 0600:** `accounts.json` (the accounts as salted scrypt hashes, the `legacyClosed` latch) and `session-owners.json` (session id to owner account id). `sessions.json` is **unchanged** (byte-identical with or without an owner), and no session log, event, consent file or report changes.
+- **First start creates `accounts.json`** with the default admin `admin` / `ChangeMe-Admin-1` (or the password in `ADMIN_BOOTSTRAP_PASSWORD`, 10 to 200 characters), active with "must change" and no expiry. The admin changes it at the first sign-in.
+- **New control settings:** `ADMIN_BOOTSTRAP_PASSWORD` (optional) and `ADMIN_RESET` (`1` only, see below). **`FACILITATOR_SECRET` on the web app is now optional**: the console is enabled by `LAUNCHER_URL` and `LAUNCHER_TOKEN`, and the shared secret works only until the first password change by any account or the first account an admin creates.
+- **New control routes** under `/accounts` (service token) and `PUT /sessions/:id/owner`; **new web routes** under `/api/v1/console/password`, `/api/v1/console/admin/accounts` and `/api/v1/console/sessions/:id/owner`, and the pages `/console/password` and `/console/admin`.
+- **Sessions that exist when accounts are first enabled have no owner and are admin-only** until the admin assigns one in the console. Deploy between live sessions and say so.
+
+### Deploy order
+
+**Control before web.** The new web app needs the new control routes (an older control answers 404 to `/accounts/*`, so the new console could not sign anyone in); the older web app works against the new control (it signs in with the shared secret while that is still set, and creates sessions with no owner). Roll back in the reverse order: web first, then control.
+
+### Recovering a locked-out admin
+
+Set `ADMIN_RESET=1` on the control service and restart it: the admin's password goes back to the default (or `ADMIN_BOOTSTRAP_PASSWORD`) with "must change" set and every old admin sign-in dies. Control logs a loud line at every start while it is set; **unset it after use** (a start with it still set resets the admin again). It never reopens the shared secret. Deleting `accounts.json` and restarting is a harder reset (the default admin returns, every other account is forgotten and the shared secret works again until the first change); host access is the authority for both.
+
+### Rolling back
+
+- **No data step is needed.** An older control build ignores `accounts.json` and `session-owners.json` (it never opens them) and reads `sessions.json` as before. Leave the two files in place: rolling forward again picks them up, and nothing is lost.
+- **An older web app signs in with the shared secret only while `FACILITATOR_SECRET` is still set** on it. If the secret was removed after the move to accounts, set it again before rolling back (any value of at least 16 characters; it signs every facilitator out once). Account sign-ins do not work on the older web app, and facilitators then see every session (the older build has no ownership).
+- **After a rollback the accounts are not enforced:** a revoked person who still knows the shared secret can sign in to the older build. Rotate `FACILITATOR_SECRET` when rolling back to it.
+- **Running sessions are unaffected** (the runtimes do not know about accounts). A session created on the new build has an owner entry that the older build ignores.
+
+### Rolling forward again
+
+Redeploy control, then web. The existing `accounts.json` and `session-owners.json` are used as they were; if the shared secret was restored in the meantime, it works again only if the latch (`legacyClosed`) is still open. Nothing to migrate. If `accounts.json` was deleted, the admin starts again with the default password and must create the facilitators again.

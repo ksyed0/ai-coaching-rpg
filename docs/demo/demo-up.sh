@@ -2,8 +2,10 @@
 # Client-demo launcher: control service (8787) + built web app (3000), all on loopback.
 #   docs/demo/demo-up.sh          check everything, then start (Ctrl-C stops both)
 #   docs/demo/demo-up.sh check    only the pre-flight checks
-#   docs/demo/demo-up.sh secret   copy the console sign-in secret to the clipboard (never printed)
+#   docs/demo/demo-up.sh secret   copy the OLD shared console secret to the clipboard (never printed); legacy sign-in only, it stops working after the first password change
 #   docs/demo/demo-up.sh links <session-id>   print the player join URLs for a session (no codes: those are typed)
+# Sign in at the console as `admin` with the default password ChangeMe-Admin-1 the first time, change it, then create the facilitators on the Admin
+# screen (US-0083). ADMIN_RESET=1 docs/demo/demo-up.sh resets a locked-out admin for that start only.
 # Secrets are generated ONCE into ~/.scenecoach/demo.env (mode 600) and reused, because new
 # COOKIE_KEYS would sign every seated player out. Model settings come from the root .env
 # (symlinked into this worktree); the control service reads it, the runtimes get it from there.
@@ -79,6 +81,7 @@ done
 ok "control service up (log: $STATE/logs/control.log)"
 echo
 echo "Open  http://localhost:3000/console   (exactly 'localhost', never 127.0.0.1)"
-echo "Secret: run  docs/demo/demo-up.sh secret  in another terminal (copies to clipboard)"
+echo "Sign in as admin / ChangeMe-Admin-1 the first time (you must change it), then create facilitators on the Admin screen."
+echo "(docs/demo/demo-up.sh secret is the legacy shared-secret sign-in: it stops working after the first password change.)"
 echo
 pnpm --filter @acr/web start -H 127.0.0.1

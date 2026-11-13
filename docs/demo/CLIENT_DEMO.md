@@ -6,7 +6,7 @@ Scenario: **The Friday Escalation** (`scenarios/friday-escalation`, 3 scenes, 4 
 
 | Role | Who plays it |
 | --- | --- |
-| Facilitator | You, Chrome profile A, `http://localhost:3000/console` |
+| Facilitator | You, Chrome profile A, `http://localhost:3000/console` (sign in as `admin`, then your own facilitator account: see "Accounts") |
 | `delivery_lead` | Human 1: Chrome profile B (or a colleague) |
 | `account_manager` | Human 2: **Firefox** (a second incognito window shares Chrome's cookie jar and would overwrite seat 1) |
 | `tech_lead` | **AI player** (in scenes 1 and 3 only; not in scene 2) |
@@ -19,7 +19,7 @@ Always use exactly `http://localhost:3000`, never `127.0.0.1` (every POST would 
 1. LM Studio host awake and reachable; `qwen3.8-27b-uncensored-splash` loaded, idle auto-unload off. Venue network can reach `192.168.139.3`.
 2. Fresh Terminal (not this Claude shell): `cd` to the repo worktree, then `docs/demo/demo-up.sh check`. All lines must say `ok`. (`check` needs ports 3000 and 8787 free, so run it while the stack is stopped.)
 3. `docs/demo/demo-up.sh` (leave it running). Control log: `~/.scenecoach/logs/control.log`.
-4. `docs/demo/demo-up.sh secret` copies the console secret to the clipboard. Paste it when signing in; never show it.
+4. **Accounts (US-0083).** The console signs in by account. The first time on a fresh `~/.scenecoach/control`: sign in as `admin` with the default password `ChangeMe-Admin-1` (a screen asks you to choose a new one, at least 10 characters; do it before the client arrives and keep it out of the screen share), then open **Admin** and create a facilitator for yourself (copy the temporary password shown once; sign in with it and change it). Sessions are visible only to the account that created them (the admin sees all), so run the demo from the account that rehearsed. Lost the admin password: stop the stack, run `ADMIN_RESET=1 docs/demo/demo-up.sh` once, sign in with the default again, then start normally. `docs/demo/demo-up.sh secret` copies the OLD shared secret and is for the legacy sign-in only: it stops working after the first password change or the first account created.
 5. **Rehearse once, end to end** (below), and keep that rehearsal as the "one I prepared earlier". Screen-record it as the last-resort fallback.
 6. Close `.env`, terminals with secrets, and any open Hidden facts list before sharing the screen. End every rehearsal session so they do not fill the 10-session limit.
 
@@ -36,7 +36,7 @@ Always use exactly `http://localhost:3000`, never `127.0.0.1` (every POST would 
 
 **1. Framing (2 min).** Practising hard conversations with AI characters, a Game Master and a facilitator. What is real today: text, browser, facilitator console, AI players, evaluator and reports. Roadmap only: voice, 3D, branding, multi-client, French.
 
-**2. Create the session (3 min).** Console, sign in, **New session**, pick *The Friday Escalation*. Codes are shown once: copy them (do not read them out). On the readiness screen click **Make AI player** on `tech_lead`; point at the AI label and the consent notice that says a seat may be played by an AI.
+**2. Create the session (3 min).** Console, sign in with your facilitator account, **New session**, pick *The Friday Escalation*. Codes are shown once: copy them (do not read them out). On the readiness screen click **Make AI player** on `tech_lead`; point at the AI label and the consent notice that says a seat may be played by an AI.
 
 **3. Humans join (3 min).** The console shows each role's code once but no ready-made player link (the code is never put in a URL). The join link is `http://localhost:3000/join?session=<id>&role=<role>`: `<id>` is the last part of the console URL (`/console/<id>`), and the roles are `delivery_lead` and `account_manager`. Run `docs/demo/demo-up.sh links <id>` in a second terminal to print both full URLs, ready to paste into the other browsers. Each human opens their own URL in their own browser, types a name and **their own code**, then agrees to the consent notice. **Start** stays disabled ("Waiting for: ...") until both consent and the AI bot has joined. Press **Start**.
 - Players must be on this Mac: the seat cookie is `Secure`, and browsers accept it over plain HTTP only on `localhost`. Remote players need an HTTPS front end and `PUBLIC_ORIGIN` set to it, which this kit does not set up.

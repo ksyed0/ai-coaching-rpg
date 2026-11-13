@@ -704,6 +704,39 @@ After the final review's fixes (ac122f45): control 71 files, 1599 passed (+1 ski
 ### Next
 
 The PR into `develop` (US-0075 stays Complete on the branch; nothing is merged or pushed); then A2b-2 (BFF and console panel, brainstorm and plan first), then A3.
+## Session 47 — 2026-11-13 (EPIC-0002 facilitator accounts and the admin console, US-0083)
+
+### What Was Done
+
+- **Built US-0083 on `feature/EPIC-0002-US-0083-facilitator-accounts`** (stacked on the unmerged demo branch plus the merged `origin/develop`; spec `docs/superpowers/specs/2026-11-13-facilitator-accounts-design.md`, plan `docs/superpowers/plans/2026-11-13-facilitator-accounts.md`, reviewed by Opus before the build; subagent-driven, a review per task and fix rounds on Tasks 2, 5b, 6 and 9; ledger and reports in `.superpowers/sdd/2026-11-13-facilitator-accounts/`). Owner go-ahead the same day. Commits `2bbe21e4` to `690be4d1` plus this documents pass.
+  - **Control (Tasks 1 to 4):** the shared safe atomic JSON file (O_NOFOLLOW, regular file, one link, own uid, no group or other access, 1 MiB), async scrypt passwords, `FileAccountStore`, `AccountService` (default admin, `ADMIN_RESET`, login with one hash always, 72 h temporary passwords, change, create, resend, reset, revoke, reinstate, the legacy latch), the `/accounts/*` routes and settings (`ADMIN_BOOTSTRAP_PASSWORD`, `ADMIN_RESET`), and `session-owners.json` with owners kept through stop, restart, resume and end. `cleanConsoleName` moved to `@acr/events`.
+  - **Web server (Tasks 5a to 7):** the console cookie `{accountId, epoch}`, the always-rechecked guard (requests, server pages and the stream heartbeat), `closeAccount` and `closeSession` on the hub, the sign-in and password-change routes (throttled per address, per login and globally), ownership enforced on every console route with one neutral 404, the account-slug review name, and the admin account and owner routes.
+  - **Screens and e2e (Tasks 8 to 10):** the sign-in form, the forced change-password screen, the admin Facilitators screen with one-time credentials, the Owner column and Assign; the Playwright `accounts.spec.ts` (the journey and an Axe pass, 2 of 2 in the Task 10 report), which also repaired the console e2e helpers that had started reading the join link as a code.
+  - **Documents (Task 11, this pass):** THREAT_MODEL "Facilitator accounts" (the public default password and its mitigations, the temporary password on screen, epoch revoke and heartbeat, ownership, throttles and the accepted 60 s lockout, file safety, deleting `accounts.json` as a reset, the latch, residuals), ROLLBACK "US-0083" (control before web, `ADMIN_RESET`, no data step), README, `.env.example`, CHANGELOG, RELEASE_PLAN (US-0083 and the backlog stories US-0084 to US-0089, TASK-0130 to TASK-0141), TEST_CASES (TC-0270 to TC-0290), the registry, the memory files, and the demo kit (`CLIENT_DEMO.md` and `demo-up.sh` now say to sign in as `admin` with the default password the first time, change it and create facilitators; `demo-up.sh secret` is the legacy sign-in only).
+- **Decisions and rulings:** owner: a default admin with a fixed documented password, no email (the temporary password is shown once), a local file store behind an interface, facilitators see only their own sessions, approach B. Controller: R1 Task 5a on Opus, others Sonnet; R3 the docs and demo files are the demo-branch versions; R4 every temporary password (invited or after a reset) expires after 72 h; R5 and R6 Task 3 and Task 5a concerns accepted for review; R7 and R8 the axe coverage is the Playwright e2e with an admin fixture.
+- **Ids:** US-0083 and the backlog US-0084 to US-0089; TASK-0130 to TASK-0141; AC-0500 to AC-0518 (AC-0519 to AC-0524 are the backlog placeholders); TC-0270 to TC-0290. The registry now says next US-0090, TASK-0142, AC-0540, TC-0310. The demo branch's US-0080 to US-0082 (AC-0460 to AC-0499, TC-0243 to TC-0269, TASK-0120 to TASK-0122) are filed only in `docs/superpowers/notes/`, not in the registry or plan files: no collision, merge by taking the maximum.
+
+### Verification (2026-11-13, macOS arm64, the documents pass)
+
+Re-run in this pass: control `accounts.*`, `api.accounts`, `supervisor.owner`, `config` and `main` tests (9 files, 102 tests passed); web `console-recheck`, `console-accounts.login`, `console-ownership`, `console-admin-accounts` and the five account component test files (9 files, 107 tests passed); `@acr/events` `display-name` (4 passed); `npm run plan:generate` (9 epics, 82 stories, 262 TCs) and `npm run plan:test` (61 suites, 1247 tests passed). **Not run in this pass (the controller runs the full gates):** `pnpm typecheck`, `pnpm lint:sdk`, the full control, web and runtime tests, the mock demos (29, 14 and 42 checks) and the full Playwright run. TC-0285 and TC-0286 are the Task 10 e2e results (2 of 2 passed), prior evidence. The Task 10 note stands: the report, AI, voice and participant e2e specs were not run on this branch (legacy sign-in against the new ownership guard): run them with the full gates.
+
+### Known gaps (deferred minors for the final review to triage)
+
+- A stream still joining when a revoke lands ends at the next 15 s heartbeat; a stream that passed its ownership check just before a reassignment survives until its next heartbeat (the recheck checks the account, not the ownership).
+- The admin panel keeps the plaintext temporary password in the parent's state until dismissed; the account list is fetched once per mount; a console id literally `accounts` mis-parses the admin route (ids are server-minted hex); control's startup catch drops the cause of an unusable accounts file; `routes_require_service_token` omits four routes; the dummy hash is created lazily.
+- Accessibility follow-ups: no focus move or `aria-invalid` on form errors; the voluntary password change still says "Current (temporary) password"; dark-mode contrast of muted details was not measured (the Axe e2e passed).
+- Not built, filed as backlog: US-0084 email, US-0085 database, US-0086 SSO or OIDC, US-0087 separate auth service, US-0088 password rules, US-0089 per-client admins.
+
+### Open owner items
+
+1. TO RUN (owner): TC-0289 (a real hosted deployment: sign in as `admin`, change the password, create a facilitator, revoke, `ADMIN_RESET`) and TC-0290 (a temporary password handover without email); set `ADMIN_BOOTSTRAP_PASSWORD` or change the default password at once on any reachable host.
+2. TO CONFIRM (owner): the `X-Acr-By` reading from A2b-1a, `<name>-console` (name at most 56 characters, whole header at most 64). The controller recommended it (Option A) on 2026-11-13; it is RECOMMENDED, awaiting the owner, and is not confirmed.
+3. Decide: R4 (every temporary password expires after 72 h, including after a reset; a one-line change to invited-only).
+
+### Next
+
+The full gates and the whole-branch review (the controller), then flip US-0083 to Complete; the PR is the owner's call (nothing is pushed). Then the follow-ups above, or A2b-2.
+
 ## Client demo prep — 2026-11-13
 
 - **Ask (owner):** a client demo this afternoon of whatever works, run locally with several browser windows and AI players. Plan reviewed by Opus (verdict: ship with changes); no new scenario was built (the existing Friday Escalation is driven with Move on; a third scenario folder would also break `services/control/src/__tests__/scenarios.test.ts`).

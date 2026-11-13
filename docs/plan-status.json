@@ -3392,6 +3392,229 @@
       "dependencies": [
         "US-0074"
       ]
+    },
+    {
+      "id": "US-0083",
+      "epicId": "EPIC-0002",
+      "title": "As an admin, I want per-person facilitator accounts that I manage from the console, with each session owned by the facilitator who created it, so that a client rollout can add and remove people, keep each person's sessions private and stop a person's access at once.",
+      "priority": "High",
+      "estimate": "XL",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "acs": [
+        {
+          "id": "AC-0500",
+          "text": "accounts and passwords on disk: passwords are stored only as salted scrypt hashes (the hash never contains the plain text, equal passwords hash differently; a temporary password is 16 characters from a 31-character alphabet without look-alikes); the shared safe JSON file and `FileAccountStore` refuse a symlink, a hard-linked file, a foreign owner, a file accessible to group or other, a corrupt, oversize or wrong-shape file (duplicate ids or logins) and never return an empty result for one, a missing file reads as null, and a failed rename leaves the old file (TC-0270); ticked 2026-11-13: control accounts.passwords.test.ts, accounts.safe-json-file.test.ts and accounts.store.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0501",
+          "text": "the default admin: a missing `accounts.json` is a first start that creates `admin` (active, must change, no expiry) with `ADMIN_BOOTSTRAP_PASSWORD` (10 to 200 characters) or the default `ChangeMe-Admin-1`, once even under concurrent starts; a corrupt or unsafe file is refused and never replaced; a present file never gets a second default admin; `ADMIN_RESET=1` restores the default with a new epoch, logs a loud line at every start (never a password) and never reopens the legacy latch; control logs one line while the default admin still must change (TC-0271); ticked 2026-11-13: control accounts.service.test.ts (ensure_default_admin, concurrent_ensure_default_admin, admin_reset_logs_the_loud_line, missing_file_is_first_start_but_corrupt_file_is_refused, present_file_never_gets_a_second_default_admin, admin_reset_restores_default, default_admin_does_not_expire), config.test.ts and main.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0502",
+          "text": "sign-in and password rules: logins are trimmed and lower-cased; an unknown login, a wrong password and a revoked account are all refused after exactly one hash verification; a correct temporary password older than 72 hours (invited, or active after a reset) answers `expired` and only with the right password; a password change needs at least 10 characters different from the current one, clears must-change, activates an invited account, closes the legacy latch and makes the old epoch fail (TC-0272); ticked 2026-11-13: control accounts.service.test.ts (login_unknown_wrong_and_revoked_all_refused_with_one_verify_each, login_after_72h_is_expired_only_with_the_right_password, change_password_*)",
+          "done": true
+        },
+        {
+          "id": "AC-0503",
+          "text": "account lifecycle: create returns the temporary password once and stores only the hash and closes the legacy latch; a duplicate login (case-insensitive) is a conflict; a name that cleans to empty is invalid (`cleanConsoleName` now lives in `@acr/events`); resend replaces the temporary password and the old one stops working; reset returns an active account to must-change; revoke bumps the epoch and refuses sign-in; the last active admin cannot be revoked; reinstate issues a new temporary password; a public account never carries a password (TC-0273); ticked 2026-11-13: control accounts.service.test.ts (create_*, resend_*, reset_*, revoke_*, reinstate_*, public_account_never_has_password) and packages/events display-name.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0504",
+          "text": "control account routes and settings behind the service token: login, check, password, list, create, resend, reset, revoke, reinstate and the legacy latch; a refused account answers 401 `account_refused`, distinct from the token's 401; `AccountError` maps to 404, 409, 409 and 400; bodies are validated and length-limited; an unusable accounts file answers a generic 500 with no detail; an issued answer carries the temporary password and a list never does; logs never hold a password or hash (TC-0274); ticked 2026-11-13: control api.accounts.test.ts, api.test.ts and config.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0505",
+          "text": "session owners: `session-owners.json` is a separate safe file (a corrupt or group-writable file is refused), `sessions.json` is byte-identical with and without an owner, a session records its creator as owner, the owner can be assigned or cleared through `PUT /sessions/:id/owner` (unknown session 404), and an owner survives stop, restart, resume and end (TC-0275); ticked 2026-11-13: control accounts.owners.test.ts and supervisor.owner.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0506",
+          "text": "web sign-in: a login and password set the sealed console cookie `{ accountId, epoch }` (also with no `FACILITATOR_SECRET`); a wrong login or password is one neutral 401 that is charged per address, per login and globally (the sixth wrong password for one login is throttled even from a fresh address, and the right one is blocked too: the accepted 60 s lockout trade-off); an expired temporary password says so only after the right password; an unreachable control service answers 502 and charges nothing; Origin and Fetch-Metadata checks stay; a valid cookie is never blocked by the address throttle; no password or secret in any response or log (TC-0276); ticked 2026-11-13: web console-accounts.login.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0507",
+          "text": "every console request, server page and open event stream re-checks the account against control, so a revoked, reset or password-changed cookie fails on the very next request and an open stream ends within one heartbeat (a revoke closes that account's streams at once); control unreachable answers 502 and keeps the cookie; a must-change account is refused on every route, page and stream except the password change and the sign-out; the console is enabled without `FACILITATOR_SECRET` (TC-0277); ticked 2026-11-13: web console-recheck.test.ts (guard rechecks on every request, must_change blocks, open_stream_ends_within_one_heartbeat_after_revoke, close_account_closes_that_accounts_streams, control_unreachable_answers_502_and_keeps_the_cookie, console_enabled_without_facilitator_secret)",
+          "done": true
+        },
+        {
+          "id": "AC-0508",
+          "text": "password change route: reachable while the account must change, re-seals the cookie so the old cookie fails (the second tab gets 401), refuses a legacy cookie (403) and an anonymous caller (401), checks Origin and the body, tells a wrong current password (403, cookie kept, charged to the account and eventually throttled) from a revoked or stale account (401, cookie cleared), and answers 502 with the cookie kept when control cannot classify a refusal (TC-0278); ticked 2026-11-13: web console-accounts.login.test.ts (change_password_reseals_cookie_old_cookie_fails_two_tabs_second_gets_401 and the password-route tests)",
+          "done": true
+        },
+        {
+          "id": "AC-0509",
+          "text": "ownership on every console route that takes a session id: a facilitator gets the same neutral 404 for another facilitator's session as for an unknown one (the route table lists every session route), a session with no owner is admin-only, the admin can use any session, a facilitator can use their own, the session lookup is made once per request, the list is filtered for a facilitator and not for an admin, create records the caller as owner, the owner route is admin-only (a facilitator gets 403) and rejects an unknown or revoked account, and the review name `by` is the server-built account slug (a body `by` is ignored) (TC-0279); ticked 2026-11-13: web console-ownership.test.ts (route table, 404 on every route, admin-only unowned, list filter, create owner, set_owner, account slug, review_by)",
+          "done": true
+        },
+        {
+          "id": "AC-0510",
+          "text": "reassigning or clearing a session's owner ends the previous owner's open streams (only that session's streams); a failed assignment leaves streams open; a throw while closing streams does not fail the assignment (TC-0280); ticked 2026-11-13: web console-ownership.test.ts (reassigning_a_session_ends_its_open_streams, clearing_the_owner, a_failed_assignment, a_throw_while_closing, hub_close_session_ends_only_that_sessions_streams)",
+          "done": true
+        },
+        {
+          "id": "AC-0511",
+          "text": "admin account routes in the web app: a facilitator and a legacy caller get 403 on every one; create returns the temporary password and a list never does; each action needs Origin and the request header; the last-admin revoke returns its conflict message; control failures map to statuses; `by` comes from the cookie, never the body; a revoke closes that account's streams; ids and bodies are validated before any control call; the admin routes are blocked while the admin must change (TC-0281); ticked 2026-11-13: web console-admin-accounts.test.ts",
+          "done": true
+        },
+        {
+          "id": "AC-0512",
+          "text": "the sign-in and forced change-password screens: the sign-in form posts login and password, goes straight to the password page when must-change, shows the neutral refusal, the expired, throttled and unreachable messages in words, shows the shared-secret disclosure only while the legacy sign-in is allowed, and keeps no password in storage or a URL; the change form labels three fields with the minimum length as helper text, rejects a mismatch or a short password before any request, sends the current and new password once, goes to the console on success and keeps no password in storage or a URL (TC-0282); ticked 2026-11-13: web ConsoleLogin.test.tsx and ChangePasswordForm.test.tsx",
+          "done": true
+        },
+        {
+          "id": "AC-0513",
+          "text": "the admin Facilitators screen: lists name, login and status and shows only the actions allowed for each status (resend, reset, revoke, reinstate), asks to confirm each (revoke says running sessions keep running and stay reachable by the admin only), can create a facilitator or an admin and needs a name and a login, shows the credentials once as inert text with Copy buttons, removes the password from the page on dismiss and after a remount (it is never in storage or a URL), says plainly what went wrong, disables buttons while pending, and offers Try again after a load failure; a non-admin never sees the Admin link or page (TC-0283); ticked 2026-11-13: web FacilitatorsPanel.test.tsx and CredentialsPanel.test.tsx; console-recheck.test.ts (non_admin_never_sees_the_admin_link_or_page)",
+          "done": true
+        },
+        {
+          "id": "AC-0514",
+          "text": "the session list shows the owner and an Assign control for an admin only: it offers only active accounts and Unassigned, posts the chosen owner and refreshes, shows an owner whose account is revoked or invited (and lets the admin unassign it or give it to an active account), shows an unknown owner as `Unknown account`, and a shared-secret admin sees no Owner column, makes no accounts call and gets no alert (TC-0284); ticked 2026-11-13: web SessionList.owner.test.tsx",
+          "done": true
+        },
+        {
+          "id": "AC-0515",
+          "text": "end to end with the real control service and web app: the default admin signs in, is forced to change the password, and the default is refused afterwards; the shared secret is refused once the latch closed; the admin creates two facilitators and their temporary passwords show once and not after a reload; a facilitator is forced to change it, creates a session, and the other facilitator gets 404 (the same as for an unknown session) on the session, its stream and the list; the admin sees the owner; a revoke ends the owner's page and open stream within 8 s and refuses every later request with the old cookie while the session keeps Running; the admin assigns the session to the other facilitator who then runs it (TC-0285); ticked 2026-11-13: web e2e accounts.spec.ts (the journey; 2 of 2 passed in the Task 10 report, 2026-11-13: prior evidence, the controller re-runs it with the gates)",
+          "done": true
+        },
+        {
+          "id": "AC-0516",
+          "text": "no serious or critical Axe violations (WCAG 2 A, AA, 2.1 A, AA), in light and dark, on the forced password change (empty and with the short-password refusal), the admin screen (the list, the one-time credentials and the revoke dialog) and the session list's Owner column with its select; no horizontal scroll at 1280 and 400 px (TC-0286); ticked 2026-11-13: web e2e accounts.spec.ts (the Axe test; passed in the Task 10 report, 2026-11-13: prior evidence)",
+          "done": true
+        },
+        {
+          "id": "AC-0517",
+          "text": "the legacy shared secret: it signs in while the latch is open (and fails closed with 502 when the latch cannot be read), is refused once the first password change or the first created account closed the latch, acts as an admin for sessions but gets 403 on every admin account route and cannot change a password through the account route, and a legacy cookie is refused on its next request once the latch closes (TC-0287); ticked 2026-11-13: web console-accounts.login.test.ts, console-recheck.test.ts (legacy_cookie_without_kind_works_only_while_the_latch_is_open), console-admin-accounts.test.ts (facilitator_and_legacy_get_403_on_every_admin_route), control api.accounts.test.ts (legacy_route_reports_the_latch) and accounts.service.test.ts (create_closes_legacy, change_password_clears_must_change_closes_legacy)",
+          "done": true
+        },
+        {
+          "id": "AC-0518",
+          "text": "documented: `docs/THREAT_MODEL.md` (\"Facilitator accounts\": the default password and its mitigations, the temporary password on screen, epoch revoke and the stream heartbeat, ownership, throttles and the 60 s lockout, file safety, deleting `accounts.json` as a reset, the legacy latch), `docs/ROLLBACK.md` (\"US-0083\": deploy control before web, `ADMIN_RESET`, no data step), README, `.env.example`, `CHANGELOG.md`, the client demo cue card and `demo-up.sh` (TC-0288); ticked 2026-11-13: the Task 11 documents pass and `npm run plan:test`",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0057"
+      ]
+    },
+    {
+      "id": "US-0084",
+      "epicId": "EPIC-0002",
+      "title": "As an admin, I want the system to email a new facilitator their sign-in details, so that I do not have to hand over a temporary password myself.",
+      "priority": "Low",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0002-US-0084-email-sending",
+      "acs": [
+        {
+          "id": "AC-0519",
+          "text": "the account create, resend, reset and reinstate actions send the login and a temporary password (or a one-time link) by email through a configurable sender instead of, or beside, showing it once on screen; no password appears in a log; delivery failure is visible to the admin (not started)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0083"
+      ]
+    },
+    {
+      "id": "US-0085",
+      "epicId": "EPIC-0002",
+      "title": "As an operator, I want accounts and session owners kept in a database instead of two local files, so that more than one control process can share them and backups and audit are standard.",
+      "priority": "Low",
+      "estimate": "L",
+      "status": "Planned",
+      "branch": "feature/EPIC-0002-US-0085-database-store",
+      "acs": [
+        {
+          "id": "AC-0520",
+          "text": "a database-backed `AccountStore` and owner store replace the JSON files behind the same interfaces, with a migration from `accounts.json` and `session-owners.json`, and the same refusal and epoch rules (not started)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0083"
+      ]
+    },
+    {
+      "id": "US-0086",
+      "epicId": "EPIC-0002",
+      "title": "As a client organisation, I want my facilitators to sign in with our company single sign-on, so that we manage who may run sessions in one place.",
+      "priority": "Low",
+      "estimate": "XL",
+      "status": "Planned",
+      "branch": "feature/EPIC-0002-US-0086-sso-oidc",
+      "acs": [
+        {
+          "id": "AC-0521",
+          "text": "an OIDC or SAML provider can sign a facilitator in; accounts map to the provider's identities; revoking in the provider ends the console sign-in; the local password sign-in can be disabled (not started)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0083"
+      ]
+    },
+    {
+      "id": "US-0087",
+      "epicId": "EPIC-0002",
+      "title": "As an operator, I want accounts handled by a separate auth service, so that sign-in can be shared by the console, the reports and later products and can be secured on its own.",
+      "priority": "Low",
+      "estimate": "XL",
+      "status": "Planned",
+      "branch": "feature/EPIC-0002-US-0087-auth-service",
+      "acs": [
+        {
+          "id": "AC-0522",
+          "text": "an auth service owns accounts, sign-in and sessions behind a documented API, and the console and control service call it instead of their own account code (not started)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0083"
+      ]
+    },
+    {
+      "id": "US-0088",
+      "epicId": "EPIC-0002",
+      "title": "As an operator, I want configurable password rules, so that the client's own security policy (length, complexity, reuse, expiry) can be enforced.",
+      "priority": "Low",
+      "estimate": "S",
+      "status": "Planned",
+      "branch": "feature/EPIC-0002-US-0088-password-rules",
+      "acs": [
+        {
+          "id": "AC-0523",
+          "text": "the minimum length and any complexity, reuse and age rules are settings, and the change form says what is required (not started)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0083"
+      ]
+    },
+    {
+      "id": "US-0089",
+      "epicId": "EPIC-0008",
+      "title": "As a client organisation, I want my own admin who manages only my facilitators and sessions, so that clients sharing one deployment cannot see or manage each other's.",
+      "priority": "Low",
+      "estimate": "L",
+      "status": "Planned",
+      "branch": "feature/EPIC-0008-US-0089-client-admins",
+      "acs": [
+        {
+          "id": "AC-0524",
+          "text": "an account belongs to a client (tenant); a client admin manages only that client's accounts and sees only that client's sessions; the platform admin manages clients (not started)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0083"
+      ]
     }
   ],
   "tasks": [
@@ -4454,6 +4677,126 @@
       "status": "Done",
       "branch": "feature/EPIC-0003-US-0075-voice-audio-delete",
       "notes": "Plan: docs/superpowers/plans/2026-11-13-voice-a2b1b-audio-delete.md (Task 1: the `deleted` index line in the speech protocol and the filing; then the typed lock acquirer and shared mutex, the fail-closed index reader, the deleted-aware sweep, the delete core and route, wiring, end to end with mutation checks, documents). Covers AC-0442 to AC-0450 (TC-0233 to TC-0241). Filed 2026-11-13; Tasks 1 to 9 built the same day and Task 10 (the documents) closed it. Done 2026-11-13 on feature/EPIC-0003-US-0075-voice-audio-delete; the PR into `develop` is not yet opened. Test cases TC-0233 to TC-0241 Pass (TC-0241's mutation checks are prior evidence); TC-0242 (the owner-run real delete) is Not Run."
+    },
+    {
+      "id": "TASK-0130",
+      "storyId": "US-0083",
+      "title": "Build the safe JSON file, password primitives and account store (Task 1)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 1 of the plan (AC-0500). Commits: 2bbe21e4. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0131",
+      "storyId": "US-0083",
+      "title": "Build the account service and move `cleanConsoleName` to `@acr/events` (Task 2)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 2 (AC-0501 to AC-0503); one fix round closed the default-admin race, pinned one verification per login and added the loud `ADMIN_RESET` line. Ruling R4: every temporary password, invited or after a reset, expires after 72 hours. Commits: 6beec781 and 4b0a093f. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0132",
+      "storyId": "US-0083",
+      "title": "Add the control account routes, settings and wiring (Task 3)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 3 (AC-0504); an unusable accounts file refuses the control start. Commits: c8b78490. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0133",
+      "storyId": "US-0083",
+      "title": "Record and assign session owners in the control service (Task 4)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 4 (AC-0505); owners live in `session-owners.json`, not `sessions.json`. Commits: 22dc8193. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0134",
+      "storyId": "US-0083",
+      "title": "Re-check the account on every console request, page and stream (Task 5a)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 5a (AC-0507): the console cookie, the always-rechecked guard, the stream heartbeat and `closeAccount`, the async `consoleView`, the test support. Commits: 957351d5. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0135",
+      "storyId": "US-0083",
+      "title": "Add the account sign-in and password change routes (Task 5b)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 5b (AC-0506, AC-0508, AC-0517); one fix round told a wrong current password from a stale account. Commits: 727f8ef5 and b9bcf2b9. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0136",
+      "storyId": "US-0083",
+      "title": "Enforce ownership and the account's review name on every console route (Task 6)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 6 (AC-0509, AC-0510); one fix round ended the previous owner's open streams on reassignment. Commits: 1c7bf10c and d66669ba. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0137",
+      "storyId": "US-0083",
+      "title": "Add the admin account routes in the web app (Task 7)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 7 (AC-0511). Commits: 29e99514. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0138",
+      "storyId": "US-0083",
+      "title": "Build the account sign-in and forced change-password screens (Task 8)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 8 (AC-0512). Commits: 329b002d. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0139",
+      "storyId": "US-0083",
+      "title": "Build the admin facilitators screen and the session owner column (Task 9)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 9 (AC-0513, AC-0514); one fix round let a revoked or invited owner be unassigned and hid owners for the shared-secret sign-in. Commits: 2796fa27 and e5f335c6. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0140",
+      "storyId": "US-0083",
+      "title": "Add the accounts end-to-end and Axe spec (Task 10)",
+      "type": "Test",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 10 (AC-0515, AC-0516); also repaired the console e2e helpers that read the join link as a code. Commits: 8f559768 and 690be4d1. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0141",
+      "storyId": "US-0083",
+      "title": "Document accounts, file the stories and update the demo kit (Task 11)",
+      "type": "Docs",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
+      "notes": "Task 11 (AC-0518): THREAT_MODEL, ROLLBACK, README, `.env.example`, CHANGELOG, this plan, the registry, the test cases, the demo cue card and `demo-up.sh`, progress.md and MEMORY.md. Commits: this commit. Done 2026-11-13."
     }
   ],
   "testCases": [
@@ -6866,6 +7209,216 @@
       "type": "Manual",
       "status": "Not Run",
       "defect": "None"
+    },
+    {
+      "id": "TC-0270",
+      "title": "Accounts on disk: hashes, the safe file and the store",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0130",
+      "relatedAC": "AC-0500",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0271",
+      "title": "The default admin, first start, refused files and ADMIN_RESET",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0131",
+      "relatedAC": "AC-0501",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0272",
+      "title": "Sign-in timing, the 72 h expiry and the password rules",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0131",
+      "relatedAC": "AC-0502",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0273",
+      "title": "Account lifecycle: create, resend, reset, revoke, reinstate",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0131",
+      "relatedAC": "AC-0503",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0274",
+      "title": "Control account routes, status mapping and no secrets in logs",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0132",
+      "relatedAC": "AC-0504",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0275",
+      "title": "Session owners are a separate file and survive status changes",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0133",
+      "relatedAC": "AC-0505",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0276",
+      "title": "Web sign-in, neutral refusal and the three throttles",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0135",
+      "relatedAC": "AC-0506",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0277",
+      "title": "Every request, page and stream re-checks the account",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0134",
+      "relatedAC": "AC-0507",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0278",
+      "title": "Password change route: reseal, old cookie fails, wrong current",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0135",
+      "relatedAC": "AC-0508",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0279",
+      "title": "Ownership: the same neutral 404 on every session route",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0136",
+      "relatedAC": "AC-0509",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0280",
+      "title": "Reassigning or clearing an owner ends the previous owner's streams",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0136",
+      "relatedAC": "AC-0510",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0281",
+      "title": "Admin routes: admin only, once-only credentials, by from the cookie",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0137",
+      "relatedAC": "AC-0511",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0282",
+      "title": "Sign-in and forced change-password screens",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0138",
+      "relatedAC": "AC-0512",
+      "type": "Component",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0283",
+      "title": "Admin facilitators screen and one-time credentials",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0139",
+      "relatedAC": "AC-0513",
+      "type": "Component",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0284",
+      "title": "Session list owner column and Assign",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0139",
+      "relatedAC": "AC-0514",
+      "type": "Component",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0285",
+      "title": "End to end: default admin, two facilitators, ownership, revoke, reassign",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0140",
+      "relatedAC": "AC-0515",
+      "type": "E2E",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0286",
+      "title": "Axe on the password change, the admin screen and the Owner column",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0140",
+      "relatedAC": "AC-0516",
+      "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0287",
+      "title": "The legacy shared secret and its latch",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0135",
+      "relatedAC": "AC-0517",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0288",
+      "title": "The accounts documents and the demo kit",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0141",
+      "relatedAC": "AC-0518",
+      "type": "Review",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0289",
+      "title": "Sign in on a real hosted deployment (owner-run)",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0141",
+      "relatedAC": "AC-0501, AC-0507",
+      "type": "Manual",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0290",
+      "title": "Hand a temporary password over without email (owner-run)",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0141",
+      "relatedAC": "AC-0513",
+      "type": "Manual",
+      "status": "Not Run",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -7281,451 +7834,493 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0070": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0071": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0072": {
       "projectedUsd": 1600,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0073": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0074": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0075": {
       "projectedUsd": 0.9,
-      "costUsd": 10.659816,
+      "costUsd": 9.749832,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0083": {
+      "projectedUsd": 3200,
+      "costUsd": 9.749832,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0084": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.749832,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0085": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.749832,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0086": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.749832,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0087": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.749832,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0088": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.749832,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0089": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.749832,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -8539,6 +9134,55 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": false
+    },
+    "US-0083": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0084": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0085": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0086": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0087": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0088": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0089": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -8927,10 +9571,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-13T18:05:23.867Z",
-  "commitSha": "ac122f45",
-  "buildNumber": "578",
-  "branch": "feature/EPIC-0003-US-0075-voice-audio-delete",
+  "generatedAt": "2026-11-13T22:09:39.693Z",
+  "commitSha": "9935bf72",
+  "buildNumber": "612",
+  "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -9072,10 +9716,10 @@
     }
   },
   "budget": {
-    "totalBudget": 807.5862000000001,
+    "totalBudget": 812.9862,
     "totalSpent": 799.4862,
-    "totalProjected": 13657.599999999999,
-    "percentUsed": 99,
+    "totalProjected": 16863.000000000007,
+    "percentUsed": 98,
     "burnRate": 0,
     "daysRemaining": null,
     "projectedExhaustion": null,
@@ -9094,64 +9738,64 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 149.23742400000003,
-        "spent": 149.23742400000003,
+        "budget": 136.497648,
+        "spent": 136.497648,
         "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0002",
-        "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 192.77668800000006,
-        "spent": 191.87668800000006,
-        "remaining": 0.9000000000000057,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0003",
         "title": "Slice 3 — voice over LiveKit",
-        "budget": 63.958895999999996,
-        "spent": 63.958895999999996,
+        "budget": 58.498991999999994,
+        "spent": 58.498991999999994,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 149.23742400000003,
-        "spent": 149.23742400000003,
+        "budget": 136.497648,
+        "spent": 136.497648,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 159.89724000000004,
-        "spent": 159.89724000000004,
+        "budget": 146.24748,
+        "spent": 146.24748,
         "remaining": 0,
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0002",
+        "title": "Slice 2 — web lobby, session view and reconnect",
+        "budget": 239.39596799999998,
+        "spent": 233.99596799999998,
+        "remaining": 5.400000000000006,
+        "percentUsed": 98
+      },
+      {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 46.239264,
-        "spent": 42.639264,
+        "budget": 42.599328,
+        "spent": 38.999328,
         "remaining": 3.6000000000000014,
         "percentUsed": 92
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 34.679448,
-        "spent": 31.979447999999998,
-        "remaining": 2.700000000000003,
+        "budget": 42.599328,
+        "spent": 38.999328,
+        "remaining": 3.6000000000000014,
         "percentUsed": 92
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 11.559816,
-        "spent": 10.659816,
+        "budget": 10.649832,
+        "spent": 9.749832,
         "remaining": 0.9000000000000004,
         "percentUsed": 92
       },
@@ -9167,9 +9811,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Oct 25",
-    "rangeStart": "Aug 17",
-    "rangeEnd": "Jan 2",
+    "likelyDate": "Dec 21",
+    "rangeStart": "Oct 1",
+    "rangeEnd": "Mar 10",
     "velocityWeeks": 6,
     "storiesPerWeek": 1,
     "pointsPerWeek": 4.9
@@ -9182,10 +9826,12 @@
       "2026-11-12T20:37:55.878Z",
       "2026-11-12T21:50:41.141Z",
       "2026-11-13T17:35:13.525Z",
-      "2026-11-13T18:05:24.013Z"
+      "2026-11-13T18:05:24.013Z",
+      "2026-11-13T22:09:39.767Z"
     ],
     "doneCounts": [
       0,
+      6,
       6,
       6,
       6,
@@ -9200,7 +9846,8 @@
       74,
       74,
       75,
-      75
+      75,
+      82
     ],
     "aiCosts": [
       54.2322,
@@ -9209,9 +9856,11 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -9227,6 +9876,7 @@
       29,
       29,
       29,
+      29,
       29
     ],
     "openBugs": [
@@ -9236,9 +9886,11 @@
       1,
       1,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -9254,10 +9906,12 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -9272,7 +9926,8 @@
       1.1352941176470586,
       1.1352941176470586,
       1.1347826086956518,
-      1.1347826086956518
+      1.1347826086956518,
+      1.135526315789473
     ],
     "velocityByWeek": {
       "labels": [

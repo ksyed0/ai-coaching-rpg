@@ -3671,3 +3671,283 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-13 (Task 10). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-1b. The owner runs it with the room test.
+
+## US-0083: facilitator accounts and the admin console
+TC-0270: Accounts on disk: hashes, the safe file and the store
+Related Story: US-0083
+Related Task: TASK-0130
+Related AC: AC-0500
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.passwords.test.ts src/__tests__/accounts.safe-json-file.test.ts src/__tests__/accounts.store.test.ts`.
+Expected Result: Hashes never contain the plain text and differ per call; a symlink, hard link, foreign owner, accessible, corrupt, oversize or wrong-shape file is refused and never replaced; a missing file is null; a failed rename keeps the old file.
+Actual Result: As expected: 3 test files, 11 tests pass (re-run 2026-11-13 in the Task 11 pass; `accounts.owners` and `accounts.service` also pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0271: The default admin, first start, refused files and ADMIN_RESET
+Related Story: US-0083
+Related Task: TASK-0131
+Related AC: AC-0501
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.service.test.ts src/__tests__/config.test.ts src/__tests__/main.test.ts`.
+Expected Result: A missing file creates the active must-change admin once (also under concurrent starts); a corrupt file is refused; `ADMIN_RESET` restores the default with a new epoch and a loud log line and keeps the latch closed.
+Actual Result: As expected: `accounts.service`, `config` and `main` tests pass (the 9 control files of this slice: 102 tests passed, re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0272: Sign-in timing, the 72 h expiry and the password rules
+Related Story: US-0083
+Related Task: TASK-0131
+Related AC: AC-0502
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.service.test.ts`.
+Expected Result: An unknown, wrong or revoked login costs one verification and is refused; the 72 h expiry shows only with the right password and never applies to the default admin; a change needs 10 or more different characters and closes the latch.
+Actual Result: As expected: the service tests pass (re-run 2026-11-13 in the Task 11 pass, part of the 102 tests of the 9 control files).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0273: Account lifecycle: create, resend, reset, revoke, reinstate
+Related Story: US-0083
+Related Task: TASK-0131
+Related AC: AC-0503
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.service.test.ts`; from `packages/events`: `pnpm exec vitest run src/__tests__/display-name.test.ts`.
+Expected Result: Each action does what its rule says; a temporary password exists once; duplicates, empty names and revoking the last admin are refused; old temporary passwords stop working.
+Actual Result: As expected: the service tests and the 4 display-name tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0274: Control account routes, status mapping and no secrets in logs
+Related Story: US-0083
+Related Task: TASK-0132
+Related AC: AC-0504
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/api.accounts.test.ts src/__tests__/api.test.ts src/__tests__/config.test.ts`.
+Expected Result: Every route needs the service token; `account_refused` is distinct from `unauthorized`; errors map to 404, 409, 409 and 400; no password or hash in a body that should not carry one or in any log.
+Actual Result: As expected: 13 route tests plus the API and config tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0275: Session owners are a separate file and survive status changes
+Related Story: US-0083
+Related Task: TASK-0133
+Related AC: AC-0505
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.owners.test.ts src/__tests__/supervisor.owner.test.ts`.
+Expected Result: Owners are written to `session-owners.json` only; `sessions.json` is unchanged; assign and clear work; an owner survives stop, restart, resume and end.
+Actual Result: As expected: the 2 owner-store tests and 6 supervisor owner tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0276: Web sign-in, neutral refusal and the three throttles
+Related Story: US-0083
+Related Task: TASK-0135
+Related AC: AC-0506
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-accounts.login.test.ts`.
+Expected Result: A sealed cookie is set, one neutral 401 is given for every refusal and charged to the address, the login and the global bucket; the sixth wrong password for one login is throttled from a fresh address; control down answers 502 and charges nothing.
+Actual Result: As expected: the login, change and legacy tests pass (re-run 2026-11-13 in the Task 11 pass: the 4 web server files and 5 component files, 107 tests, passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0277: Every request, page and stream re-checks the account
+Related Story: US-0083
+Related Task: TASK-0134
+Related AC: AC-0507
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-recheck.test.ts`.
+Expected Result: A revoked, reset or changed cookie fails the next request and page; an open stream ends within one heartbeat and a revoke closes it at once; must-change blocks everything but the change and the sign-out; control down keeps the cookie.
+Actual Result: As expected: the 10 recheck tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0278: Password change route: reseal, old cookie fails, wrong current
+Related Story: US-0083
+Related Task: TASK-0135
+Related AC: AC-0508
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-accounts.login.test.ts`.
+Expected Result: The cookie is re-sealed and the old one fails; a wrong current password is 403 (charged, throttled), a stale account 401 with the cookie cleared; a legacy cookie is refused.
+Actual Result: As expected: the password-route tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0279: Ownership: the same neutral 404 on every session route
+Related Story: US-0083
+Related Task: TASK-0136
+Related AC: AC-0509
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-ownership.test.ts`.
+Expected Result: Another facilitator's session gets the same neutral 404 as an unknown one on every route of the route table; unowned is admin-only; the admin reaches any session; the list is filtered; the owner route is admin-only; `by` is the account slug.
+Actual Result: As expected: the 20 ownership tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0280: Reassigning or clearing an owner ends the previous owner's streams
+Related Story: US-0083
+Related Task: TASK-0136
+Related AC: AC-0510
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-ownership.test.ts`.
+Expected Result: The previous owner's streams for that session end on reassign or clear and no other session's streams do; a failed or throwing assignment behaves as stated.
+Actual Result: As expected: the stream-closing tests of console-ownership.test.ts pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0281: Admin routes: admin only, once-only credentials, by from the cookie
+Related Story: US-0083
+Related Task: TASK-0137
+Related AC: AC-0511
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-admin-accounts.test.ts`.
+Expected Result: A facilitator or legacy caller gets 403 on every admin route; credentials appear once and never in a list; actions need Origin and the header; `by` is from the cookie; a revoke closes streams.
+Actual Result: As expected: the admin route tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0282: Sign-in and forced change-password screens
+Related Story: US-0083
+Related Task: TASK-0138
+Related AC: AC-0512
+Type: Component
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ConsoleLogin.test.tsx src/components/__tests__/ChangePasswordForm.test.tsx`.
+Expected Result: Both forms follow the AC: neutral and plain messages, client-side checks before any request, one request on submit, no password in storage or a URL.
+Actual Result: As expected: the sign-in and change-form component tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0283: Admin facilitators screen and one-time credentials
+Related Story: US-0083
+Related Task: TASK-0139
+Related AC: AC-0513
+Type: Component
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/FacilitatorsPanel.test.tsx src/components/__tests__/CredentialsPanel.test.tsx`.
+Expected Result: The panel shows the allowed actions per status, confirms each, shows credentials once and removes them on dismiss and on remount, and never shows the Admin link to a non-admin.
+Actual Result: As expected: the panel and credentials component tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0284: Session list owner column and Assign
+Related Story: US-0083
+Related Task: TASK-0139
+Related AC: AC-0514
+Type: Component
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/SessionList.owner.test.tsx`.
+Expected Result: An admin sees the owner and Assign (active accounts and Unassigned only); revoked and invited owners are shown and can be changed; a legacy admin sees no Owner column and no alert.
+Actual Result: As expected: the owner-column component tests pass (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0285: End to end: default admin, two facilitators, ownership, revoke, reassign
+Related Story: US-0083
+Related Task: TASK-0140
+Related AC: AC-0515
+Type: E2E
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test e2e/accounts.spec.ts` (needs the built web app and control service; Playwright starts its own stack).
+Expected Result: The journey in AC-0515 passes: the forced change, once-only credentials, the neutral 404 for the other facilitator, the revoke ending the open stream within 8 s with the session still Running, and the assignment to the other facilitator.
+Actual Result: As expected in the Task 10 report (2026-11-13): the spec passed 2 of 2 on a fresh data directory. Prior evidence: not re-run in the Task 11 pass; the controller re-runs the e2e with the full gates.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0286: Axe on the password change, the admin screen and the Owner column
+Related Story: US-0083
+Related Task: TASK-0140
+Related AC: AC-0516
+Type: Accessibility
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test e2e/accounts.spec.ts -g Axe`.
+Expected Result: No serious or critical Axe violation in light and dark on the listed screens, and no horizontal scroll at 1280 and 400 px.
+Actual Result: As expected in the Task 10 report (2026-11-13): the Axe test passed (light and dark, three screens, both widths). Prior evidence: not re-run in the Task 11 pass.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0287: The legacy shared secret and its latch
+Related Story: US-0083
+Related Task: TASK-0135
+Related AC: AC-0517
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-accounts.login.test.ts src/server/__tests__/console-recheck.test.ts src/server/__tests__/console-admin-accounts.test.ts`; from `services/control`: `pnpm exec vitest run src/__tests__/api.accounts.test.ts src/__tests__/accounts.service.test.ts`.
+Expected Result: The legacy secret signs in only while the latch is open, never manages accounts and is refused at once after the latch closes; an unreadable latch fails closed.
+Actual Result: As expected: the legacy-latch tests pass across the web and control files (re-run 2026-11-13 in the Task 11 pass).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0288: The accounts documents and the demo kit
+Related Story: US-0083
+Related Task: TASK-0141
+Related AC: AC-0518
+Type: Review
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From the repository root: `npm run plan:generate` then `npm run plan:test`; read the sections named in AC-0518.
+Expected Result: The generator and its tests pass and the documents carry the facts named in AC-0518 (the default admin and its mitigations, the 72 h expiry, the epoch revoke and heartbeat backstop, ownership, the throttles and the accepted lockout, file safety, deletion equals reset, the latch, deploy order and rollback).
+Actual Result: As expected: see the Task 11 report for the `npm run plan:generate` and `npm run plan:test` results.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+TC-0289: Sign in on a real hosted deployment (owner-run)
+Related Story: US-0083
+Related Task: TASK-0141
+Related AC: AC-0501, AC-0507
+Type: Manual
+Preconditions: The control service and the web app deployed on a real host behind HTTPS (control first, then web), with `LAUNCHER_URL`, `LAUNCHER_TOKEN` and `ADMIN_BOOTSTRAP_PASSWORD` set, and `FACILITATOR_SECRET` unset.
+Steps:
+  1. Open `/console`, sign in as `admin` with the bootstrap password, change it, create a facilitator and note the temporary password.
+  2. Sign in as the facilitator in a second browser, change the password, create a session; confirm the admin sees it with the facilitator as owner.
+  3. Revoke the facilitator while their live view is open; confirm the page and stream end at once and a later request with the old cookie is refused.
+  4. Restart the control service with `ADMIN_RESET=1`, confirm the loud log line and that the admin must change the password again; unset it and restart.
+Expected Result: Every step behaves as in TC-0285 on the real host, the cookie works over HTTPS, and the reset recovers the admin without reopening the shared secret.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 11). Not run by the agents: no hosted deployment exists for US-0083. The owner runs it with the first deployment.
+TC-0290: Hand a temporary password over without email (owner-run)
+Related Story: US-0083
+Related Task: TASK-0141
+Related AC: AC-0513
+Type: Manual
+Preconditions: A running console with the admin signed in and a person who will be the facilitator, in another room or on another device.
+Steps:
+  1. Create the facilitator; hand the login and the temporary password over by the channel you would really use (a call, a password manager share) and dismiss the panel.
+  2. Check that the panel and the password are gone after a reload and that nothing remains in the browser's storage.
+  3. Have the facilitator sign in and change the password; then reset their password and repeat; then leave a temporary password unused past 72 hours (or ask the admin to confirm the expiry message) and resend.
+Expected Result: The handover works without email, the password is shown once, the facilitator is forced to change it, an expired temporary password is refused with the "ask your administrator" message, and a resend replaces it.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 11). Owner-run: no email exists (US-0084), so the handover is a human process worth trying once for real.
