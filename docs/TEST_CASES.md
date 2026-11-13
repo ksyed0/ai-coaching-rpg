@@ -3527,3 +3527,131 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-12 (Task 9). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-1a. The owner runs it with the room test.
+
+## US-0075: voice audio delete (EPIC-0003 voice A2b-1b)
+
+TC-0233: The `deleted` index line, its guard and its one-write append
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0442
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/protocol-deleted-line.test.ts src/__tests__/imports.test.ts src/__tests__/store/index-file.test.ts`.
+Expected Result: The guard accepts a valid line and rejects a wrong `v` or `kind`, a segment with `/` or `..`, an op of 15 or 17 hex or upper case, a negative or NaN `ts`; `appendDeletedLines` writes N lines in one write, terminates a torn line first, refuses a link, a non-regular file and a file of another user, never creates a file, continues a short write and throws `short_write` on no progress, with no path in any message; `readIndex` skips the line; `protocol.ts` imports only zod, `@acr/events` and `node:fs`.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0234: The delete route: auth, body and scopes
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0443
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the delete route tests (named when Task 6 is built).
+Expected Result: 401 before any file call, 404 for a bad session id or no audio, 400 for a bad body, unknown key, or `by` and `X-Acr-By` that differ, one scope kind only; session, role and participant scopes cover the right roles and identities; a fifth concurrent delete is 503 `busy`.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0235: Delete is refused while the session is live
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0444
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the delete live-check tests (named when built).
+Expected Result: 409 `session_live` with nothing written for a worker, a restart backoff, `mediaLost`, a probe in flight and a store lock held by another process; the check is repeated per identity.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0236: Audit first, then the index lines, then the unlink
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0445
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the delete core tests (named when built).
+Expected Result: The audit line is appended before any index line or unlink; a failed audit leaves the identity pending with no index line and no unlink; the lines go in one write; a WAV with `nlink` above 1 and a role folder that is a link are handled as the spec says; a `participant_request` with no audio writes `segments: 0`.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0237: Partial results and the worst reason
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0446
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the delete partial-result tests (named when built).
+Expected Result: Two identities with one busy answer 503 with partial counts, `Retry-After: 1` only for `busy`, the worst reason as the code, and a retry finishes the rest; a delete and the sweep at once in one process give 503, not 409.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0238: An untrusted index fails closed
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0447
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the index reader, replay and delete tests (named when built).
+Expected Result: A link, another user's file or an over-cap index gives 503 `store_unsafe` for replay and for delete and never falls through to another identity; a missing index is a trusted empty one.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0239: The sweep honours the deleted mark and the shared mutex
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0448
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the sweep and store-lock tests (named when built).
+Expected Result: A deleted-but-unlinked WAV is removed by the sweep; a held mutex or `locked_here` leaves the identity for the next run; `locked_other` is reported only after the mutex was taken; the sweep's audit shape is unchanged.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0240: A deleted segment never plays and nothing leaks
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0449
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the replay, listing and audit tests (named when built).
+Expected Result: Replay answers 410 `audio_deleted` and the listing `deleted` after a delete; no response, log or audit line holds a path, id, name or audio; an extra audit key is dropped.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.
+
+TC-0241: End to end and the mutation checks
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0450
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: the real-store delete end-to-end test (named when built); the mutation checks are recorded in the Task report.
+Expected Result: Delete by each scope against a real store, replay 410, the sweep finishing a crash after the audit and after the index write; each of the six mutations fails a named test and is reverted.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1) as a placeholder; run and recorded when the task that builds it lands.

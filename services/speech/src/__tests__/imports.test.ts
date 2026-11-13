@@ -54,9 +54,20 @@ describe("speech sources and the other services", () => {
     for (const f of files) expect(forbidden(readFileSync(f, "utf8")), f).toBeNull();
   });
 
-  it("protocol.ts imports only zod and @acr/events (control loads it, so nothing native may come with it)", () => {
+  // US-0075: protocol.ts may also import node:fs (the `deleted` index-line writer); nothing else, and never a process or network module.
+  const PROTOCOL_ALLOWED = ["@acr/events", "node:fs", "zod"];
+  const protocolExtras = (text: string): string[] => [...new Set(specifiers(text))].filter((s) => !PROTOCOL_ALLOWED.includes(s));
+
+  it("protocol.ts imports only zod, @acr/events and node:fs (control loads it, so nothing native may come with it)", () => {
     const text = readFileSync(path.join(SRC, "protocol.ts"), "utf8");
-    expect([...new Set(specifiers(text))].sort()).toEqual(["@acr/events", "zod"]);
+    expect(protocolExtras(text)).toEqual([]);
+    expect([...new Set(specifiers(text))].sort()).toEqual(["@acr/events", "node:fs", "zod"]);
+  });
+
+  it("the protocol rule still refuses node:child_process and any speech-internal import", () => {
+    expect(protocolExtras('import { execFile } from "node:child_process";')).toEqual(["node:child_process"]);
+    expect(protocolExtras('import { writeFully } from "./store/index-file.js";')).toEqual(["./store/index-file.js"]);
+    expect(protocolExtras('import { z } from "zod"; import { readFileSync } from "node:fs";')).toEqual([]);
   });
 });
 

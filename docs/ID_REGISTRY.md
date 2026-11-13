@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0075               | US-0074           |
-| TASK         | TASK-0111             | TASK-0110         |
-| AC           | AC-0442               | AC-0441           |
-| TC           | TC-0233               | TC-0232           |
+| US           | US-0076               | US-0075           |
+| TASK         | TASK-0112             | TASK-0111         |
+| AC           | AC-0451               | AC-0450           |
+| TC           | TC-0242               | TC-0241           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0044                | L-0043            |
 
@@ -111,3 +111,5 @@ Assigned 2026-11-11 (EPIC-0003 voice A2a close-out, feature/EPIC-0003-US-0073-vo
 Assigned 2026-11-12 (EPIC-0003 voice A2b-1a, feature/EPIC-0003-US-0074-voice-audio-replay): US-0074 (voice audio listing and audited replay, control API); TASK-0110 (US-0074); AC-0434..AC-0441 (all under US-0074, in the A2b-1a plan's task-group order: marker, session id hand-off, audit boolean and `audio.played`, catalog find, listing and fallback, safe whole-file read, HTTP routes and `X-Acr-By`, end to end and mutation checks); TC-0219..TC-0226 (one per AC, in order; edge cases of the plan's last task get the next free ids then). A2b-1b (delete) and A2b-2 (web BFF and console panel) are not filed. The next US is US-0075, the next AC is AC-0442, the next TC is TC-0227, the next TASK is TASK-0111.
 
 Assigned 2026-11-12 (EPIC-0003 voice A2b-1a close-out, feature/EPIC-0003-US-0074-voice-audio-replay): TC-0227..TC-0232 (US-0074 edge and negative cases: the catalog's writable-root and fallback-marker rules, the session-log identity reader, the replay under file and folder changes, the routes' odd-request refusals, the listing's index reader, and TC-0232 the owner-run replay on a real recorded session, Not Run). No new US, TASK, AC or BUG. A2b-1b (delete) and A2b-2 (web BFF routes and console panel) are not filed and their story numbers are not reserved: the next US is US-0075, the next AC is AC-0442, the next TC is TC-0233, the next TASK is TASK-0111, the next L is L-0044.
+
+Assigned 2026-11-13 (EPIC-0003 voice A2b-1b, feature/EPIC-0003-US-0075-voice-audio-delete): US-0075 (voice audio delete, control API); TASK-0111 (US-0075); AC-0442..AC-0450 (all under US-0075: the `deleted` index line in the protocol, the route and its body, the live refusal, audit first, partial results, the fail-closed index, the deleted-aware sweep, no replay and no leak after delete, end to end and mutation checks); TC-0233..TC-0241 (one per AC, in order; edge cases get the next free ids then). A2b-2 (web BFF routes and console panel) and A3 are not filed. The next US is US-0076, the next AC is AC-0451, the next TC is TC-0242, the next TASK is TASK-0112, the next L is L-0044.

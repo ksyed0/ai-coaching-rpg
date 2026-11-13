@@ -2207,3 +2207,32 @@ Status: Done
 Branch: feature/EPIC-0003-US-0074-voice-audio-replay
 Notes: Plan: docs/superpowers/plans/2026-11-12-voice-a2b1a-audio-replay.md (Tasks 1 to 9: the marker writer in the speech store, control hands over the session id, the audit boolean and `audio.played`, the audio catalog, listing and the pre-marker fallback, the safe whole-file read, the HTTP routes with `X-Acr-By`, wiring and end to end with mutation checks, documents and close-out). Covers AC-0434 to AC-0441 (TC-0219 to TC-0226). Filed 2026-11-12; Tasks 1 to 8 built the same day and Task 9 (the documents) closed it. Done 2026-11-12 on feature/EPIC-0003-US-0074-voice-audio-replay; the PR into `develop` is not yet opened. Test cases TC-0219 to TC-0226 Pass (TC-0226's mutation checks are prior evidence); TC-0227 to TC-0231 are the edge cases (Pass); the owner-run real check TC-0232 is Not Run.
 ```
+
+```
+US-0075 (EPIC-0003): As the facilitator running a voice pilot, I want to delete what a participant said (the whole session, one role or one participant) through the control API, with every deletion audited before anything is removed, so that a participant's request to have their audio erased can be honoured with proof.
+Priority: Medium
+Estimate: L
+Status: In Progress
+Branch: feature/EPIC-0003-US-0075-voice-audio-delete
+Dependencies: US-0074
+Acceptance Criteria:
+  - [ ] AC-0442: the `deleted` index line has one definition: `@acr/speech/protocol` exports `DeletedIndexLine`, `isDeletedLine` (`v` 1, `kind` `deleted`, file-safe `segment`, 16 lower-case hex `op`, finite non-negative `ts`) and `appendDeletedLines` (O_APPEND, O_NOFOLLOW, no O_CREAT, one descriptor judged on its `fstat` as a regular file of this user, a torn last line terminated first, all lines in one write and one fsync, a short write continued, errors carry the errno code only); speech's `readIndex` skips the line; `protocol.ts` may import only zod, `@acr/events` and `node:fs` (TC-0233)
+  - [ ] AC-0443: route: `DELETE /sessions/:id/audio` behind the service token (401 before any file call, 404 on a bad session id or no audio) takes a strict body `{ scope, reason, by }` (scope session, role or participant; reason `facilitator` or `participant_request`; `by` required in the `<name>-console` form, `X-Acr-By` when present must equal it; unknown keys 400) and covers every role and identity the scope names; at most 4 deletes in flight (503 `busy`) (TC-0234)
+  - [ ] AC-0444: live refusal: delete answers 409 `session_live` with nothing written when VoiceHost holds a live entry for the session (worker, restart backoff, `mediaLost`, probe) or the store lock is held by another process, checked before any file call and again per identity (TC-0235)
+  - [ ] AC-0445: audit first: per identity, under the in-process mutex and the store lock (re-checking the marker under the lock), `audio.deleted { scope, reason, by, segments, op }` is appended BEFORE any index line or unlink and fails closed (that identity is `pending` with `audit_unavailable`, nothing marked or unlinked); then the `deleted` lines go in one write with one fsync, then each WAV is unlinked through a checked descriptor; a `participant_request` with no audio still writes one `segments: 0` line (TC-0236)
+  - [ ] AC-0446: partial results: identities are processed one at a time in sorted order and never under several locks; 200 `{ deleted, identities, pending: [] }` when all are done, otherwise 503 with the same body and the worst reason as the code (`store_unsafe` over `audit_unavailable` over `busy`), `Retry-After: 1` only with `busy`; a retry only does the rest (TC-0237)
+  - [ ] AC-0447: fail-closed index: a role index that is a link, another user's file, over the cap or unreadable is untrusted (a missing index or folder is a trusted empty one); replay and delete answer 503 `store_unsafe` for it, touch nothing and never fall through to another identity's copy (TC-0238)
+  - [ ] AC-0448: deleted-aware sweep: the sweep and delete share one per-identity try-lock mutex and the typed `acquireStoreLock`; a segment with a `deleted` line is not indexed, so its WAV is an orphan and a half-finished delete is repaired by the next sweep; the sweep's own `audio.deleted` shape is unchanged (TC-0239)
+  - [ ] AC-0449: a deleted segment never plays again (replay and listing answer `audio_deleted` / `deleted`, 410 over HTTP) and nothing leaks: no audio byte, path, id or name in a response, log or audit line, and `audio.deleted` lines are rebuilt field by field (an extra key is never written) (TC-0240)
+  - [ ] AC-0450: a real store, worker files and control API work end to end (list, delete by each scope, replay 410, the sweep finishing a crash after the audit and after the index write, two identities with one busy) and the mutation checks (audit before marks, the live check, the mutex, the deleted mark, the fail-closed reader, path containment) each fail a named test and are reverted (TC-0241)
+Notes: Slice A2b-1b of EPIC-0003 part A (spec docs/superpowers/specs/2026-11-13-voice-a2b1b-audio-delete-design.md, Draft 2; plan docs/superpowers/plans/2026-11-13-voice-a2b1b-audio-delete.md). Filed 2026-11-13 from the registry. Control API only, dark behind `VOICE_ENABLED` and no participant-facing surface; the web BFF routes and the console AudioPanel (A2b-2) and the facilitator voice tools (A3) are not filed. Owner decisions 2026-11-13: partial results one identity at a time; the `deleted` index line written through `@acr/speech/protocol`; fail closed with 503 `store_unsafe` on an untrusted index; the error code is the worst reason present. Delete is refused while the session is live (409) and after a runtime crash until the session is ended or restarted. Task 1 (the protocol line and this filing) built 2026-11-13; the ACs are ticked as each task lands.
+```
+
+```
+TASK-0111 (US-0075): Build the facilitator audio delete route (slice A2b-1b)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0003-US-0075-voice-audio-delete
+Notes: Plan: docs/superpowers/plans/2026-11-13-voice-a2b1b-audio-delete.md (Task 1: the `deleted` index line in the speech protocol and the filing; then the typed lock acquirer and shared mutex, the fail-closed index reader, the deleted-aware sweep, the delete core and route, wiring, end to end with mutation checks, documents). Covers AC-0442 to AC-0450 (TC-0233 to TC-0241). Filed 2026-11-13.
+```
