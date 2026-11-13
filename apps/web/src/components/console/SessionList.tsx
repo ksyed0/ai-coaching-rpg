@@ -21,6 +21,8 @@ export type SessionListProps = {
   fetch?: typeof fetch;
   /** US-0083: an admin also sees each session's owner and can assign it; a facilitator sees neither. */
   role?: "admin" | "facilitator";
+  /** A shared-secret sign-in acts as admin for sessions but cannot manage accounts, so it gets no owner controls. */
+  legacy?: boolean;
 };
 
 const LABEL = {
@@ -29,8 +31,8 @@ const LABEL = {
   ended: { text: "Ended", tone: "mut" },
 } as const;
 
-export function SessionList({ fetch: fetchImpl, role = "facilitator" }: SessionListProps) {
-  const admin = role === "admin";
+export function SessionList({ fetch: fetchImpl, role = "facilitator", legacy = false }: SessionListProps) {
+  const admin = role === "admin" && !legacy;
   const [sessions, setSessions] = useState<ListedSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState<string | null>(null);
@@ -73,7 +75,13 @@ export function SessionList({ fetch: fetchImpl, role = "facilitator" }: SessionL
 
   const active = (accounts ?? []).filter((a) => a.status === "active");
   const ownerName = (owner: string | undefined) =>
-    owner === undefined ? "Unassigned" : (accounts?.find((a) => a.id === owner)?.name ?? "Another account");
+    owner === undefined ? "Unassigned" : (accounts?.find((a) => a.id === owner)?.name ?? "Unknown account");
+  /** The current owner when it is not an active account (revoked, invited, gone): it stays an option so the select shows the truth. */
+  const inactiveOwner = (owner: string | undefined): { id: string; label: string } | null => {
+    if (owner === undefined || accounts === null || active.some((a) => a.id === owner)) return null;
+    const a = accounts.find((x) => x.id === owner);
+    return { id: owner, label: a ? `${a.name} (${a.status})` : "Unknown account" };
+  };
 
   async function assign(id: string, current: string | undefined) {
     if (busy.current) return;
@@ -208,6 +216,9 @@ export function SessionList({ fetch: fetchImpl, role = "facilitator" }: SessionL
                           onChange={(e) => setChoice((prev) => ({ ...prev, [s.sessionId]: e.target.value }))}
                         >
                           <option value="">Unassigned</option>
+                          {inactiveOwner(s.owner) ? (
+                            <option value={s.owner}>{inactiveOwner(s.owner)!.label}</option>
+                          ) : null}
                           {active.map((a) => (
                             <option key={a.id} value={a.id}>
                               {a.name}

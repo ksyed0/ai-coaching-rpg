@@ -47,7 +47,7 @@ export function ConsoleShell({
         </div>
       </div>
       <div className="card soft">
-        <SessionList fetch={fetchImpl} role={role} />
+        <SessionList fetch={fetchImpl} role={role} legacy={legacy} />
       </div>
     </div>
   );

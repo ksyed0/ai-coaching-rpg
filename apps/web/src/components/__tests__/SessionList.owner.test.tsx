@@ -17,13 +17,18 @@ const SESSIONS = [
   { sessionId: "bbbbbbbb22222222", scenarioId: "launch_day", status: "stopped" },
 ];
 
-function mount(role: "admin" | "facilitator", ownerAnswer: { status: number; body: unknown } = { status: 200, body: ok({}) }) {
+function mount(
+  role: "admin" | "facilitator",
+  ownerAnswer: { status: number; body: unknown } = { status: 200, body: ok({}) },
+  sessions: unknown = SESSIONS,
+  legacy = false,
+) {
   const f = fakeFetch((url) => {
     if (url.endsWith("/owner")) return ownerAnswer;
     if (url.endsWith("/admin/accounts")) return { status: 200, body: ok({ accounts: ACCOUNTS }) };
-    return { status: 200, body: ok(SESSIONS) };
+    return { status: 200, body: ok(sessions) };
   });
-  return { f, ...render(<SessionList fetch={f.fetch} role={role} />) };
+  return { f, ...render(<SessionList fetch={f.fetch} role={role} legacy={legacy} />) };
 }
 
 describe("SessionList owners", () => {
@@ -69,5 +74,41 @@ describe("SessionList owners", () => {
     fireEvent.click(screen.getByRole("button", { name: "Assign session aaaaaaaa" }));
     await screen.findByText(/cannot own sessions|Something went wrong/);
     expect(m.f.calls.find((c) => c.url.endsWith("/owner"))!.body).toEqual({ owner: null });
+  });
+
+  for (const [status, label, owner] of [
+    ["revoked", "Oli Revoked (revoked)", "acc_old"],
+    ["invited", "Nia Invited (invited)", "acc_new"],
+  ] as const) {
+    it(`a session owned by a ${status} account shows that owner and can be unassigned or given to an active account`, async () => {
+      const m = mount("admin", undefined, [{ sessionId: "dddddddd44444444", scenarioId: "x", status: "running", owner }]);
+      const select = (await screen.findByLabelText("Owner of session dddddddd")) as HTMLSelectElement;
+      await waitFor(() => expect(select.options.length).toBe(4));
+      expect(select.options[select.selectedIndex]!.textContent).toBe(label);
+      fireEvent.change(select, { target: { value: "" } });
+      fireEvent.click(screen.getByRole("button", { name: "Assign session dddddddd" }));
+      await waitFor(() => expect(m.f.calls.filter((c) => c.url.endsWith("/owner")).length).toBe(1));
+      expect(m.f.calls.find((c) => c.url.endsWith("/owner"))!.body).toEqual({ owner: null });
+      await waitFor(() => expect((screen.getByRole("button", { name: "Assign session dddddddd" }) as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.change(select, { target: { value: "acc_ann" } });
+      fireEvent.click(screen.getByRole("button", { name: "Assign session dddddddd" }));
+      await waitFor(() => expect(m.f.calls.filter((c) => c.url.endsWith("/owner")).length).toBe(2));
+      expect(m.f.calls.filter((c) => c.url.endsWith("/owner"))[1]!.body).toEqual({ owner: "acc_ann" });
+    });
+  }
+
+  it("an owner the accounts list does not know is shown as Unknown account", async () => {
+    mount("admin", undefined, [{ sessionId: "eeeeeeee55555555", scenarioId: "x", status: "running", owner: "acc_gone" }]);
+    const select = (await screen.findByLabelText("Owner of session eeeeeeee")) as HTMLSelectElement;
+    await waitFor(() => expect(select.options[select.selectedIndex]!.textContent).toBe("Unknown account"));
+  });
+
+  it("a shared-secret (legacy) admin sees no Owner column, no Assign, makes no accounts call and gets no alert", async () => {
+    const m = mount("admin", undefined, SESSIONS, true);
+    await screen.findByText("aaaaaaaa");
+    expect(screen.queryByRole("columnheader", { name: "Owner" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Assign/ })).toBeNull();
+    expect(m.f.calls.some((c) => c.url.includes("/admin/accounts"))).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
