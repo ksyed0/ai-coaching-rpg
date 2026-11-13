@@ -60,7 +60,7 @@ My calls (for the owner to correct):
 - Console requests are re-checked against the control service, so revoke and expiry are immediate.
 - The old shared secret keeps working **only until the admin first changes the default password**, so an existing setup is not locked out; after that, account sign-in is the only way in. (If `FACILITATOR_SECRET` is unset the console already shows "not set up"; keep that message meaningful.)
 - Email is the account's login name; it must be unique (case-insensitive). The default admin's login name is a fixed documented value (builder chooses, for example `admin`).
-- The session list records an `owner` (account id) at creation; sessions without one are admin-only.
+- Each session's `owner` (account id) is recorded at creation in a separate `session-owners.json` (so `sessions.json` stays byte-identical and rollback-safe); sessions without one are admin-only.
 - The audit label (today a typed name) becomes the account's display name.
 
 ## Calls added after the builder check (mine; the owner may correct them)
@@ -91,6 +91,15 @@ After create / resend:  "Share these with Dana. Shown once."
 ```
 
 Facilitator console = the existing console, filtered to their sessions. Admin also gets the Facilitators page and an owner column with an Assign action on every session.
+
+## Changes from the Opus plan review (2026-11-13)
+
+- Owners live in `session-owners.json`, not in `sessions.json` (status changes would have dropped them, and an older build refuses a changed `sessions.json`).
+- The shared secret is closed by a persisted one-way latch (first password change by anyone, or the first account created); `ADMIN_RESET` never reopens it; a legacy session cannot manage accounts.
+- The default admin is `active` with `mustChange` and no expiry; a missing `accounts.json` is first start, a damaged one is refused.
+- Open console streams, server pages and every request re-check the account; the stream heartbeat closes a revoked account's stream.
+- The change-password form asks for the current (temporary) password; logins spend one hash even when unknown; hashing is async.
+- Report review names come from the account (slug), not from a typed value.
 
 ## Left to the builder
 
