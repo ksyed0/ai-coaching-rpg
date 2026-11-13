@@ -433,6 +433,52 @@ describe("routes", () => {
   });
 });
 
+describe("session owners (US-0083)", () => {
+  it("POST /sessions passes a valid owner to create and rejects a bad one before calling it", async () => {
+    const { sup, calls } = stub();
+    const port = await boot(sup);
+    const ok = await call(port, "POST", "/sessions", { body: JSON.stringify({ scenarioId: "friday-escalation", owner: "acc-1" }) });
+    expect(ok.status).toBe(200);
+    expect(calls).toEqual([{ name: "create", args: ["friday-escalation", "acc-1"] }]);
+    for (const owner of ["", "x".repeat(65), 5, null]) {
+      expect((await call(port, "POST", "/sessions", { body: JSON.stringify({ scenarioId: "friday-escalation", owner }) })).status).toBe(400);
+    }
+    expect(calls).toHaveLength(1);
+  });
+
+  it("PUT /sessions/:id/owner assigns and clears, returning the info", async () => {
+    const { sup, calls } = stub({ setOwner: () => undefined });
+    const port = await boot(sup);
+    const a = await call(port, "PUT", `/sessions/${ID}/owner`, { body: JSON.stringify({ owner: "acc-1" }) });
+    expect(a.status).toBe(200);
+    expect(a.json.data.sessionId).toBe(ID);
+    expect((await call(port, "PUT", `/sessions/${ID}/owner`, { body: JSON.stringify({ owner: null }) })).status).toBe(200);
+    expect(calls.filter((c) => c.name === "setOwner").map((c) => c.args)).toEqual([[ID, "acc-1"], [ID, null]]);
+  });
+
+  it("PUT /sessions/:id/owner: unknown session is 404 not_found; bad bodies are 400 and call nothing", async () => {
+    const { sup, calls } = stub({ setOwner: () => { throw new ControlError("not_found", "that session does not exist"); } });
+    const port = await boot(sup);
+    const r = await call(port, "PUT", `/sessions/${"b".repeat(32)}/owner`, { body: JSON.stringify({ owner: "acc-1" }) });
+    expect(r.status).toBe(404);
+    expect(r.json.error.code).toBe("not_found");
+    const n = calls.length;
+    for (const body of [{}, { owner: "" }, { owner: "x".repeat(65) }, { owner: 1 }, { owner: "a", extra: 1 }]) {
+      expect((await call(port, "PUT", `/sessions/${ID}/owner`, { body: JSON.stringify(body) })).status).toBe(400);
+    }
+    expect((await call(port, "PUT", `/sessions/${ID}/owner`, { token: null, body: JSON.stringify({ owner: "a" }) })).status).toBe(401);
+    expect(calls).toHaveLength(n);
+  });
+
+  it("GET /sessions and GET /sessions/:id carry the owner when the supervisor reports one", async () => {
+    const info = { sessionId: ID, scenarioId: "friday-escalation", status: "stopped", owner: "acc-1" };
+    const { sup } = stub({ get: () => info, list: () => [info] });
+    const port = await boot(sup);
+    expect((await call(port, "GET", "/sessions")).json.data).toEqual([info]);
+    expect((await call(port, "GET", `/sessions/${ID}`)).json.data).toEqual(info);
+  });
+});
+
 describe("request bodies", () => {
   it("a body over 4 KB is refused with 413 before it is fully read", async () => {
     const { sup, calls } = stub();

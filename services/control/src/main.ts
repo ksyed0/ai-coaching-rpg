@@ -8,6 +8,7 @@ import { BotHost } from "./bots/bot-host.js";
 import { IntentLog } from "./bots/intent-log.js";
 import { FileAccountStore } from "./accounts/store.js";
 import { AccountService } from "./accounts/service.js";
+import { OwnerStore } from "./accounts/owners.js";
 import { aiRolesFor } from "./ai-roles.js";
 import { createApi } from "./api.js";
 import type { EvalSpawnFn } from "./eval-child.js";
@@ -123,7 +124,7 @@ export async function startControl(
   // US-0075: the delete's live check reads the VoiceHost the Supervisor builds below (none without voice hosting: never live).
   let voiceHost: VoiceHost | undefined;
   const supervisor = new Supervisor({
-    config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
+    config, list, owners: new OwnerStore(config.ownersFile), scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
     // US-0070: one speech worker per session whose runtime reports voice (VOICE_ENABLED=1 accepted at its bootstrap); none otherwise.
     voice: (deps) => {

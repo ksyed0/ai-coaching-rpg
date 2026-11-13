@@ -35,5 +35,5 @@ export const flush = (): Promise<void> => new Promise<void>((r) => setImmediate(
 export const AI_CONFIG = (() => {
   const r = parseAiPlayerSettings({});
   if (!r.ok) throw new Error("default AI player settings are invalid");
-  return { intentsDir: "/nonexistent/intents", aiPlayer: r.settings, reportsDir: "/nonexistent/reports", reportAccessFile: "/nonexistent/report-access.json", reportAccessDays: 90, evaluateMarginMs: 120_000, accountsFile: "/nonexistent/accounts.json", adminBootstrapPassword: "ChangeMe-Admin-1", adminReset: false };
+  return { intentsDir: "/nonexistent/intents", aiPlayer: r.settings, reportsDir: "/nonexistent/reports", reportAccessFile: "/nonexistent/report-access.json", reportAccessDays: 90, evaluateMarginMs: 120_000, accountsFile: "/nonexistent/accounts.json", ownersFile: "/nonexistent/session-owners.json", adminBootstrapPassword: "ChangeMe-Admin-1", adminReset: false };
 })();

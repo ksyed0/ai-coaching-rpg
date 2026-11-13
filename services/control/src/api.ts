@@ -37,7 +37,8 @@ const DELETE_BUSY = "Too many deletes are running. Try again in a moment.";
 const WAV_HEADERS: Record<string, string> = { "Content-Type": "audio/wav", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "none" };
 const MAX_FIELD = 200;
 
-const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD) });
+const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD), owner: z.string().min(1).max(64).optional() });
+const OwnerBody = z.strictObject({ owner: z.string().min(1).max(64).nullable() });
 // One role, or the whole session: never "neither". A body that forgets roleId must not silently reissue every code.
 const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), all: z.literal(true).optional(), by: z.string().max(MAX_FIELD).optional(), reason: z.literal("removed").optional() })
   .refine((b) => (b.roleId === undefined) !== (b.all === undefined))
@@ -203,7 +204,10 @@ export function createApi(deps: {
     if (seg[0] !== "sessions") return notFound();
     if (seg.length === 1) {
       if (method === "GET") return ok(res, supervisor.list());
-      if (method === "POST") return ok(res, await supervisor.create(parse(CreateBody, await jsonBody(req)).scenarioId));
+      if (method === "POST") {
+        const body = parse(CreateBody, await jsonBody(req));
+        return ok(res, body.owner === undefined ? await supervisor.create(body.scenarioId) : await supervisor.create(body.scenarioId, body.owner));
+      }
       return notFound();
     }
     const id = sessionId(seg[1]!);
@@ -264,6 +268,12 @@ export function createApi(deps: {
       const info = supervisor.get(id);
       if (!info) throw new HttpError(404, "not_found", "That session does not exist.");
       return ok(res, info);
+    }
+    if (seg.length === 3 && seg[2] === "owner" && method === "PUT") {
+      // US-0083: the BFF checks the account exists before it asks; this only records the id.
+      const body = parse(OwnerBody, await jsonBody(req));
+      supervisor.setOwner(id, body.owner);
+      return ok(res, supervisor.get(id));
     }
     if (seg.length === 3 && seg[2] === "facilitator" && method === "GET") {
       const f = supervisor.facilitator(id);
