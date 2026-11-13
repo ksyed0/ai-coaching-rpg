@@ -61,6 +61,26 @@ export function releasedSection(released: string[]): string[] {
 
 export type SpokenLine = { roleId: string; text: string };
 
+/**
+ * US-0081 (AC-0472): the one addressing sentence every AI character and every live AI player prompt carries. Participants' names never
+ * reach a model, so a model that addresses a player "by first name" can only invent one.
+ */
+export const ADDRESS_RULE = "Address the other participants only by the role title or the name this prompt lists for them; never use a first name or any other name you were not given.";
+
+/** "account_manager" reads as "Account manager". */
+const titleOf = (roleId: string): string => { const l = roleId.replace(/[_-]+/g, " ").trim(); return l.charAt(0).toUpperCase() + l.slice(1); };
+
+/**
+ * US-0081: the "## Players in this scene" section of an AI character: each player seat of the scene by its role title and speaker tag
+ * (", an AI player" for an AI seat, which every participant can see), or [] when the scene has none. Never a participant's name.
+ */
+export function playersSection(scene: Pick<Scene, "participants">, state: Pick<SessionState, "roles" | "aiRoles">): string[] {
+  const ai = new Set(state.aiRoles ?? []);
+  const players = scene.participants.filter((id) => Object.prototype.hasOwnProperty.call(state.roles, id) && state.roles[id]!.kind === "player");
+  if (players.length === 0) return [];
+  return ["", "## Players in this scene", bullets(players.map((id) => `${titleOf(id)}${ai.has(id) ? ", an AI player" : ""}: their lines are shown as [${id}]`))];
+}
+
 /** The rule against repeating, shared by the AI character and the generated player prompts. */
 export const NO_REPEAT_RULE = "Never repeat or reword anything that has already been said, by you or by anyone else. React to the LATEST line and move the conversation forward with something new: a question, a concrete number, a concession, a condition or a next step. Speak from your own priorities, which differ from the other participants'.";
 const LAST_LINES = 3;
@@ -112,6 +132,7 @@ export function stableNpcPrefix(role: NpcRole): string {
     `You ARE ${role.name}${role.title ? `, ${role.title}` : ""}: a real person on this call, not a narrator. Speak in the first person ("I", "my team"). Never refer to yourself in the third person, neither by name nor by your own role or title${role.title ? ` (not "the ${role.title.split(",")[0]!.trim()}")` : ""}. Every other speaker is another person you are talking to.`,
     `Stay in character at all times. Speak only as ${role.name}. Reply in one to four sentences of natural spoken dialogue, no stage directions, no lists.`,
     `Other speakers are shown as [role_id]: text. Never mention role ids; address people the way ${role.name} would.`,
+    ADDRESS_RULE,
     `Reply with only ${role.name}'s own words. Never write a line for anyone else, never continue the conversation for the other speakers, and never begin a reply with a [...] speaker tag or with ${role.name}'s own name.`,
     NO_REPEAT_RULE,
     "", "## Persona", role.persona,
@@ -147,6 +168,7 @@ export function buildNpcRequest(opts: {
     "", "## Your current goals", bullets(npc.goals),
     "", "## What you know", bullets(npc.knowledge),
     "", "## Current scene", `${scene.title}: ${scene.goal}`,
+    ...playersSection(scene, state),
     ...roomSection(role, peers),
     ...respondSection(role, peers, allowSilence),
     ...lastLinesSection(allLines, role.id),
