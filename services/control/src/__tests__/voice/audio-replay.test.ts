@@ -82,7 +82,7 @@ afterEach(() => {
 
 const segLine = (segment: string, startMs = 0) =>
   ({ v: 1, kind: "segment", segment, participantId: `p-${segment}`, startMs, endMs: startMs + 500, status: "transcribed", raw: "secret" });
-const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "op-1", ts: 1 });
+const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "0123456789abcdef", ts: 1 });
 const jsonl = (lines: unknown[]): string => lines.map((l) => `${JSON.stringify(l)}\n`).join("");
 /** WAV-shaped bytes of `size` (a distinct pattern per seed so a mix-up between files shows). */
 const wavBytes = (size: number, seed = 1): Buffer => Buffer.from(Array.from({ length: size }, (_, i) => (i * 7 + seed) & 0xff));
@@ -251,7 +251,7 @@ describe("replaySegment: refusals write no audit line", () => {
     expectRefused(await play({ identities: [A, B] }), "not_found");
   });
 
-  it("a role folder that is a symlink: not_found, nothing behind the link is opened", async () => {
+  it("a role folder that is a symlink: store_unsafe (US-0075: an untrusted index), nothing behind the link is opened", async () => {
     const real = path.join(outside, "r");
     mkdirSync(real, { mode: 0o700 });
     writeFileSync(path.join(real, "index.jsonl"), jsonl([segLine("s1")]), { mode: 0o600 });
@@ -259,18 +259,18 @@ describe("replaySegment: refusals write no audit line", () => {
     mkdirSync(path.join(audioDir, A), { mode: 0o700 });
     symlinkSync(real, path.join(audioDir, A, "r"));
     hooks.calls = [];
-    expectRefused(await play(), "not_found");
+    expectRefused(await play(), "store_unsafe");
     expect(hooks.calls.filter((c) => c.includes("index.jsonl") || c.includes(".wav"))).toEqual([]);
   });
 
-  it("an identity folder that is a symlink: not_found", async () => {
+  it("an identity folder that is a symlink: store_unsafe (US-0075: an untrusted index)", async () => {
     const real = path.join(outside, A);
     mkdirSync(path.join(real, "r"), { recursive: true, mode: 0o700 });
     writeFileSync(path.join(real, "r", "index.jsonl"), jsonl([segLine("s1")]), { mode: 0o600 });
     writeFileSync(path.join(real, "r", "s1.wav"), wavBytes(100), { mode: 0o600 });
     symlinkSync(real, path.join(audioDir, A));
     hooks.calls = [];
-    expectRefused(await play(), "not_found");
+    expectRefused(await play(), "store_unsafe");
     expect(hooks.calls.filter((c) => c.includes("index.jsonl") || c.includes(".wav"))).toEqual([]);
   });
 
@@ -389,6 +389,123 @@ describe("replaySegment: refusals write no audit line", () => {
     expect(await replaySegment({ audioDir: path.join(root, "nope"), identities: [A], role: "r", segment: "s1", by: BY, audit: spy }))
       .toStrictEqual({ ok: false, code: "not_found" });
     expect(spy.append).not.toHaveBeenCalled();
+  });
+});
+
+describe("replaySegment: an untrusted index fails closed (US-0075, spec section 6)", () => {
+  /** An index.jsonl that is a symlink to a valid index elsewhere: the index cannot be trusted. */
+  function linkIndex(identity: string, role: string, lines: unknown[]): void {
+    const target = path.join(outside, `${identity}-${role}-index.jsonl`);
+    writeFileSync(target, jsonl(lines), { mode: 0o600 });
+    const dir = path.join(audioDir, identity, role);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    rmSync(path.join(dir, "index.jsonl"), { force: true });
+    symlinkSync(target, path.join(dir, "index.jsonl"));
+  }
+
+  it("an untrusted index in the FIRST identity is store_unsafe and the next identity is never asked", async () => {
+    linkIndex(A, "r", [segLine("other")]);
+    mkRole(B, "r", [segLine("s1")], { s1: wavBytes(100) });
+    hooks.calls = [];
+    expectRefused(await play({ identities: [A, B] }), "store_unsafe");
+    expect(hooks.calls.filter((c) => c.includes(B))).toEqual([]);
+    expect(hooks.wavBytesRead).toBe(0);
+  });
+
+  it("an untrusted index hides even a deleted mark it may hold: store_unsafe, never the other identity's copy", async () => {
+    linkIndex(A, "r", [segLine("s1"), delLine("s1")]);
+    mkRole(B, "r", [segLine("s1")], { s1: wavBytes(100) });
+    expectRefused(await play({ identities: [A, B] }), "store_unsafe");
+  });
+
+  it.each([
+    ["over the cap (sparse)", (dir: string) => fs.truncateSync(path.join(dir, "index.jsonl"), 64 * 1024 * 1024 + 1)],
+    ["a directory", (dir: string) => { rmSync(path.join(dir, "index.jsonl")); mkdirSync(path.join(dir, "index.jsonl")); }],
+  ])("an index that is %s: store_unsafe", async (_l, spoil) => {
+    const dir = mkRole(A, "r", [segLine("s1")], { s1: wavBytes(100) });
+    spoil(dir);
+    expectRefused(await play(), "store_unsafe");
+  }, 30_000);
+
+  it("the second read (after the WAV) untrusted is store_unsafe, not not_found", async () => {
+    const dir = mkRole(A, "r", [segLine("s1")], { s1: wavBytes(100) });
+    hooks.afterWavClose = () => {
+      const target = path.join(outside, "moved-index.jsonl");
+      renameSync(path.join(dir, "index.jsonl"), target);
+      symlinkSync(target, path.join(dir, "index.jsonl"));
+    };
+    expectRefused(await play(), "store_unsafe");
+  });
+
+  it("a deleted mark still answers audio_deleted (trusted index)", async () => {
+    mkRole(A, "r", [segLine("s1"), delLine("s1")], { s1: wavBytes(100) });
+    expectRefused(await play(), "audio_deleted");
+  });
+
+  it("a missing role folder in the first identity is still a trusted empty index: the second is asked", async () => {
+    mkdirSync(path.join(audioDir, A), { mode: 0o700 });
+    const bytes = wavBytes(100, 3);
+    mkRole(B, "r", [segLine("s1")], { s1: bytes });
+    expect(await play({ identities: [A, B] })).toStrictEqual({ ok: true, identity: B, bytes });
+  });
+});
+
+describe("replaySegment: a delete that lands while the audit append is awaited (US-0075)", () => {
+  /** An audit whose append blocks until released (the bytes are already read when it is called). */
+  function blockingAudit() {
+    let release!: (ok: boolean) => void;
+    let called!: () => void;
+    const appendCalled = new Promise<void>((res) => { called = res; });
+    const append = vi.fn((_i: string, _e: AuditEvent) => {
+      called();
+      return new Promise<boolean>((res) => { release = res; });
+    });
+    return { audit: { append }, appendCalled, release: (ok: boolean) => release(ok) };
+  }
+
+  it("a deleted line written while the append is blocked: audio_deleted and zero bytes", async () => {
+    const dir = mkRole(A, "r", [segLine("s1")], { s1: wavBytes(4000) });
+    const b = blockingAudit();
+    const p = replaySegment({ audioDir, identities: [A], role: "r", segment: "s1", by: BY, audit: b.audit });
+    await b.appendCalled;
+    appendFileSync(path.join(dir, "index.jsonl"), jsonl([delLine("s1")])); // a facilitator delete marks it meanwhile
+    b.release(true);
+    const r = await p;
+    expect(r).toStrictEqual({ ok: false, code: "audio_deleted" });
+    expect("bytes" in r).toBe(false);
+    expect(b.audit.append).toHaveBeenCalledTimes(1); // the audit line over-reports: the recorded audit-first residual
+  });
+
+  it("the index made untrusted while the append is blocked: store_unsafe and zero bytes", async () => {
+    const dir = mkRole(A, "r", [segLine("s1")], { s1: wavBytes(4000) });
+    const b = blockingAudit();
+    const p = replaySegment({ audioDir, identities: [A], role: "r", segment: "s1", by: BY, audit: b.audit });
+    await b.appendCalled;
+    const target = path.join(outside, "moved-index.jsonl");
+    renameSync(path.join(dir, "index.jsonl"), target);
+    symlinkSync(target, path.join(dir, "index.jsonl"));
+    b.release(true);
+    expect(await p).toStrictEqual({ ok: false, code: "store_unsafe" });
+  });
+
+  it("the index line gone while the append is blocked: not_found and zero bytes", async () => {
+    const dir = mkRole(A, "r", [segLine("s1")], { s1: wavBytes(4000) });
+    const b = blockingAudit();
+    const p = replaySegment({ audioDir, identities: [A], role: "r", segment: "s1", by: BY, audit: b.audit });
+    await b.appendCalled;
+    writeFileSync(path.join(dir, "index.jsonl"), jsonl([segLine("other")]));
+    b.release(true);
+    expect(await p).toStrictEqual({ ok: false, code: "not_found" });
+  });
+
+  it("nothing changed while the append is blocked: the bytes are returned", async () => {
+    const bytes = wavBytes(4000);
+    mkRole(A, "r", [segLine("s1")], { s1: bytes });
+    const b = blockingAudit();
+    const p = replaySegment({ audioDir, identities: [A], role: "r", segment: "s1", by: BY, audit: b.audit });
+    await b.appendCalled;
+    b.release(true);
+    expect(await p).toStrictEqual({ ok: true, identity: A, bytes });
   });
 });
 

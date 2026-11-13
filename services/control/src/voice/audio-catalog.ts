@@ -1,7 +1,7 @@
 import { closeSync, constants as fc, fstatSync, openSync, readSync, readdirSync, type Stats } from "node:fs";
 import path from "node:path";
 import { isFileSafeId, isValidSessionId } from "@acr/events";
-import { isLowerHex } from "@acr/speech/protocol";
+import { isDeletedLine, isLowerHex } from "@acr/speech/protocol";
 import { auditFile } from "./audit-log.js";
 import { MAX_INDEX_BYTES } from "./sweep.js";
 
@@ -27,8 +27,13 @@ import { MAX_INDEX_BYTES } from "./sweep.js";
  * `list(identity)` (spec section 4) reads one identity folder under the same rules: each file-safe role folder that opens as a real
  * directory of this user contributes the segments of its `index.jsonl` (O_NOFOLLOW, regular file of this user, 64 MiB cap, strict v1
  * lines, torn lines skipped; an index that cannot be trusted contributes nothing for that role). `raw` is never copied. A segment's audio
- * is `deleted` when a `kind:"deleted"` line names it, `available` when its WAV opens as a regular file of this user with one link, else
- * `missing`; a WAV with no index line is not listed. `readSegmentIndex` exposes one role's index for the replay route.
+ * is `deleted` when a well-formed `kind:"deleted"` line (`isDeletedLine`, the protocol's one definition) names it, `available` when its
+ * WAV opens as a regular file of this user with one link, else `missing`; a WAV with no index line is not listed.
+ *
+ * `readSegmentIndex` exposes one role's index for the replay and delete routes and FAILS CLOSED (US-0075, A2b-1b spec section 6): it
+ * answers `trusted` (ENOENT on the identity folder, the role folder or `index.jsonl` is a trusted EMPTY index) or `untrusted` (a link,
+ * ENOTDIR, another user's folder or file, an over-cap file, any other failure). An untrusted index is never read as "no line", so a
+ * delete mark in it can never be bypassed by falling through to another identity's copy.
  */
 export const MAX_SESSION_MARKER_BYTES = 4_096;
 const MARKER_NAME = "session.json";
@@ -56,6 +61,28 @@ export function openOwnDir(p: string): { fd: number; st: Stats } | null {
   } catch { /* judged unsafe below */ }
   try { closeSync(fd); } catch { /* nothing more to do */ }
   return null;
+}
+
+/**
+ * US-0075: the errno-returning twin of `openOwnDir` (which folds every failure into one null, so a fail-closed reader cannot be built on
+ * it). `ok` with the descriptor and its Stats (the caller closes it), else the open's errno code (`ENOENT`, `ELOOP`, `ENOTDIR`, ...),
+ * `ENOTDIR` when the descriptor is not a directory, `not_owned` when it is another user's, `error` for anything else. Never throws.
+ */
+export function openOwnDirErr(p: string): { ok: true; fd: number; st: Stats } | { ok: false; code: string } {
+  let fd: number;
+  try { fd = openSync(p, DIR_FLAGS); } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return { ok: false, code: typeof code === "string" ? code : "error" };
+  }
+  let code = "error";
+  try {
+    const st = fstatSync(fd);
+    if (!st.isDirectory()) code = "ENOTDIR";
+    else if (!isOwn(st)) code = "not_owned";
+    else return { ok: true, fd, st };
+  } catch { /* judged unsafe below */ }
+  try { closeSync(fd); } catch { /* nothing more to do */ }
+  return { ok: false, code };
 }
 
 /** True when `p` still opens as a real directory of this user with the identity `expected` (opened, never stat'ed by path). */
@@ -147,6 +174,10 @@ const INDEX_NAME = "index.jsonl";
 export type SegmentEntry = { participantId: string; startMs: number; endMs: number; status: string; seq?: number };
 /** A role's index: segment id -> its entry and whether a `kind:"deleted"` line names it. */
 export type SegmentIndex = Map<string, { entry: SegmentEntry; deleted: boolean }>;
+/** One role's index as the fail-closed reader sees it: trusted (possibly empty), or untrusted (nothing in it may be relied on). */
+export type IndexRead = { kind: "trusted"; index: SegmentIndex } | { kind: "untrusted" };
+const untrusted = (): IndexRead => ({ kind: "untrusted" });
+const trusted = (index: SegmentIndex): IndexRead => ({ kind: "trusted", index });
 export type SegmentAudio = "available" | "deleted" | "missing";
 export type SegmentInfo = { role: string; segment: string } & SegmentEntry & { audio: SegmentAudio };
 export type SegmentListing = { segments: SegmentInfo[]; recordingStopped: boolean };
@@ -171,7 +202,10 @@ function segmentEntryOf(v: unknown): { segment: string; entry: SegmentEntry } | 
   return { segment: v.segment, entry };
 }
 
-/** Parses an index: torn and malformed lines are skipped; the first segment line of an id wins; a deleted line for an unknown id is ignored. */
+/**
+ * Parses an index: torn and malformed lines are skipped; the first segment line of an id wins; a deleted line for an unknown id is
+ * ignored. A deleted line counts only when `isDeletedLine` accepts it (v 1, file-safe segment, 16 lower-hex `op`, finite `ts` >= 0).
+ */
 function parseSegmentIndex(text: string): SegmentIndex {
   const out: SegmentIndex = new Map();
   const deleted = new Set<string>();
@@ -179,10 +213,7 @@ function parseSegmentIndex(text: string): SegmentIndex {
     if (line.trim() === "") continue;
     let v: unknown;
     try { v = JSON.parse(line); } catch { continue; } // a torn last line, or garbage
-    if (isObj(v) && v.v === 1 && v.kind === "deleted") {
-      if (typeof v.segment === "string" && isFileSafeId(v.segment)) deleted.add(v.segment);
-      continue;
-    }
+    if (isDeletedLine(v)) { deleted.add(v.segment); continue; }
     const e = segmentEntryOf(v);
     if (e !== null && !out.has(e.segment)) out.set(e.segment, { entry: e.entry, deleted: false });
   }
@@ -190,12 +221,12 @@ function parseSegmentIndex(text: string): SegmentIndex {
   return out;
 }
 
-/** The index of the role folder `rolePath` (already opened as `roleSt`): an empty Map when it does not exist, null when it cannot be trusted. */
-function readIndexIn(rolePath: string, roleSt: Stats): SegmentIndex | null {
+/** The index of the role folder `rolePath` (already opened as `roleSt`): trusted (empty when it does not exist) or untrusted. */
+function readIndexIn(rolePath: string, roleSt: Stats): IndexRead {
   const r = readOwnFile(path.join(rolePath, INDEX_NAME), MAX_SEGMENT_INDEX_BYTES, roleSt);
-  if (r === null) return null; // a link, not a regular file, another user's, over the cap, unreadable: "cannot tell"
-  if (typeof r !== "string") return new Map(); // ENOENT only: no segments yet
-  return parseSegmentIndex(r);
+  if (r === null) return untrusted(); // a link, not a regular file, another user's, over the cap, unreadable: "cannot tell"
+  if (typeof r !== "string") return trusted(new Map()); // ENOENT only: no segments yet
+  return trusted(parseSegmentIndex(r));
 }
 
 /** True when `<rolePath>/<segment>.wav` opens O_NOFOLLOW as a regular file of this user on the role folder's device with one link. */
@@ -208,16 +239,19 @@ function wavAvailable(rolePath: string, segment: string, roleSt: Stats): boolean
   } catch { return false; } finally { closeSync(fd); }
 }
 
-/** One role folder's segments (`role` already checked file-safe), or null when the folder or its index cannot be trusted. */
+/**
+ * One role folder's segments (`role` already checked file-safe), or null when the folder is gone or it or its index cannot be trusted:
+ * an untrusted role is omitted from the listing (it yields no segment ids), the other roles are still listed.
+ */
 function roleSegments(identityPath: string, role: string): SegmentInfo[] | null {
   const rolePath = path.join(identityPath, role);
   const d = openOwnDir(rolePath);
   if (d === null) return null; // missing, a link, a file, another user's
   try {
-    const index = readIndexIn(rolePath, d.st);
-    if (index === null) return null;
+    const read = readIndexIn(rolePath, d.st);
+    if (read.kind === "untrusted") return null;
     const out: SegmentInfo[] = [];
-    for (const [segment, { entry, deleted }] of index) {
+    for (const [segment, { entry, deleted }] of read.index) {
       const audio: SegmentAudio = deleted ? "deleted" : wavAvailable(rolePath, segment, d.st) ? "available" : "missing";
       out.push({ role, segment, ...entry, audio });
     }
@@ -272,32 +306,57 @@ export function openPrivateRoot(audioDir: string): { fd: number; st: Stats } | n
 }
 
 /**
- * Ruling R1: the index of `<audioDir>/<identity>/<role>` (Task 6 decides with it whether a segment may be played). The ids are checked
- * first (a bad one returns null before any file call); the root must be private and every folder a real directory of this user
- * (re-checked after the read). ENOENT for the index gives an empty Map; every other failure gives null. Never rejects; logs nothing.
+ * Ruling R1, failing closed (US-0075, spec section 6): the index of `<audioDir>/<identity>/<role>`, which the replay and delete routes
+ * decide with. The ids are checked first (a bad one is `untrusted` before any file call); the root must be private and every folder a
+ * real directory of this user (each opened, never stat'ed by path, and re-checked after the read). ENOENT on the identity folder, the
+ * role folder or `index.jsonl` is a TRUSTED empty index (an identity that never recorded the role); every other failure (a link, ENOTDIR,
+ * another user's folder or file, an over-cap or unreadable file, a folder swapped meanwhile, an unsafe root) is `untrusted`. Never
+ * rejects; logs nothing.
  */
-export async function readSegmentIndex(audioDir: string, identity: string, role: string): Promise<SegmentIndex | null> {
-  if (!isLowerHex(identity, 32) || !isFileSafeId(role)) return null;
+export async function readSegmentIndex(audioDir: string, identity: string, role: string): Promise<IndexRead> {
+  if (!isLowerHex(identity, 32) || !isFileSafeId(role)) return untrusted();
   try {
     const root = openPrivateRoot(audioDir);
-    if (root === null) return null;
+    if (root === null) return untrusted();
     try {
       const identityPath = path.join(audioDir, identity);
-      const idDir = openOwnDir(identityPath);
-      if (idDir === null) return null;
+      const idDir = openOwnDirErr(identityPath);
+      if (!idDir.ok) return idDir.code === "ENOENT" && stillOwnDir(audioDir, root.st) ? trusted(new Map()) : untrusted();
       try {
         const rolePath = path.join(identityPath, role);
-        const roleDir = openOwnDir(rolePath);
-        if (roleDir === null) return null;
+        const roleDir = openOwnDirErr(rolePath);
+        if (!roleDir.ok) {
+          const gone = roleDir.code === "ENOENT" && stillOwnDir(identityPath, idDir.st) && stillOwnDir(audioDir, root.st);
+          return gone ? trusted(new Map()) : untrusted();
+        }
         try {
-          const index = readIndexIn(rolePath, roleDir.st);
-          if (index === null) return null;
+          const read = readIndexIn(rolePath, roleDir.st);
+          if (read.kind === "untrusted") return read;
           const unchanged = stillOwnDir(rolePath, roleDir.st) && stillOwnDir(identityPath, idDir.st) && stillOwnDir(audioDir, root.st);
-          return unchanged ? index : null;
+          return unchanged ? read : untrusted();
         } finally { closeSync(roleDir.fd); }
       } finally { closeSync(idDir.fd); }
     } finally { closeSync(root.fd); }
-  } catch { return null; }
+  } catch { return untrusted(); }
+}
+
+/**
+ * US-0075: true when `find(sessionId)` would still return `identity`, judged afresh (Task 7 re-checks it under the store lock): the root
+ * is a private directory of this user, and the identity folder's marker names the session, OR it is a pre-marker folder (a real
+ * directory of this user with NO `session.json`, the only kind the fallback may map to a session). The fallback itself is not asked
+ * again: the caller passes an identity `find` returned for this session, so a pre-marker folder still belongs while it stays marker-less.
+ * Bad ids are false before any file call. Open-then-check only; never throws; logs nothing.
+ */
+export function stillBelongs(audioDir: string, identity: string, sessionId: string): boolean {
+  if (!isLowerHex(identity, 32) || !isValidSessionId(sessionId)) return false;
+  try {
+    const root = openPrivateRoot(audioDir);
+    if (root === null) return false;
+    try {
+      const belongs = folderMatches(audioDir, identity, sessionId) || preMarkerFolder(path.join(audioDir, identity));
+      return belongs && stillOwnDir(audioDir, root.st);
+    } finally { try { closeSync(root.fd); } catch { /* nothing more to do */ } }
+  } catch { return false; }
 }
 
 const emptyListing = (): SegmentListing => ({ segments: [], recordingStopped: false });

@@ -334,7 +334,7 @@ describe("orphan WAV cleanup in a kept folder (US-0073, A2a Task 9b)", () => {
   });
 
   it("ignores garbled and non-segment index lines (they never keep a WAV, never break the pass)", async () => {
-    keptSession({ r: ["{torn", "not json", JSON.stringify({ v: 1, kind: "segment", segment: "seg0" }), JSON.stringify({ v: 1, kind: "deleted", segment: "seg1" }), "[1,2]", "null", JSON.stringify({ v: 1, kind: "segment", segment: 5 }), '{"v":1,"kind":"segm'] }, { r: 3 });
+    keptSession({ r: ["{torn", "not json", JSON.stringify({ v: 1, kind: "segment", segment: "seg0" }), JSON.stringify({ v: 1, kind: "deleted", segment: "seg1", op: "0123456789abcdef", ts: 1 }), "[1,2]", "null", JSON.stringify({ v: 1, kind: "segment", segment: 5 }), '{"v":1,"kind":"segm'] }, { r: 3 });
     expect(await run({ now: KEPT })).toEqual({ deleted: 0, skipped: 0, orphans: 2 });
     expect(wavsIn("r")).toEqual(["seg0.wav"]);
   });

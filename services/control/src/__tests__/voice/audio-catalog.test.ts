@@ -26,7 +26,7 @@ vi.mock("node:fs", async (orig) => {
 });
 const fs = await import("node:fs");
 const { appendFileSync, chownSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync } = fs;
-const { AudioCatalog, MAX_SEGMENT_INDEX_BYTES, readSegmentIndex } = await import("../../voice/audio-catalog.js");
+const { AudioCatalog, MAX_SEGMENT_INDEX_BYTES, openOwnDirErr, readSegmentIndex, stillBelongs } = await import("../../voice/audio-catalog.js");
 
 const id = (n: number): string => n.toString(16).padStart(32, "0");
 const A = id(0xa), B = id(0xb), C = id(0xc);
@@ -341,7 +341,7 @@ const SECRET = "the secret words somebody said";
 /** A `kind:"segment"` index line as the worker writes it (with `raw` and `timings`, which must never be copied out). */
 const segLine = (segment: string, startMs: number, extra: Record<string, unknown> = {}) =>
   ({ v: 1, kind: "segment", segment, participantId: `p-${segment}`, startMs, endMs: startMs + 500, status: "transcribed", raw: SECRET, timings: { sttMs: 3 }, ...extra });
-const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "op-1", ts: 1 });
+const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "0123456789abcdef", ts: 1 });
 const jsonl = (lines: unknown[]): string => lines.map((l) => (typeof l === "string" ? l : JSON.stringify(l))).join("\n") + "\n";
 
 /** A role folder `<identity>/<role>` with an `index.jsonl` (unless `index` is null) and one small WAV per name in `wavs`. */
@@ -629,62 +629,221 @@ describe("AudioCatalog.list recordingStopped (US-0074, Task 5)", () => {
   }, 30_000);
 });
 
-describe("readSegmentIndex (US-0074, ruling R1)", () => {
+describe("readSegmentIndex (US-0074 ruling R1; fail closed, US-0075 spec section 6)", () => {
+  const trusted = async (identity: string, role: string): Promise<Map<string, unknown>> => {
+    const r = await readSegmentIndex(audioDir, identity, role);
+    expect(r.kind).toBe("trusted");
+    return (r as { kind: "trusted"; index: Map<string, unknown> }).index;
+  };
+  const untrusted = async (identity: string, role: string): Promise<void> => {
+    expect(await readSegmentIndex(audioDir, identity, role)).toStrictEqual({ kind: "untrusted" });
+  };
+
   it("maps each segment to its entry (no raw, no timings) and its deleted flag", async () => {
     mkRole(A, "r", [segLine("s1", 1, { seq: 4 }), segLine("s2", 2), delLine("s2"), delLine("ghost")]);
-    const m = await readSegmentIndex(audioDir, A, "r");
-    expect(m).not.toBeNull();
-    expect([...m!.entries()]).toStrictEqual([
+    expect([...(await trusted(A, "r")).entries()]).toStrictEqual([
       ["s1", { entry: { participantId: "p-s1", startMs: 1, endMs: 501, status: "transcribed", seq: 4 }, deleted: false }],
       ["s2", { entry: { participantId: "p-s2", startMs: 2, endMs: 502, status: "transcribed" }, deleted: true }],
     ]);
   });
 
-  it("a missing index gives an empty Map", async () => {
+  it("ENOENT on any level is a trusted empty index: a missing index, role folder or identity folder", async () => {
     mkRole(A, "r", null, ["s1"]);
-    const m = await readSegmentIndex(audioDir, A, "r");
-    expect(m).toBeInstanceOf(Map);
-    expect(m!.size).toBe(0);
+    expect((await trusted(A, "r")).size).toBe(0); // no index.jsonl
+    expect((await trusted(A, "nope")).size).toBe(0); // no role folder
+    expect((await trusted(B, "r")).size).toBe(0); // no identity folder
   });
 
-  it("an index that is a symlink, over the cap or another user's gives null", async () => {
+  it("a symlinked role folder is untrusted (nothing behind it is opened)", async () => {
+    mkRole(A, "r", [segLine("s1", 1)]);
+    symlinkSync(path.join(audioDir, A, "r"), path.join(audioDir, A, "linked"));
+    hooks.calls = [];
+    await untrusted(A, "linked");
+    expect(hooks.calls.filter((c) => c.includes("index.jsonl"))).toEqual([]);
+  });
+
+  it("a symlinked identity folder is untrusted", async () => {
+    mkRole(A, "r", [segLine("s1", 1)]);
+    symlinkSync(path.join(audioDir, A), path.join(audioDir, C));
+    await untrusted(C, "r");
+  });
+
+  it("an index that is a symlink, a dangling symlink or a directory is untrusted", async () => {
     const elsewhere = path.join(root, "elsewhere.jsonl");
     writeFileSync(elsewhere, jsonl([segLine("s1", 1)]), { mode: 0o600 });
     symlinkSync(elsewhere, path.join(mkRole(A, "link", null), "index.jsonl"));
-    expect(await readSegmentIndex(audioDir, A, "link")).toBeNull();
+    await untrusted(A, "link");
+    symlinkSync(path.join(root, "nothing-here"), path.join(mkRole(A, "dangling", null), "index.jsonl"));
+    await untrusted(A, "dangling");
+    mkdirSync(path.join(mkRole(A, "dir", null), "index.jsonl"));
+    await untrusted(A, "dir");
+  });
+
+  it("ENOTDIR is untrusted: an identity path or a role path that is a regular file", async () => {
+    writeFileSync(path.join(audioDir, B), "not a folder", { mode: 0o600 });
+    await untrusted(B, "r");
+    mkdirSync(path.join(audioDir, A), { mode: 0o700 });
+    writeFileSync(path.join(audioDir, A, "r"), "not a folder", { mode: 0o600 });
+    await untrusted(A, "r");
+  });
+
+  it.skipIf(!hasUid)("another user's index file, role folder or identity folder is untrusted (seam)", async () => {
+    const f = mkRole(A, "foreign", [segLine("s1", 1)]);
+    hooks.foreignIno.add(Number(fs.lstatSync(path.join(f, "index.jsonl")).ino));
+    await untrusted(A, "foreign");
+    const d = mkRole(A, "foreigndir", [segLine("s1", 1)]);
+    hooks.foreignIno.add(Number(fs.lstatSync(d).ino));
+    await untrusted(A, "foreigndir");
+    mkRole(B, "r", [segLine("s1", 1)]);
+    hooks.foreignIno.add(Number(fs.lstatSync(path.join(audioDir, B)).ino));
+    await untrusted(B, "r");
+  });
+
+  it("an index of 64 MiB + 1 (sparse) is untrusted; one of exactly 64 MiB is trusted", async () => {
     const big = mkRole(A, "big", [segLine("s1", 1)]);
     truncateSync(path.join(big, "index.jsonl"), MAX_SEGMENT_INDEX_BYTES + 1);
-    expect(await readSegmentIndex(audioDir, A, "big")).toBeNull();
-    if (hasUid) {
-      const f = mkRole(A, "foreign", [segLine("s1", 1)]);
-      hooks.foreignIno.add(Number(fs.lstatSync(path.join(f, "index.jsonl")).ino));
-      expect(await readSegmentIndex(audioDir, A, "foreign")).toBeNull();
-    }
+    await untrusted(A, "big");
+    const edge = mkRole(A, "edge", [segLine("s1", 1)]);
+    truncateSync(path.join(edge, "index.jsonl"), MAX_SEGMENT_INDEX_BYTES);
+    expect((await trusted(A, "edge")).size).toBe(1);
   }, 30_000);
 
-  it("a missing or symlinked role or identity folder, or an unsafe root, gives null", async () => {
+  it.skipIf(isRoot)("an unreadable index (mode 000) is untrusted", async () => {
+    const dir = mkRole(A, "locked", [segLine("s1", 1)]);
+    fs.chmodSync(path.join(dir, "index.jsonl"), 0o000);
+    try { await untrusted(A, "locked"); } finally { fs.chmodSync(path.join(dir, "index.jsonl"), 0o600); }
+  });
+
+  it("an unsafe, symlinked or missing root is untrusted", async () => {
     mkRole(A, "r", [segLine("s1", 1)]);
-    expect(await readSegmentIndex(audioDir, A, "nope")).toBeNull();
-    expect(await readSegmentIndex(audioDir, B, "r")).toBeNull();
-    symlinkSync(path.join(audioDir, A, "r"), path.join(audioDir, A, "linked"));
-    expect(await readSegmentIndex(audioDir, A, "linked")).toBeNull();
-    symlinkSync(path.join(audioDir, A), path.join(audioDir, C));
-    expect(await readSegmentIndex(audioDir, C, "r")).toBeNull();
     if (!isRoot) {
       fs.chmodSync(audioDir, 0o777);
-      try { expect(await readSegmentIndex(audioDir, A, "r")).toBeNull(); } finally { fs.chmodSync(audioDir, 0o700); }
+      try { await untrusted(A, "r"); } finally { fs.chmodSync(audioDir, 0o700); }
     }
-    expect((await readSegmentIndex(audioDir, A, "r"))!.size).toBe(1);
+    expect((await trusted(A, "r")).size).toBe(1);
+    const link = path.join(root, "link");
+    symlinkSync(audioDir, link);
+    expect(await readSegmentIndex(link, A, "r")).toStrictEqual({ kind: "untrusted" });
+    expect(await readSegmentIndex(path.join(root, "nope"), A, "r")).toStrictEqual({ kind: "untrusted" });
+  });
+
+  it("a deleted line without op or ts, or with a malformed one, is ignored (ruling R1: the protocol's isDeletedLine decides)", async () => {
+    const { op: _op, ...noOp } = delLine("s1");
+    const { ts: _ts, ...noTs } = delLine("s2");
+    mkRole(A, "r", [
+      segLine("s1", 1), segLine("s2", 2), segLine("s3", 3), segLine("s4", 4), segLine("s5", 5), segLine("s6", 6),
+      noOp, noTs, { ...delLine("s3"), op: "op-1" }, { ...delLine("s4"), op: "0123456789ABCDEF" }, { ...delLine("s5"), ts: -1 }, delLine("s6"),
+    ]);
+    const index = (await trusted(A, "r")) as Map<string, { deleted: boolean }>;
+    expect([...index].map(([s, v]) => [s, v.deleted])).toEqual([["s1", false], ["s2", false], ["s3", false], ["s4", false], ["s5", false], ["s6", true]]);
   });
 
   it.each([
     ["identity upper case", A.toUpperCase(), "r"], ["identity a path", `../${A}`, "r"], ["identity short", A.slice(1), "r"],
     ["role a path", A, "../r"], ["role upper case", A, "R"], ["role empty", A, ""], ["role too long", A, "r".repeat(65)],
     ["role not a string", A, 7 as unknown as string], ["identity not a string", null as unknown as string, "r"],
-  ])("a bad id (%s) gives null without a single file call", async (_l, identity, role) => {
+  ])("a bad id (%s) is untrusted without a single file call", async (_l, identity, role) => {
     mkRole(A, "r", [segLine("s1", 1)]);
     hooks.calls = [];
-    expect(await readSegmentIndex(audioDir, identity, role)).toBeNull();
+    await untrusted(identity, role);
+    expect(hooks.calls).toEqual([]);
+  });
+
+  it("never probes a path before opening it (open-then-check only)", async () => {
+    mkRole(A, "r", [segLine("s1", 1)]);
+    hooks.calls = [];
+    await trusted(A, "r");
+    await trusted(A, "nope");
+    expect(hooks.calls.filter((c) => /^(lstatSync|statSync|existsSync|readFileSync) /.test(c))).toEqual([]);
+  });
+});
+
+describe("AudioCatalog.list omits an untrusted role only (US-0075 spec section 6)", () => {
+  it.skipIf(!hasUid)("a role whose index is another user's, over the cap, or a link is omitted; the others are still listed", async () => {
+    const f = mkRole(A, "foreign", [segLine("f1", 1)], ["f1"]);
+    hooks.foreignIno.add(Number(fs.lstatSync(path.join(f, "index.jsonl")).ino));
+    const elsewhere = path.join(root, "elsewhere.jsonl");
+    writeFileSync(elsewhere, jsonl([segLine("l1", 1)]), { mode: 0o600 });
+    symlinkSync(elsewhere, path.join(mkRole(A, "link", null, ["l1"]), "index.jsonl"));
+    mkRole(A, "ok", [segLine("o1", 1), segLine("o2", 2), delLine("o2")], ["o1"]);
+    expect((await segsOf()).map((s) => [keyOf(s), s.audio])).toEqual([["ok/o1", "available"], ["ok/o2", "deleted"]]);
+  });
+});
+
+describe("openOwnDirErr (US-0075): the errno-returning twin of openOwnDir", () => {
+  it("opens a real directory of this user (the caller closes it)", () => {
+    const r = openOwnDirErr(audioDir);
+    expect(r.ok).toBe(true);
+    if (r.ok) { expect(r.st.isDirectory()).toBe(true); fs.closeSync(r.fd); }
+  });
+
+  it("returns ENOENT for a missing path, and a non-ENOENT code for a link, a file or another user's folder", () => {
+    expect(openOwnDirErr(path.join(audioDir, "nope"))).toStrictEqual({ ok: false, code: "ENOENT" });
+    symlinkSync(audioDir, path.join(root, "link"));
+    const link = openOwnDirErr(path.join(root, "link"));
+    expect(link.ok).toBe(false);
+    if (!link.ok) expect(["ELOOP", "ENOTDIR"]).toContain(link.code);
+    writeFileSync(path.join(root, "file"), "x");
+    expect(openOwnDirErr(path.join(root, "file"))).toStrictEqual({ ok: false, code: "ENOTDIR" });
+    if (hasUid) {
+      const d = path.join(root, "foreign");
+      mkdirSync(d, { mode: 0o700 });
+      hooks.foreignIno.add(Number(fs.lstatSync(d).ino));
+      const r = openOwnDirErr(d);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.code).not.toBe("ENOENT");
+    }
+  });
+});
+
+describe("stillBelongs (US-0075): would find still return this identity for the session?", () => {
+  it("a folder whose marker names the session: true", () => {
+    mkIdentity(A);
+    expect(stillBelongs(audioDir, A, S)).toBe(true);
+  });
+
+  it("a folder whose marker names another session: false", () => {
+    mkIdentity(A, { v: 1, sessionId: OTHER });
+    expect(stillBelongs(audioDir, A, S)).toBe(false);
+  });
+
+  it("the fallback's pre-marker folder (a real folder of this user with NO session.json): true", async () => {
+    mkIdentity(B, null);
+    expect(await catalog(async () => B).find(S)).toEqual([B]); // find returns it via the fallback
+    expect(stillBelongs(audioDir, B, S)).toBe(true);
+  });
+
+  it("a folder with a session.json for another session (even when the fallback named it): false", async () => {
+    mkIdentity(B, { v: 1, sessionId: OTHER });
+    expect(await catalog(async () => B).find(S)).toEqual([]);
+    expect(stillBelongs(audioDir, B, S)).toBe(false);
+  });
+
+  it("a torn or linked marker, a missing folder, a symlinked folder or a file: false", () => {
+    mkIdentity(A, "{torn");
+    expect(stillBelongs(audioDir, A, S)).toBe(false);
+    expect(stillBelongs(audioDir, B, S)).toBe(false);
+    const real = path.join(root, "real-id");
+    mkdirSync(real, { mode: 0o700 });
+    writeFileSync(path.join(real, "session.json"), JSON.stringify({ v: 1, sessionId: S }), { mode: 0o600 });
+    symlinkSync(real, path.join(audioDir, C));
+    expect(stillBelongs(audioDir, C, S)).toBe(false);
+    const D = id(0xd);
+    writeFileSync(path.join(audioDir, D), "x");
+    expect(stillBelongs(audioDir, D, S)).toBe(false);
+  });
+
+  it.skipIf(isRoot)("a group- or other-writable root: false (find would return nothing)", () => {
+    mkIdentity(A);
+    fs.chmodSync(audioDir, 0o777);
+    try { expect(stillBelongs(audioDir, A, S)).toBe(false); } finally { fs.chmodSync(audioDir, 0o700); }
+  });
+
+  it.each([["identity upper case", A.toUpperCase(), S], ["identity a path", `../${A}`, S], ["session invalid", A, "../x"], ["session empty", A, ""],
+    ["identity not a string", 7 as unknown as string, S]])("a bad id (%s): false without a single file call", (_l, identity, sessionId) => {
+    mkIdentity(A);
+    hooks.calls = [];
+    expect(stillBelongs(audioDir, identity, sessionId)).toBe(false);
     expect(hooks.calls).toEqual([]);
   });
 });

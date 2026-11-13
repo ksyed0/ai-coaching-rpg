@@ -139,7 +139,7 @@ export function createApi(deps: {
       const by = parseBy(typeof header === "string" ? header : undefined);
       if (by === null) return fail(res, 400, "invalid", BAD_REQUEST); // before anything reads a file; no audit line
       // Each call reads files synchronously: a listing reads every role index of every identity, a replay reads the role index of each
-      // identity up to the owner, the owner's twice (each read capped at 64 MiB), plus one WAV of at most 512 KiB. Those caps and the
+      // identity up to the owner, the owner's three times (each read capped at 64 MiB), plus one WAV of at most 512 KiB. Those caps and the
       // replay in-flight limit (AudioService, default 8) are what bound it; the listing has the caps only.
       if (seg.length === 3) {
         const body = await audio.list(id);
@@ -151,6 +151,8 @@ export function createApi(deps: {
       if (r.code === "busy") return fail(res, 503, "busy", REPLAY_BUSY, false, 1);
       if (r.code === "audio_deleted") return failClosed(res, 410, "audio_deleted");
       if (r.code === "audit_unavailable") return failClosed(res, 503, "audit_unavailable"); // not one audio byte leaves unaudited
+      // US-0075: an index that cannot be trusted fails closed (no Retry-After: retrying will not make the store safe).
+      if (r.code === "store_unsafe") return failClosed(res, 503, "store_unsafe");
       return notFound();
     }
     if (seg.length === 2 && method === "GET") {

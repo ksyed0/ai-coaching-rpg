@@ -20,7 +20,7 @@ vi.mock("node:fs", async (orig) => {
   };
 });
 const fs = await import("node:fs");
-const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = fs;
+const { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } = fs;
 const { createApi } = await import("../../api.js");
 const { AudioCatalog } = await import("../../voice/audio-catalog.js");
 const { AuditLog } = await import("../../voice/audit-log.js");
@@ -52,7 +52,7 @@ afterEach(async () => {
 const SECRET = "the secret words somebody said";
 const segLine = (segment: string, startMs: number, extra: Record<string, unknown> = {}) =>
   ({ v: 1, kind: "segment", segment, participantId: `p-${segment}`, startMs, endMs: startMs + 500, status: "transcribed", raw: SECRET, ...extra });
-const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "op-1", ts: 1 });
+const delLine = (segment: string) => ({ v: 1, kind: "deleted", segment, op: "0123456789abcdef", ts: 1 });
 const jsonl = (lines: unknown[]): string => lines.map((l) => `${JSON.stringify(l)}\n`).join("");
 const wavBytes = (size: number, seed = 1): Buffer => Buffer.from(Array.from({ length: size }, (_, i) => (i * 7 + seed) & 0xff));
 /** `<audioDir>/<identity>/session.json` (unless `sessionId` is null). */
@@ -304,6 +304,29 @@ describe("GET /sessions/:id/audio/:role/:segment (the replay)", () => {
     expect(r.body.includes(s1.subarray(0, 16))).toBe(false);
     expect(r.body.length).toBeLessThan(100);
     expect(append).toHaveBeenCalledTimes(1);
+  });
+
+  it("an untrusted role index is 503 store_unsafe with no Retry-After, no audio byte and no audit line (US-0075)", async () => {
+    const { s1 } = twoIdentities();
+    // A's alpha index becomes a link to a valid copy elsewhere: it cannot be trusted, so the replay fails closed.
+    const idx = path.join(audioDir, A, "alpha", "index.jsonl");
+    const moved = path.join(root, "moved-index.jsonl");
+    renameSync(idx, moved);
+    symlinkSync(moved, idx);
+    const { get, append } = await boot();
+    const r = await get(`/sessions/${S}/audio/alpha/s1`, by());
+    expect(r.status).toBe(503);
+    expectJsonEnvelope(r);
+    expect(json(r.body)).toStrictEqual({ success: false, data: null, error: { code: "store_unsafe" } });
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(r.body.includes(s1.subarray(0, 16))).toBe(false);
+    expect(append).not.toHaveBeenCalled();
+    expect(playedLines(A)).toEqual([]);
+    // the listing still answers: the untrusted role is omitted, the other identity's segments are listed
+    const list = await get(`/sessions/${S}/audio`, by());
+    expect(list.status).toBe(200);
+    expect((json(list.body).data as { segments: { identity: string; role: string; segment: string }[] }).segments.map((x) => `${x.role}/${x.segment}`))
+      .toEqual(["beta/s2", "beta/s3"]);
   });
 
   it("a throwing audit is 503 audit_unavailable and frees the in-flight slot", async () => {
