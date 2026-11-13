@@ -11,7 +11,9 @@ import { SessionEngine } from "../../../runtime/src/engine/session-engine.js";
 import { makeDraftDir } from "../../../runtime/src/review/__tests__/fixtures.js";
 import { REPO_ROOT } from "../config.js";
 import { BotHost } from "../bots/bot-host.js";
-import { startControl, type RunningControl } from "../main.js";
+import { startControl, startupCause, type RunningControl } from "../main.js";
+import { AccountError } from "../accounts/service.js";
+import { UnusableFileError } from "../accounts/safe-json-file.js";
 import * as participantWrites from "../participant-writes.js";
 import * as reportsModule from "../reports.js";
 import { startAudioSweep } from "../voice/sweep.js";
@@ -359,6 +361,31 @@ describe("startControl accounts (US-0083)", () => {
     writeFileSync(path.join(root, "data", "accounts.json"), "{not json", { mode: 0o600 });
     await expect(startControl(env, { port: 0 })).rejects.toThrow(/accounts file/);
     expect(readFileSync(path.join(root, "data", "accounts.json"), "utf8")).toBe("{not json");
+  });
+  it("test_main_accounts_start_failure_logs_the_safe_cause_and_never_the_bootstrap_password", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    const f = path.join(root, "data", "accounts.json");
+    writeFileSync(f, '{"legacyClosed":false,"accounts":[]}', { mode: 0o600 });
+    chmodSync(f, 0o640);
+    const logs: string[] = [];
+    const err = await startControl({ ...env, ADMIN_BOOTSTRAP_PASSWORD: "Boot-Secret-12345" }, { port: 0, log: (m) => logs.push(m) }).catch((e: unknown) => e as Error);
+    expect(String(err)).toMatch(/accounts file/);
+    const line = logs.find((l) => l.startsWith("accounts: start refused"));
+    expect(line).toBeDefined();
+    expect(line).toContain("UnusableFileError");
+    expect(line).toContain("group or others");
+    const all = `${logs.join("\n")}\n${String(err)}`;
+    expect(all).not.toContain("Boot-Secret-12345");
+    expect(all).not.toContain(root);
+  });
+  it("test_main_startup_cause_gives_fixed_text_for_refusals_and_only_name_and_code_otherwise", () => {
+    const fs = Object.assign(new Error("EACCES: permission denied, open '/srv/secret/accounts.json'"), { code: "EACCES" });
+    expect(startupCause(fs)).toBe("Error (EACCES)");
+    expect(startupCause(new TypeError("scrypt failed for ChangeMe-Admin-1"))).toBe("TypeError");
+    expect(startupCause(new AccountError("invalid", "login is required"))).toContain("login is required");
+    expect(startupCause(new UnusableFileError("it is not valid JSON"))).toBe("UnusableFileError: the file is not usable: it is not valid JSON");
+    expect(startupCause("text")).toBe("Error");
+    expect(startupCause(Object.assign(new Error("x"), { name: "bad name with spaces", code: "lower" }))).toBe("Error");
   });
   it("refuses to start on a corrupt session owners file and leaves it untouched", async () => {
     mkdirSync(path.join(root, "data"), { recursive: true });

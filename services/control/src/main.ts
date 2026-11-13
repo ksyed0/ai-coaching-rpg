@@ -7,7 +7,8 @@ import { loadScenario, type Scenario } from "@acr/script";
 import { BotHost } from "./bots/bot-host.js";
 import { IntentLog } from "./bots/intent-log.js";
 import { FileAccountStore } from "./accounts/store.js";
-import { AccountService } from "./accounts/service.js";
+import { AccountError, AccountService } from "./accounts/service.js";
+import { UnusableFileError } from "./accounts/safe-json-file.js";
 import { OwnerStore } from "./accounts/owners.js";
 import { aiRolesFor } from "./ai-roles.js";
 import { createApi } from "./api.js";
@@ -84,6 +85,18 @@ export type RunningControl = {
  * settings (no values), for a port that cannot be bound, or for an unusable session list. Existing sessions are resumed BEFORE
  * listening, so the API never answers while a resume is half done. `opts` is for tests (`port: 0`, a fake `spawn`).
  */
+/**
+ * What a failed accounts start may say about its cause. The store's refusals (UnusableFileError) and AccountError carry fixed text only,
+ * so their name and message are logged; any other error (a file system or scrypt failure, whose message can hold a path) gives only its
+ * name and its error code. Never a password, a hash or a path.
+ */
+export function startupCause(err: unknown): string {
+  if (err instanceof UnusableFileError || err instanceof AccountError) return `${err.name}: ${err.message}`;
+  const name = err instanceof Error && /^[A-Za-z0-9_]{1,40}$/.test(err.name) ? err.name : "Error";
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^[A-Z0-9_]{1,20}$/.test(code) ? `${name} (${code})` : name;
+}
+
 export async function startControl(
   env: NodeJS.ProcessEnv,
   opts: {
@@ -189,9 +202,12 @@ export async function startControl(
   try {
     await accounts.ensureDefaultAdmin();
     if (accounts.list().some((a) => a.login === "admin" && a.mustChange)) log("accounts: the default admin must still change its password");
-  } catch {
+  } catch (err) {
+    // The cause, so an operator can tell a refused file from a full disk or a permission problem (fixed text or a code only: see startupCause).
+    log(`accounts: start refused: ${startupCause(err)}`);
     await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]);
-    throw new Error("the accounts file cannot be used; fix or move it and start again");
+    // Not "move it": moving accounts.json aside starts over with only the default admin (every account is lost).
+    throw new Error("the accounts file cannot be used; see the log line above, fix the file or its permissions, and start again");
   }
 
   const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio, accounts }));

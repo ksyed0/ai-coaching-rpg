@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-const calls = vi.hoisted(() => ({ verify: 0, hash: 0 }));
+const calls = vi.hoisted(() => ({ verify: 0, hash: 0, failHash: 0 }));
 vi.mock("../accounts/passwords.js", async (orig) => {
   const m = await orig<typeof import("../accounts/passwords.js")>();
   return {
     ...m,
     verifyPassword: (...a: Parameters<typeof m.verifyPassword>) => { calls.verify++; return m.verifyPassword(...a); },
-    hashPassword: (...a: Parameters<typeof m.hashPassword>) => { calls.hash++; return m.hashPassword(...a); },
+    hashPassword: (...a: Parameters<typeof m.hashPassword>) => {
+      calls.hash++;
+      if (calls.failHash > 0) { calls.failHash--; return Promise.reject(new Error("scrypt failed")); }
+      return m.hashPassword(...a);
+    },
   };
 });
 import { AccountError, AccountService } from "../accounts/service.js";
@@ -274,5 +278,36 @@ describe("AccountService", () => {
     await s.svc.ensureDefaultAdmin();
     const iss = await s.svc.create({ login: "bob", name: "Bob", role: "facilitator" }, null);
     for (const a of [...s.svc.list(), iss.account, s.svc.check(admin(s).id, 0)!]) expect(a).not.toHaveProperty("password");
+  });
+});
+
+describe("AccountService dummy hash (final review M1)", () => {
+  it("test_accounts_service_first_unknown_login_after_ensure_default_admin_does_one_verify_and_no_hash", async () => {
+    const s = setup();
+    await s.svc.ensureDefaultAdmin();
+    calls.verify = 0; calls.hash = 0;
+    expect(await s.svc.login("nobody@example.org", "whatever-pass")).toEqual({ ok: false, reason: "refused" });
+    expect(calls).toMatchObject({ verify: 1, hash: 0 });
+    // An existing file (a later start) builds the dummy too.
+    const later = setup({ store: s.store });
+    await later.svc.ensureDefaultAdmin();
+    calls.verify = 0; calls.hash = 0;
+    expect((await later.svc.login("nobody@example.org", "x")).ok).toBe(false);
+    expect(calls).toMatchObject({ verify: 1, hash: 0 });
+  });
+
+  it("test_accounts_service_a_rejected_dummy_build_is_not_cached", async () => {
+    const s = setup();
+    await s.svc.ensureDefaultAdmin().catch(() => {});
+    const fresh = setup({ store: s.store });
+    calls.failHash = 1;
+    await fresh.svc.ensureDefaultAdmin(); // the eager dummy build fails quietly; startup is not refused by it
+    await expect(fresh.svc.login("nobody@example.org", "x")).resolves.toEqual({ ok: false, reason: "refused" });
+    calls.failHash = 1;
+    const lazy = setup({ store: s.store });
+    await expect(lazy.svc.login("nobody@example.org", "x")).rejects.toThrow("scrypt failed");
+    calls.hash = 0;
+    await expect(lazy.svc.login("nobody@example.org", "x")).resolves.toEqual({ ok: false, reason: "refused" });
+    expect(calls.hash).toBe(1);
   });
 });

@@ -1,7 +1,6 @@
-import { SafeJsonFile, type SafeJsonFileHooks } from "./safe-json-file.js";
+import { SafeJsonFile, UnusableFileError, type SafeJsonFileHooks } from "./safe-json-file.js";
 import type { Account, AccountsFile, PasswordHash, Role, Status } from "./types.js";
 
-const REFUSED = "the accounts file is not usable";
 const ROLES: readonly string[] = ["admin", "facilitator"];
 const STATUSES: readonly string[] = ["invited", "active", "revoked"];
 const ACCOUNT_KEYS = ["id", "login", "name", "role", "status", "password", "mustChange", "tempExpiresAt", "epoch", "createdAt", "createdBy"];
@@ -40,14 +39,14 @@ function isAccount(v: unknown): v is Account {
 /** Strict validation; returns a fresh copy holding only the known fields. Throws a plain error on any violation. */
 function validate(v: unknown): AccountsFile {
   if (!isObj(v) || !sameKeys(v, ["legacyClosed", "accounts"]) || typeof v.legacyClosed !== "boolean"
-    || !Array.isArray(v.accounts) || !v.accounts.every(isAccount)) throw new Error(REFUSED);
+    || !Array.isArray(v.accounts) || !v.accounts.every(isAccount)) throw new UnusableFileError("it does not have the accounts shape");
   const accounts = (v.accounts as Account[]).map((a): Account => ({
     id: a.id, login: a.login, name: a.name, role: a.role as Role, status: a.status as Status,
     password: { salt: a.password.salt, hash: a.password.hash }, mustChange: a.mustChange,
     tempExpiresAt: a.tempExpiresAt, epoch: a.epoch, createdAt: a.createdAt, createdBy: a.createdBy,
   }));
-  if (new Set(accounts.map((a) => a.id)).size !== accounts.length) throw new Error(REFUSED);
-  if (new Set(accounts.map((a) => a.login)).size !== accounts.length) throw new Error(REFUSED);
+  if (new Set(accounts.map((a) => a.id)).size !== accounts.length) throw new UnusableFileError("two accounts share an id");
+  if (new Set(accounts.map((a) => a.login)).size !== accounts.length) throw new UnusableFileError("two accounts share a login");
   return { legacyClosed: v.legacyClosed, accounts };
 }
 

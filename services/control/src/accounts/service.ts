@@ -45,8 +45,16 @@ export class AccountService {
   private temporary(): string { return (this.o.newTemporary ?? generateTemporaryPassword)(); }
   private id(): string { return (this.o.newId ?? (() => randomBytes(8).toString("hex")))(); }
   private log(line: string): void { this.o.log?.(line); }
+  /**
+   * The hash an unknown or revoked login is verified against, so every login costs exactly one verification. Built eagerly by
+   * ensureDefaultAdmin; built here only if that failed. A rejected build is never cached: the next call builds it again.
+   */
   private dummyHash(): Promise<PasswordHash> {
-    this.dummy ??= hashPassword(randomBytes(16).toString("hex"));
+    if (this.dummy === null) {
+      const p = hashPassword(randomBytes(16).toString("hex"));
+      this.dummy = p;
+      p.catch(() => { if (this.dummy === p) this.dummy = null; });
+    }
     return this.dummy;
   }
 
@@ -60,6 +68,8 @@ export class AccountService {
 
   async ensureDefaultAdmin(): Promise<void> {
     if (this.o.reset) this.log("ADMIN_RESET is set: unset it after use");
+    // Built now, so the first unknown login costs one verification like every other (a failure here is retried by the first login).
+    await this.dummyHash().catch(() => {});
     const existing = this.o.store.read();
     if (existing && !this.o.reset) return;
     const password = await hashPassword(this.o.bootstrapPassword);
