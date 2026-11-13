@@ -1,5 +1,6 @@
 import {
-  chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
+  chmodSync, closeSync, constants, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
+  type Dirent,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -77,17 +78,21 @@ async function deletedIn(identity: string, role: string): Promise<string[]> {
 function snapshot(): Pick<Snapshot, "indexes" | "wavs"> {
   const indexes: Record<string, string> = {};
   const wavs: string[] = [];
+  // Open-then-check (CodeQL js/file-system-race): the directory listing gives each entry's type, and an index file is opened
+  // without following a link and read through the descriptor, never by a path that was probed first.
   const walk = (dir: string, rel: string) => {
-    let names: string[];
-    try { names = readdirSync(dir); } catch { return; }
-    for (const n of names) {
+    let entries: Dirent[];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const n = e.name;
       const p = path.join(dir, n);
       const r = rel === "" ? n : `${rel}/${n}`;
-      let st;
-      try { st = lstatSync(p); } catch { continue; }
-      if (st.isDirectory()) walk(p, r);
-      else if (n === "index.jsonl") indexes[r] = readFileSync(p, "utf8");
-      else if (n.endsWith(".wav")) wavs.push(r);
+      if (e.isDirectory()) walk(p, r);
+      else if (n === "index.jsonl") {
+        let fd: number;
+        try { fd = openSync(p, constants.O_RDONLY | constants.O_NOFOLLOW); } catch { continue; }
+        try { if (fstatSync(fd).isFile()) indexes[r] = readFileSync(fd, "utf8"); } finally { closeSync(fd); }
+      } else if (n.endsWith(".wav")) wavs.push(r);
     }
   };
   walk(audioDir, "");
