@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- A client-demo cue card and launcher (`docs/demo/CLIENT_DEMO.md`, `docs/demo/demo-up.sh`): a timed script for the Friday Escalation on a local reasoning model with two humans and an AI player, pre-flight checks, and a recovery table. No product code changed.
+
 ## [0.2.1] - 2026-11-08
 
 Bug-fix release after 0.2.0. It changes no schema and adds no setting; the one new wire code is `link_full`, so deploy the control service before the web app (docs/ROLLBACK.md, "Release 0.2.1"). It fixes BUG-0025, BUG-0029, BUG-0030, BUG-0032, BUG-0033 and BUG-0034 (PRs #119 to #123); BUG-0026, BUG-0027 and BUG-0028 are test and cleanup fixes with no change for users.
