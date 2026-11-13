@@ -25,17 +25,27 @@ describe("createDeps", () => {
   it("a disabled console is logged once with the unset variable names, never a value", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const full = { FACILITATOR_SECRET: "s".repeat(20), LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
-    for (const name of Object.keys(full) as (keyof typeof full)[]) {
-      warn.mockClear();
-      const { [name]: _gone, ...rest } = full;
-      // LAUNCHER_URL without its token is not a disabled console but a configuration error: the player routes need the token too.
-      if (name === "LAUNCHER_TOKEN") { expect(() => createDeps({ ...ENV, ...rest })).toThrow(/LAUNCHER_TOKEN/); continue; }
-      createDeps({ ...ENV, ...rest });
-      expect(warn).toHaveBeenCalledTimes(1);
-      const line = String(warn.mock.calls[0]![0]);
-      expect(line).toContain(name);
-      for (const v of Object.values(full)) expect(line).not.toContain(v);
-    }
+    // LAUNCHER_URL alone missing disables the console; LAUNCHER_URL without its token is a configuration error (the player routes need it).
+    createDeps({ ...ENV, FACILITATOR_SECRET: full.FACILITATOR_SECRET, LAUNCHER_TOKEN: full.LAUNCHER_TOKEN });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]![0]);
+    expect(line).toContain("DISABLED");
+    expect(line).toContain("LAUNCHER_URL");
+    for (const v of Object.values(full)) expect(line).not.toContain(v);
+    expect(() => createDeps({ ...ENV, FACILITATOR_SECRET: full.FACILITATOR_SECRET, LAUNCHER_URL: full.LAUNCHER_URL })).toThrow(/LAUNCHER_TOKEN/);
+  });
+
+  it("test_routes_console_enabled_without_facilitator_secret_says_legacy_sign_in_is_off_once_and_nothing_with_it", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    createDeps({ ...ENV, LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]![0]);
+    expect(line).not.toContain("DISABLED");
+    expect(line).toContain("FACILITATOR_SECRET");
+    expect(line).not.toContain("t".repeat(32));
+    warn.mockClear();
+    createDeps({ ...ENV, FACILITATOR_SECRET: "s".repeat(20), LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) });
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("builds the launcher client only when LAUNCHER_URL is set (single mode has none)", () => {
@@ -158,13 +168,14 @@ describe("route files", () => {
 });
 
 describe("consoleView", () => {
-  const FULL = { ...ENV, FACILITATOR_SECRET: "s".repeat(20), LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
-  it("is disabled when a console variable is unset or the configuration is broken, signed out without a cookie", () => {
+  const FULL = { ...ENV, LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
+  it("is disabled when a console variable is unset or the configuration is broken, signed out without a cookie", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(consoleView(undefined, () => createDeps(ENV))).toEqual({ kind: "disabled" });
-    expect(consoleView("x", () => { throw new Error("config"); })).toEqual({ kind: "disabled" });
-    expect(consoleView(undefined, () => createDeps(FULL))).toEqual({ kind: "signed_out" });
-    expect(consoleView("not-a-cookie", () => createDeps(FULL))).toEqual({ kind: "signed_out" });
+    expect(await consoleView(undefined, () => createDeps(ENV))).toEqual({ kind: "disabled" });
+    expect(await consoleView("x", () => { throw new Error("config"); })).toEqual({ kind: "disabled" });
+    // US-0083: FACILITATOR_SECRET is not needed for the console (accounts); a cookie that does not open never reaches control.
+    expect(await consoleView(undefined, () => createDeps(FULL))).toEqual({ kind: "signed_out" });
+    expect(await consoleView("not-a-cookie", () => createDeps(FULL))).toEqual({ kind: "signed_out" });
   });
 });
 

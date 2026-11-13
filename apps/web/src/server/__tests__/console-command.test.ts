@@ -7,6 +7,7 @@ import { COOKIE_NAME, type Deps } from "../handlers";
 import { seal } from "../seal";
 import { COMMAND_KINDS as CLIENT_KINDS } from "../../lib/console-commands";
 import { COMMAND_ANSWERS, COMMAND_KINDS, COMMAND_MAX_BODY_BYTES, handleConsoleCommand, handleConsoleFacts } from "../console-command";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -20,7 +21,7 @@ const config: Config = {
   runtimeUrl: "ws://127.0.0.1:1", publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10,
   maxStreamsPerAddress: 10, facilitatorSecret: SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: "launcher-token-" + "t".repeat(20),
 };
-const consoleCookie = (name = NAME) => `${CONSOLE_COOKIE}=${seal({ name, epoch: secretEpoch(SECRET), expiresAt: T0 + 3_600_000 }, KEYS, T0, "fac")}`;
+const consoleCookie = (name = NAME) => `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed(name), { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 })}`;
 const playerCookie = () => `${COOKIE_NAME}=${seal({ sessionId: SID, roleId: "r", participantId: "p", credential: "c", logIdentity: "l", expiresAt: T0 + 3_600_000 }, KEYS, T0)}`;
 
 let send: ReturnType<typeof vi.fn>;
@@ -32,7 +33,7 @@ beforeEach(() => {
   setEnvelopeClock(() => new Date(T0));
   send = vi.fn(async (): Promise<CommandOutcome> => ({ kind: "ok" }));
   factsFor = vi.fn((): unknown => null);
-  deps = { config, now: () => T0, launcher: {} as never, facilitatorHub: { send, factsFor } } as unknown as Deps;
+  deps = { config, now: () => T0, launcher: withConsoleAuth({}) as never, facilitatorHub: { send, factsFor } } as unknown as Deps;
   logs = [];
   for (const m of ["error", "warn", "log", "info"] as const) vi.spyOn(console, m).mockImplementation((...a) => { logs.push(a.join(" ")); });
 });
@@ -68,7 +69,7 @@ describe("the guards of the command and facts routes", () => {
     for (const [, call, body] of routes) {
       for (const cookie of [null, playerCookie()]) expect((await call(body, { cookie })).status).toBe(401);
     }
-    deps = { ...deps, config: { ...config, facilitatorSecret: undefined } } as Deps;
+    deps = { ...deps, config: { ...config, launcherToken: undefined } } as Deps;
     for (const [, call, body] of routes) expect((await call(body)).status).toBe(503);
     expect(send).not.toHaveBeenCalled();
     expect(factsFor).not.toHaveBeenCalled();
@@ -202,12 +203,13 @@ describe("the command route", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("no launcher is 502 launcher_unavailable after the body checks and before the hub", async () => {
+  it("no launcher is 502 launcher_unavailable before the body checks and the hub (US-0083: the cookie cannot be re-checked), the cookie kept", async () => {
     deps = { ...deps, launcher: undefined } as Deps;
     const res = await command({ channel: CH, kind: "pause" });
     expect(res.status).toBe(502);
+    expect(res.headers.get("Set-Cookie")).toBeNull();
     expect((await json(res)).error?.code).toBe("launcher_unavailable");
-    expect((await command({ channel: CH, kind: "nope" })).status).toBe(400);
+    expect((await command({ channel: CH, kind: "nope" })).status).toBe(502);
     expect(send).not.toHaveBeenCalled();
   });
 

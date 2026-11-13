@@ -4,8 +4,7 @@ import {
   isValidSessionId,
 } from "@acr/events";
 import { AI_COPY, aiAnswer } from "./console-ai-copy";
-import { requireConsole } from "./console-handlers";
-import type { ConsoleSession } from "./console-session";
+import { requireConsole, type ConsoleCaller } from "./console-handlers";
 import { fail, ok } from "./envelope";
 import {
   FacilitatorSocketError,
@@ -51,12 +50,12 @@ const log = (line: string) => console.error(`web: console: ${line}`);
 // ---- guards ----
 
 /** requireConsole first; for a state change, then Origin + custom header + Fetch-Metadata (the player POSTs' checks). */
-export function guard(
+export async function guard(
   req: Request,
   deps: Deps,
   change: boolean,
-): { who: ConsoleSession } | { response: Response } {
-  const who = requireConsole(req, deps);
+): Promise<{ who: ConsoleCaller } | { response: Response }> {
+  const who = await requireConsole(req, deps);
   if (who instanceof Response) return { response: who };
   if (
     change &&
@@ -194,7 +193,7 @@ export async function handleConsoleScenarios(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, false);
+  const g = await guard(req, deps, false);
   if ("response" in g) return g.response;
   if (!deps.launcher) return unreachable();
   try {
@@ -214,7 +213,7 @@ export async function handleConsoleSessionsList(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, false);
+  const g = await guard(req, deps, false);
   if ("response" in g) return g.response;
   if (!deps.launcher) return unreachable();
   try {
@@ -229,7 +228,7 @@ export async function handleConsoleSessionGet(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, false);
+  const g = await guard(req, deps, false);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -250,7 +249,7 @@ export async function handleConsoleReadiness(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, false);
+  const g = await guard(req, deps, false);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -313,7 +312,7 @@ export async function handleConsoleSessionsCreate(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const body = await readBody(req, ["scenarioId"]);
   if (body === null || !isId(body.scenarioId)) return badRequest();
@@ -335,7 +334,7 @@ export async function handleConsoleReissue(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -360,7 +359,7 @@ export async function handleConsoleRemove(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -388,7 +387,7 @@ export async function handleConsoleReissueAll(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -412,7 +411,7 @@ export async function handleConsoleRestart(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -461,7 +460,7 @@ export async function handleConsoleStart(
   req: Request,
   deps: Deps,
 ): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();

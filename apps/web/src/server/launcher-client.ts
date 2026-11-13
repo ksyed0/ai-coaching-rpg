@@ -45,7 +45,13 @@ export type LauncherReason =
   // US-0071 (A1b Task 11): the voice token route's refusals (control's POST /sessions/:id/voice-token), one word each.
   | "voice_refused"
   | "voice_off"
-  | "voice_unavailable";
+  | "voice_unavailable"
+  // US-0083: the account routes' refusals (control's /accounts/*), one word each. `account_refused` is a bad account (revoked, unknown or an
+  // old epoch), distinct from the token's `unauthorized`.
+  | "login_refused"
+  | "login_expired"
+  | "account_refused"
+  | "weak_password";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -64,6 +70,18 @@ export type SessionInfo = {
   modelLabel?: string;
   /** Whether AI players' scores count in the group score (US-0061); absent when the control service did not say. */
   includeInGroup?: boolean;
+  /** US-0083: the account id of the session's owner; absent for a session without one (admin only). */
+  owner?: string;
+};
+/** US-0083: an account as the BFF keeps it (control's PublicAccount, picked field by field: never a hash, never a password). */
+export type AccountInfo = {
+  id: string;
+  login: string;
+  name: string;
+  role: "admin" | "facilitator";
+  status: "invited" | "active" | "revoked";
+  mustChange: boolean;
+  epoch: number;
 };
 export type RoleCode = { roleId: string; code: string };
 /** One line of an AI player's intent log, as the control service returns it (US-0060). */
@@ -182,6 +200,10 @@ const BY_CODE: Record<string, LauncherReason> = {
   voice_refused: "voice_refused",
   voice_off: "voice_off",
   voice_unavailable: "voice_unavailable",
+  login_refused: "login_refused",
+  login_expired: "login_expired",
+  account_refused: "account_refused",
+  weak_password: "weak_password",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -239,7 +261,20 @@ function toInfo(v: unknown): SessionInfo {
     ...(v.port !== undefined && { port: v.port }),
     ...(v.modelLabel !== undefined && { modelLabel: v.modelLabel }),
     ...(typeof v.includeInGroup === "boolean" && { includeInGroup: v.includeInGroup }),
+    ...(typeof v.owner === "string" && isAccountId(v.owner) && { owner: v.owner }),
   };
+}
+
+/** An account id as control makes and accepts it (1 to 64 characters, no control character). */
+const isAccountId = (v: unknown): v is string =>
+  typeof v === "string" && v.length >= 1 && v.length <= 64 && [...v].every((c) => c.charCodeAt(0) > 0x1f && c.charCodeAt(0) !== 0x7f);
+const isEpoch = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+/** The `account` of an account answer, picked field by field; anything that does not fit fails closed. */
+function toAccount(d: unknown): AccountInfo {
+  const a = isObject(d) ? d.account : undefined;
+  if (!isObject(a) || !isAccountId(a.id) || !isStr(a.login) || !isStr(a.name) || !isEpoch(a.epoch) || typeof a.mustChange !== "boolean") return bad();
+  if ((a.role !== "admin" && a.role !== "facilitator") || (a.status !== "invited" && a.status !== "active" && a.status !== "revoked")) return bad();
+  return { id: a.id, login: a.login, name: a.name, role: a.role, status: a.status, mustChange: a.mustChange, epoch: a.epoch };
 }
 
 /** One entry, picked field by field; null for anything that is not a well-formed entry (an unknown word drops it). */
@@ -486,6 +521,45 @@ export class LauncherClient {
     this.fetchFn = o.fetch ?? fetch;
     this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.longTimeoutMs = o.longTimeoutMs ?? DEFAULT_LONG_TIMEOUT_MS;
+  }
+
+  /** US-0083: signs in. A wrong login or password is `login_refused`; a right but expired temporary password is `login_expired`. */
+  async accountLogin(login: string, password: string): Promise<AccountInfo> {
+    return toAccount(await this.call("POST", "/accounts/login", { login, password }, this.timeoutMs));
+  }
+
+  /**
+   * US-0083: the account behind a console cookie, or null when control refuses it (revoked, unknown, or an older epoch). Every other
+   * failure throws (control unreachable is `unavailable`): the caller answers 502 and keeps the cookie. An answer for another account or
+   * epoch is `failed`.
+   */
+  async accountCheck(accountId: string, epoch: number): Promise<AccountInfo | null> {
+    if (!isAccountId(accountId) || !isEpoch(epoch)) return null;
+    let d: unknown;
+    try {
+      d = await this.call("POST", "/accounts/check", { accountId, epoch }, this.timeoutMs);
+    } catch (err) {
+      if (err instanceof LauncherError && err.reason === "account_refused") return null;
+      throw err;
+    }
+    const a = toAccount(d);
+    if (a.id !== accountId || a.epoch !== epoch) return bad();
+    return a;
+  }
+
+  /** US-0083: changes the password; the answer carries the new epoch. `weak_password` and `account_refused` are the refusals. */
+  async accountChangePassword(accountId: string, epoch: number, current: string, next: string): Promise<AccountInfo> {
+    if (!isAccountId(accountId) || !isEpoch(epoch)) throw new LauncherError("account_refused");
+    const a = toAccount(await this.call("POST", "/accounts/password", { accountId, epoch, current, next }, this.timeoutMs));
+    if (a.id !== accountId) return bad();
+    return a;
+  }
+
+  /** US-0083: whether the shared secret (legacy sign-in) still works: true until control's one-way latch closes. */
+  async legacyAllowed(): Promise<boolean> {
+    const d = await this.call("GET", "/accounts/legacy", undefined, this.timeoutMs);
+    if (!isObject(d) || typeof d.allowed !== "boolean") return bad();
+    return d.allowed;
   }
 
   async scenarios(): Promise<{ id: string; title: string }[]> {

@@ -18,6 +18,7 @@ import { seal } from "../seal";
 import { StreamHub, type SessionCookie } from "../stream-hub";
 import type { JoinedFrame } from "../wire";
 import { sseReader, sseRecorder, until, type SseFrame } from "./fakes";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 // The real runtime, in-process, mock models, port 0, private temp dirs, with the facilitator console's stream route in front of it.
 // A generous explicit limit; nothing measures elapsed time.
@@ -79,7 +80,7 @@ beforeEach(async () => {
     facilitator: async () => ({ port: runtime!.port, token: TOKEN }),
   };
   deps = {
-    config, now: Date.now, launcher: launcher as never,
+    config, now: Date.now, launcher: withConsoleAuth(launcher) as never,
     connect: (async (u: string, xff: string | null, o?: never) => { const c = await RuntimeConnection.connect(u, xff, o); consoleConns.push(c); return c; }) as Deps["connect"],
     facilitatorBudget: new FacilitatorBudget(),
     facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
@@ -97,7 +98,7 @@ afterEach(async () => {
 });
 
 // ---- the console side: the real route, with a console cookie ----
-const consoleCookie = () => `${CONSOLE_COOKIE}=${seal({ name: "Ann Lee", epoch: secretEpoch(SECRET), expiresAt: Date.now() + 3_600_000 }, KEYS, Date.now(), "fac")}`;
+const consoleCookie = () => `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed("Ann Lee"), { keys: KEYS, now: Date.now(), expiresAt: Date.now() + 3_600_000 })}`;
 async function consoleStream(lastEventId?: number) {
   const headers: Record<string, string> = { Accept: "text/event-stream", "Sec-Fetch-Site": "same-origin", Cookie: consoleCookie() };
   if (lastEventId !== undefined) headers["Last-Event-ID"] = String(lastEventId);

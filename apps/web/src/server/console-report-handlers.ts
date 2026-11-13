@@ -132,7 +132,7 @@ const throttleKey = (req: Request): string => createHash("sha256").update(readCo
 
 function write(req: Request, deps: Deps, s: Spec): Promise<Response> {
   return safely(async () => {
-    const g = guard(req, deps, true); // the console cookie, then Origin and Fetch-Metadata: both before anything is counted
+    const g = await guard(req, deps, true); // the console cookie, then Origin and Fetch-Metadata: both before anything is counted
     if ("response" in g) return priv(g.response);
     const t = deps.consoleReportThrottle;
     const key = throttleKey(req);
@@ -170,7 +170,7 @@ function write(req: Request, deps: Deps, s: Spec): Promise<Response> {
 
 function read(req: Request, deps: Deps, subject: boolean): Promise<Response> {
   return safely(async () => {
-    const g = guard(req, deps, false);
+    const g = await guard(req, deps, false);
     if ("response" in g) return priv(g.response);
     const id = sessionIdOf(req);
     if (id === null) return notFound();

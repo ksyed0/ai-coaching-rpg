@@ -29,7 +29,7 @@ function rolesOf(v: unknown): string[] | null {
  * (which a switch may have changed). A missing includeInGroup is forwarded as missing (keep the current value); it is never defaulted here.
  */
 export async function handleConsoleAiRoles(req: Request, deps: Deps): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -56,7 +56,7 @@ export async function handleConsoleAiRoles(req: Request, deps: Deps): Promise<Re
 
 /** POST /api/v1/console/sessions/:id/ai-roles/:roleId/intents {}: a POST, since the Origin check needs headers a plain GET does not carry. */
 export async function handleConsoleAiIntents(req: Request, deps: Deps): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -106,7 +106,7 @@ const MAX_HINT_CODE_POINTS = 300;
  * control service's run call: never into the runtime message, a log line or an answer. `by` is the cookie's name.
  */
 export async function handleConsoleAiPrompt(req: Request, deps: Deps): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();

@@ -8,7 +8,8 @@ import { LauncherError } from "./launcher-client";
 import { lastSeqOf, sseBody, sseFinal, sseHeaders, type SseOut } from "./sse";
 
 // GET /api/v1/console/sessions/:id/stream: the facilitator's live view of one session as server-sent events. Plain Request -> Response.
-// The console cookie is checked on EVERY connect (an EventSource reconnect is a new request). The request's X-Forwarded-For is never
+// The console cookie is checked on EVERY connect (an EventSource reconnect is a new request), and re-checked with the control service at
+// every heartbeat while the stream is open (US-0083, facilitator-hub.ts). The request's X-Forwarded-For is never
 // read: the runtime socket carries the reserved console key (facilitator-socket.ts). `event` names written here are constants only.
 
 // The wording is fixed by the plan. It is also what a tab sees when the hub's global cap (MAX_FACILITATOR_STREAMS) is the cause, not only the per-session tab slots.
@@ -24,7 +25,7 @@ export async function handleConsoleStream(req: Request, deps: Deps): Promise<Res
   const origin = req.headers.get("Origin");
   if (origin !== null && origin !== deps.config.publicOrigin) return forbidden();
   if (!(req.headers.get("Accept") ?? "").toLowerCase().includes("text/event-stream")) return notAcceptable();
-  const who = requireConsole(req, deps);
+  const who = await requireConsole(req, deps);
   if (who instanceof Response) return who;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -63,7 +64,7 @@ export async function handleConsoleStream(req: Request, deps: Deps): Promise<Res
       write: (chunk) => body.out.write(chunk),
       end: () => { req.signal.removeEventListener("abort", stop); body.out.end(); },
     };
-    const hubOpened = deps.facilitatorHub.open({ sessionId: id, expiresAt: who.expiresAt, conn, joined, out });
+    const hubOpened = deps.facilitatorHub.open({ sessionId: id, expiresAt: who.expiresAt, accountId: who.accountId, epoch: who.epoch, conn, joined, out });
     if (hubOpened === "capacity") return sseFinal("busy", { message: BUSY_MESSAGE }); // the hub closed the connection
     handle = hubOpened;
     body.onCancel(stop);

@@ -18,6 +18,7 @@ import { RuntimeConnection, realTimer } from "../runtime-connection";
 import { StreamHub } from "../stream-hub";
 import { JoinThrottle } from "../throttle";
 import { sseReader, until } from "./fakes";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 // US-0060 (slice 2b-3a, Task 14): AI player seats against the REAL runtime, booted in-process with CONTROL_MANAGED=1 and a fake parent
 // (the test plays the control service over IPC: set_ai_roles gives the AI seat's code), with the BFF handlers in front of the humans.
@@ -346,12 +347,12 @@ afterEach(async () => {
   for (const dir of ctlRoots.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
-const consoleCookie = () => `${CONSOLE_COOKIE}=${seal({ name: FAC_NAME, epoch: secretEpoch(FAC_SECRET), expiresAt: Date.now() + 3_600_000 }, KEYS, Date.now(), "fac")}`;
+const consoleCookie = () => `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed(FAC_NAME), { keys: KEYS, now: Date.now(), expiresAt: Date.now() + 3_600_000 })}`;
 function bffDeps(st: RealStack) {
   const config: Config = { runtimeUrl: "ws://127.0.0.1:1", publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10, facilitatorSecret: FAC_SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: "launcher-token-" + "t".repeat(20) };
   const hub = new StreamHub({ maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10, setTimer: realTimer, now: Date.now });
   return {
-    config, now: Date.now, launcher: st.launcher, connect: ((url: string, address: string) => RuntimeConnection.connect(url, address)) as unknown as Deps["connect"],
+    config, now: Date.now, launcher: withConsoleAuth(st.launcher) as never, connect: ((url: string, address: string) => RuntimeConnection.connect(url, address)) as unknown as Deps["connect"],
     joinThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }), consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }),
     consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: Date.now }), reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: Date.now }), hub, facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
   } as unknown as Deps;

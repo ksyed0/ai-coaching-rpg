@@ -2,13 +2,16 @@ import { randomUUID } from "node:crypto";
 import { consoleActivity } from "./activity-copy";
 import { consoleCharacters, isRecord, strings, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState, wellFormedHiddenFacts, type ConsoleFactText } from "./facilitator-copies";
 import type { FacilitatorJoin } from "./facilitator-socket";
+import type { LauncherClient } from "./launcher-client";
 import type { RuntimeConnection, SetTimer } from "./runtime-connection";
 import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
 import type { CommandMessage, ServerMessage } from "./wire";
 import type { SessionState } from "@acr/events";
 
-// Bridges one facilitator runtime socket to one server-sent-events response. Unlike the player hub it holds no identity: the console
-// cookie is checked by the route, and any number of tabs may watch one session. It never reconnects (the browser's EventSource does).
+// Bridges one facilitator runtime socket to one server-sent-events response. The console cookie is checked by the route; US-0083: each
+// stream also remembers WHICH account opened it ({accountId, epoch}; both null for a legacy sign-in) and every heartbeat re-checks it
+// with the control service, so a revoked, reset or password-changed account's open stream ends within one heartbeat (closeAccount ends
+// it at once). Any number of tabs may watch one session. It never reconnects (the browser's EventSource does).
 // Only constants are written as event names, and only copies from facilitator-copies.ts as data. Utterances, Game Master reasoning and
 // whispers do reach the page, by design (the facilitator sees them); NPC secrets, participant ids and runtime error text do not.
 
@@ -37,14 +40,34 @@ function joinedNpcs(state: unknown): Map<string, { goals: string[]; released: st
   return out;
 }
 
+/** Who opened a stream: an account and its epoch, or (both null) a legacy shared-secret sign-in. */
+export type StreamOwner = { accountId: string | null; epoch: number | null };
+/** The heartbeat's re-check: "refused" ends the stream; "unavailable" (control unreachable) keeps it and asks again next beat. */
+export type StreamRecheck = (who: StreamOwner) => Promise<"ok" | "refused" | "unavailable">;
+
+/** The re-check against the control service: the same rule as requireConsole (an account that must change its password is refused too). */
+export function consoleRecheck(launcher: Pick<LauncherClient, "accountCheck" | "legacyAllowed">): StreamRecheck {
+  return async (who) => {
+    try {
+      if (who.accountId === null || who.epoch === null) return (await launcher.legacyAllowed()) ? "ok" : "refused";
+      const a = await launcher.accountCheck(who.accountId, who.epoch);
+      return a === null || a.status === "revoked" || a.mustChange ? "refused" : "ok";
+    } catch {
+      return "unavailable";
+    }
+  };
+}
+
 type Pending = { ref: string; type: CommandMessage["type"]; resolve: (o: CommandOutcome) => void; cancelTimer: () => void };
-type Stream = { channel: string; sessionId: string; pending: Pending | null; expiresAt: number; conn: RuntimeConnection; out: SseOut; writer: SseWriter; ended: boolean; skip: number;
+type Stream = { channel: string; sessionId: string; pending: Pending | null; expiresAt: number; owner: StreamOwner; checking: boolean; conn: RuntimeConnection; out: SseOut; writer: SseWriter; ended: boolean; skip: number;
   /** Hidden-fact text and each AI character's last goals and released texts. Memory only: fact text never leaves except through `factsFor`. */
   facts: ConsoleFactText[]; hidden: Record<string, string[]>; npcs: Map<string, { goals: string[]; released: string[] }>; cancelHeartbeat: () => void; detach: () => void };
 
 export type FacilitatorHubOptions = {
   setTimer: SetTimer; now: () => number; maxStreams?: number; maxPendingBytes?: number; newChannelId?: () => string;
   commandTimeoutMs?: number; newRef?: () => string;
+  /** US-0083: run at every heartbeat; absent, nothing is re-checked (single mode has no control service). */
+  recheck?: StreamRecheck;
 };
 
 export class FacilitatorHub {
@@ -66,7 +89,7 @@ export class FacilitatorHub {
   size(): number { return this.streams.size; }
 
   /** Takes ownership of `conn` in every case: on "capacity" it is already closed and `out` ended with nothing written. */
-  open(a: { sessionId: string; expiresAt: number; conn: RuntimeConnection; joined: FacilitatorJoin; out: SseOut }): { channel: string; close(): void } | "capacity" {
+  open(a: { sessionId: string; expiresAt: number; accountId: string | null; epoch: number | null; conn: RuntimeConnection; joined: FacilitatorJoin; out: SseOut }): { channel: string; close(): void } | "capacity" {
     const { conn, out, joined } = a;
     if (this.streams.size >= this.maxStreams) {
       conn.close();
@@ -74,7 +97,7 @@ export class FacilitatorHub {
       return "capacity";
     }
     const channel = this.newChannelId();
-    const s: Stream = { channel, sessionId: a.sessionId, pending: null, expiresAt: a.expiresAt, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, facts: [], hidden: {}, npcs: new Map(), cancelHeartbeat: () => {}, detach: () => {} };
+    const s: Stream = { channel, sessionId: a.sessionId, pending: null, expiresAt: a.expiresAt, owner: { accountId: a.accountId, epoch: a.epoch }, checking: false, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, facts: [], hidden: {}, npcs: new Map(), cancelHeartbeat: () => {}, detach: () => {} };
     this.streams.set(channel, s);
     s.writer.beginOpening();
     try {
@@ -100,6 +123,7 @@ export class FacilitatorHub {
     if (s.ended) return { channel, close: () => {} };
     s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
       if (s.expiresAt <= this.o.now()) { this.finish(s, "expired"); return false; }
+      this.recheck(s);
       return this.write(s, ": hb\n\n");
     });
     const offFrame = conn.onFrame((m) => this.onFrame(s, m));
@@ -109,6 +133,31 @@ export class FacilitatorHub {
     s.detach = () => { offFrame(); offClose(); };
     if (s.ended) s.detach();
     return { channel, close: () => this.finish(s, null) };
+  }
+
+  /**
+   * US-0083: ends every open stream of this account at once (with `expired`), whatever its epoch. The BFF's revoke, reset and password
+   * routes call it after control has answered. Returns how many streams it ended.
+   */
+  closeAccount(accountId: string): number {
+    let n = 0;
+    for (const s of [...this.streams.values()]) {
+      if (s.owner.accountId === accountId) { this.finish(s, "expired"); n++; }
+    }
+    return n;
+  }
+
+  /** One re-check at a time per stream; a refusal ends it, anything else (control unreachable included) leaves it open. */
+  private recheck(s: Stream): void {
+    const check = this.o.recheck;
+    if (!check || s.checking) return;
+    s.checking = true;
+    let pending: Promise<"ok" | "refused" | "unavailable">;
+    try { pending = check(s.owner); } catch { s.checking = false; return; }
+    pending.then(
+      (r) => { s.checking = false; if (r === "refused") this.finish(s, "expired"); },
+      () => { s.checking = false; },
+    );
   }
 
   /** The hidden-fact text of this session's channel, or null: the channel is unknown, ended or another session's. */

@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { AppHeader } from "../../components/AppHeader";
-import { ConsoleDisabled } from "../../components/console/ConsoleDisabled";
+import { ConsoleDisabled, ConsoleUnavailable } from "../../components/console/ConsoleDisabled";
 import { ConsoleLogin } from "../../components/console/ConsoleLogin";
 import { ConsoleShell } from "../../components/console/ConsoleShell";
 import { TitleBlock } from "../../components/TitleBlock";
 import { CONSOLE_COOKIE } from "../../server/console-session";
-import { consoleView } from "../../server/routes";
+import { consolePageRedirect, consoleView } from "../../server/routes";
 
 // /console: the facilitator's page. Who is signed in comes only from the HttpOnly cookie, opened here on the server.
 
@@ -17,7 +18,9 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function ConsolePage() {
-  const view = consoleView((await cookies()).get(CONSOLE_COOKIE)?.value);
+  const view = await consoleView((await cookies()).get(CONSOLE_COOKIE)?.value);
+  const to = consolePageRedirect(view);
+  if (to !== null) redirect(to);
   return (
     <>
       <AppHeader />
@@ -34,7 +37,7 @@ export default async function ConsolePage() {
             <TitleBlock
               title="Facilitator console"
               lede={
-                view.kind === "disabled"
+                view.kind === "disabled" || view.kind === "unavailable"
                   ? "The console is not available."
                   : "Sign in with the facilitator secret and your name."
               }
@@ -42,6 +45,8 @@ export default async function ConsolePage() {
             <div className="body narrow">
               {view.kind === "disabled" ? (
                 <ConsoleDisabled />
+              ) : view.kind === "unavailable" ? (
+                <ConsoleUnavailable />
               ) : (
                 <ConsoleLogin />
               )}

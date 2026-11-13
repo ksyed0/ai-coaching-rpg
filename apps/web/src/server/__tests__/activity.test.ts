@@ -56,7 +56,7 @@ describe("FacilitatorHub activity", () => {
     const conn = new FakeConn(); const rec = sseRecorder();
     const state = { status: "running", lastSeq: 5, scenarioId: "sc", version: "1", roles: {}, currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {}, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {}, whisperFloor: {} };
     const j = { frame: { type: "joined", roleId: "facilitator", state, scenes: [], replay: { afterSeq: 0, toSeq: 5, events: 0, complete: true } }, roster: [], status: "running" } as unknown as FacilitatorJoin;
-    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: j, out: rec.out });
+    h.open({ sessionId: "s1", accountId: null, epoch: null, expiresAt: 10 ** 13, conn: asConn(conn), joined: j, out: rec.out });
     conn.emit({ type: "activity", roleId: "tech_lead", state: "idle", outcome: "timed_out", x: 1 } as never);
     expect(rec.frames().filter((f) => f.event === "activity")).toEqual([{ event: "activity", data: { roleId: "tech_lead", state: "idle", outcome: "timed_out" } }]);
   });

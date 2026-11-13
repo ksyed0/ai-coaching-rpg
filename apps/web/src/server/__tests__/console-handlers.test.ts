@@ -8,13 +8,13 @@ import {
 } from "../console-handlers";
 import {
   CONSOLE_COOKIE,
-  consoleSessionFromToken,
-  readConsoleSession,
+  openConsoleCookie,
   secretEpoch,
 } from "../console-session";
 import { COOKIE_NAME, type Deps } from "../handlers";
 import { seal } from "../seal";
 import { JoinThrottle } from "../throttle";
+import { consoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -56,6 +56,8 @@ function makeDeps(
       now: () => clock,
       consoleThrottle,
       consoleGlobalThrottle,
+      // US-0083: the legacy latch is open, so a shared-secret cookie still works (console-recheck.test.ts covers it closing).
+      launcher: consoleAuth().launcher,
     } as unknown as Deps,
   };
 }
@@ -100,11 +102,7 @@ describe("console login", () => {
       expect(sc).toContain(a);
     expect(sc).not.toContain("Domain");
     expect((await res.json()).data).toEqual({ name: "Ann Lee" });
-    const session = readConsoleSession(
-      withCookie(cookieValue(res)),
-      deps.config,
-      clock,
-    );
+    const session = openConsoleCookie(cookieValue(res), deps.config, clock);
     expect(session).toMatchObject({
       name: "Ann Lee",
       epoch: secretEpoch(SECRET),
@@ -259,17 +257,18 @@ describe("console login", () => {
     const value = cookieValue(
       await handleConsoleLogin(login({ secret: SECRET, name: "Ann" }), deps),
     );
-    expect(requireConsole(withCookie(value), deps)).toMatchObject({
+    expect(await requireConsole(withCookie(value), deps)).toMatchObject({
       name: "Ann",
+      legacy: true,
     });
     const rotated = {
       ...deps,
       config: baseConfig({ facilitatorSecret: "a brand new secret value" }),
     } as Deps;
-    const res = requireConsole(withCookie(value), rotated);
+    const res = await requireConsole(withCookie(value), rotated);
     expect(res).toBeInstanceOf(Response);
     expect((res as Response).status).toBe(401);
-    expect(consoleSessionFromToken(value, rotated.config, clock)).toBeNull();
+    expect(openConsoleCookie(value, rotated.config, clock)).toBeNull();
   });
 
   it("login is disabled with a generic message when FACILITATOR_SECRET, LAUNCHER_URL or LAUNCHER_TOKEN is unset", async () => {
@@ -290,12 +289,13 @@ describe("console login", () => {
       for (const name of ["FACILITATOR_SECRET", "LAUNCHER_URL", "LAUNCHER_TOKEN"])
         expect(msg).not.toContain(name);
       expect(msg).not.toContain(SECRET);
-      const req = requireConsole(withCookie("x"), deps);
-      expect((req as Response).status).toBe(503);
+      // US-0083: FACILITATOR_SECRET only serves the legacy sign-in; without it the console itself stays enabled (account cookies).
+      const req = await requireConsole(withCookie("x"), deps);
+      expect((req as Response).status).toBe(o.facilitatorSecret === undefined && "facilitatorSecret" in o ? 401 : 503);
     }
   });
 
-  it("a player cookie is rejected by requireConsole", () => {
+  it("a player cookie is rejected by requireConsole", async () => {
     const { deps } = makeDeps();
     const player = seal(
       {
@@ -310,7 +310,7 @@ describe("console login", () => {
       clock,
     );
     for (const req of [withCookie(player), withCookie(player, COOKIE_NAME)]) {
-      const res = requireConsole(req, deps);
+      const res = await requireConsole(req, deps);
       expect((res as Response).status).toBe(401);
     }
     // a facilitator-purpose cookie with the epoch missing is also refused
@@ -320,7 +320,7 @@ describe("console login", () => {
       clock,
       "fac",
     );
-    expect((requireConsole(withCookie(noEpoch), deps) as Response).status).toBe(
+    expect(((await requireConsole(withCookie(noEpoch), deps)) as Response).status).toBe(
       401,
     );
   });

@@ -14,6 +14,7 @@ import {
 } from "../report-handlers";
 import { seal, unseal } from "../seal";
 import { JoinThrottle } from "../throttle";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -42,7 +43,7 @@ const config: Config = {
 const reportCookieValue = (o: Partial<{ sessionId: string; credentialId: string; role: string; expiresAt: number }> = {}) =>
   seal({ sessionId: SID, credentialId: CRED_ID, role: "ana", expiresAt: EXPIRES, ...o }, KEYS, T0, "rpt");
 const reportCookie = (o?: Parameters<typeof reportCookieValue>[0]) => `${REPORT_COOKIE}=${reportCookieValue(o)}`;
-const facCookie = () => `${CONSOLE_COOKIE}=${seal({ name: "Ann", epoch: secretEpoch(SECRET), expiresAt: T0 + 3_600_000 }, KEYS, T0, "fac")}`;
+const facCookie = () => `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed("Ann"), { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 })}`;
 const playerCookie = () =>
   `${COOKIE_NAME}=${seal({ sessionId: SID, roleId: "r", participantId: "p", credential: "c", logIdentity: "l", expiresAt: EXPIRES }, KEYS, T0)}`;
 
@@ -81,7 +82,7 @@ beforeEach(() => {
   deps = {
     config,
     now: t,
-    launcher: launcher as never,
+    launcher: withConsoleAuth(launcher) as never,
     joinThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),

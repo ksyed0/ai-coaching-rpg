@@ -6,6 +6,7 @@ import { COOKIE_NAME, type Deps } from "../handlers";
 import { LauncherError, type LauncherReason } from "../launcher-client";
 import { consoleAiIntentsPOST, consoleAiRolesPOST } from "../routes";
 import { seal } from "../seal";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -27,7 +28,7 @@ const config: Config = {
   launcherToken: "launcher-token-" + "t".repeat(20),
 };
 const consoleCookie = () =>
-  `${CONSOLE_COOKIE}=${seal({ name: "Ann Lee", epoch: secretEpoch(SECRET), expiresAt: T0 + 3_600_000 }, KEYS, T0, "fac")}`;
+  `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed("Ann Lee"), { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 })}`;
 const playerCookie = () =>
   `${COOKIE_NAME}=${seal({ sessionId: SID, roleId: "r", participantId: "p", credential: "c", logIdentity: "l", expiresAt: T0 + 3_600_000 }, KEYS, T0)}`;
 
@@ -51,7 +52,7 @@ beforeEach(() => {
     intents: vi.fn(async () => []),
     reissue: vi.fn(async () => CODE_H),
   };
-  deps = { config, now: () => T0, launcher: launcher as never } as unknown as Deps;
+  deps = { config, now: () => T0, launcher: withConsoleAuth(launcher) as never } as unknown as Deps;
   errors = [];
   vi.spyOn(console, "error").mockImplementation((...a) => { errors.push(a.join(" ")); });
   vi.spyOn(console, "warn").mockImplementation((...a) => { errors.push(a.join(" ")); });

@@ -29,6 +29,7 @@ import type {
   ServerMessage,
 } from "../wire";
 import { manualTimers, until } from "./fakes";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -58,7 +59,7 @@ const config: Config = {
 };
 
 const consoleCookie = (name = NAME) =>
-  `${CONSOLE_COOKIE}=${seal({ name, epoch: secretEpoch(SECRET), expiresAt: T0 + 3_600_000 }, KEYS, T0, "fac")}`;
+  `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed(name), { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 })}`;
 const playerCookie = () =>
   `${COOKIE_NAME}=${seal({ sessionId: SID, roleId: "r", participantId: "p", credential: "c", logIdentity: "l", expiresAt: T0 + 3_600_000 }, KEYS, T0)}`;
 
@@ -216,7 +217,7 @@ beforeEach(() => {
     config,
     now: () => T0,
     connect: connect as unknown as Deps["connect"],
-    launcher: launcher as never,
+    launcher: withConsoleAuth(launcher) as never,
     facilitatorBudget: new FacilitatorBudget(),
     facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
     setTimer: timers.setTimer,
@@ -348,7 +349,7 @@ describe("console session API", () => {
     const a = await api();
     deps = {
       ...deps,
-      config: { ...config, facilitatorSecret: undefined },
+      config: { ...config, launcherToken: undefined },
     } as Deps;
     expect((await a.list(get("/sessions"))).status).toBe(503);
     expect(
@@ -989,7 +990,7 @@ describe("console session API", () => {
     const a = await api();
     deps = {
       ...deps,
-      config: { ...config, facilitatorSecret: undefined },
+      config: { ...config, launcherToken: undefined },
     } as Deps;
     const res = await a.remove(
       post(`/sessions/${SID}/remove`, { roleId: "a" }),
@@ -1154,6 +1155,11 @@ describe("console session API", () => {
       voice_refused: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       voice_off: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       voice_unavailable: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      // US-0083: the account routes' refusals never come from a session call; if one did, it is the same neutral answer.
+      login_refused: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      login_expired: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      account_refused: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      weak_password: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,

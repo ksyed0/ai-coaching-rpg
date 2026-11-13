@@ -11,6 +11,7 @@ import { LauncherClient } from "../launcher-client";
 import { JoinThrottle } from "../throttle";
 import { seal } from "../seal";
 import { manualTimers } from "./fakes";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -23,7 +24,7 @@ const config: Config = {
   facilitatorSecret: SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: TOKEN,
 };
 const consoleCookie = (name = "Cookie Name") =>
-  `${CONSOLE_COOKIE}=${seal({ name, epoch: secretEpoch(SECRET), expiresAt: T0 + 3_600_000 }, KEYS, T0, "fac")}`;
+  `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed(name), { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 })}`;
 
 /** One browser session: the same cookie value on every request (a fresh seal differs each time, so it is made once). */
 const COOKIE = consoleCookie();
@@ -56,7 +57,7 @@ beforeEach(() => {
     }) as typeof fetch,
   });
   deps = {
-    config, now: () => clock, launcher, setTimer: timers.setTimer,
+    config, now: () => clock, launcher: withConsoleAuth(launcher), setTimer: timers.setTimer,
     consoleReportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: () => clock }),
   } as unknown as Deps;
   vi.spyOn(console, "error").mockImplementation(() => {});
