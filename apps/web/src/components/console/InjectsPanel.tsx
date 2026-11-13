@@ -88,7 +88,7 @@ export function InjectsPanel({
                       });
                     }}
                   >
-                    {again ? "Fire again" : "Fire"}
+                    {again ? "Fire inject again" : "Fire inject"}
                   </button>
                 </div>
               </li>

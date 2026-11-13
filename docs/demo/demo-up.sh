@@ -3,6 +3,7 @@
 #   docs/demo/demo-up.sh          check everything, then start (Ctrl-C stops both)
 #   docs/demo/demo-up.sh check    only the pre-flight checks
 #   docs/demo/demo-up.sh secret   copy the console sign-in secret to the clipboard (never printed)
+#   docs/demo/demo-up.sh links <session-id>   print the player join URLs for a session (no codes: those are typed)
 # Secrets are generated ONCE into ~/.scenecoach/demo.env (mode 600) and reused, because new
 # COOKIE_KEYS would sign every seated player out. Model settings come from the root .env
 # (symlinked into this worktree); the control service reads it, the runtimes get it from there.
@@ -30,6 +31,15 @@ chmod 600 "$SECRETS"
 if [ "${1:-}" = "secret" ]; then
   grep '^FACILITATOR_SECRET=' "$SECRETS" | cut -d= -f2- | tr -d '\n' | pbcopy
   echo "console sign-in secret copied to the clipboard"; exit 0
+fi
+
+if [ "${1:-}" = "links" ]; then
+  [ -n "${2:-}" ] || die "usage: demo-up.sh links <session-id>   (the id is in the console URL: /console/<id>)"
+  for r in delivery_lead account_manager tech_lead; do
+    echo "$r: http://localhost:3000/join?session=$2&role=$r"
+  done
+  echo "(tech_lead is the AI player in the demo: nobody joins it.) Each human also needs their own code from the console."
+  exit 0
 fi
 
 # ---- pre-flight -------------------------------------------------------------------------------

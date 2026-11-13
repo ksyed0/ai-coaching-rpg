@@ -17,7 +17,7 @@ Always use exactly `http://localhost:3000`, never `127.0.0.1` (every POST would 
 ## Before the client arrives (T-60 to T-15 min)
 
 1. LM Studio host awake and reachable; `qwen3.8-27b-uncensored-splash` loaded, idle auto-unload off. Venue network can reach `192.168.139.3`.
-2. Fresh Terminal (not this Claude shell): `cd` to the repo worktree, then `docs/demo/demo-up.sh check`. All lines must say `ok`.
+2. Fresh Terminal (not this Claude shell): `cd` to the repo worktree, then `docs/demo/demo-up.sh check`. All lines must say `ok`. (`check` needs ports 3000 and 8787 free, so run it while the stack is stopped.)
 3. `docs/demo/demo-up.sh` (leave it running). Control log: `~/.scenecoach/logs/control.log`.
 4. `docs/demo/demo-up.sh secret` copies the console secret to the clipboard. Paste it when signing in; never show it.
 5. **Rehearse once, end to end** (below), and keep that rehearsal as the "one I prepared earlier". Screen-record it as the last-resort fallback.
@@ -29,7 +29,8 @@ Always use exactly `http://localhost:3000`, never `127.0.0.1` (every POST would 
 
 **2. Create the session (3 min).** Console, sign in, **New session**, pick *The Friday Escalation*. Codes are shown once: copy them (do not read them out). On the readiness screen click **Make AI player** on `tech_lead`; point at the AI label and the consent notice that says a seat may be played by an AI.
 
-**3. Humans join (3 min).** Each human opens `/join?session=<id>&role=<role>` in their own browser, enters the code and a name, agrees to the consent notice. **Start** stays disabled ("Waiting for: ...") until both consent and the AI bot has joined. Press **Start**.
+**3. Humans join (3 min).** The console shows each role's code once but no ready-made player link (the code is never put in a URL). The join link is `http://localhost:3000/join?session=<id>&role=<role>`: `<id>` is the last part of the console URL (`/console/<id>`), and the roles are `delivery_lead` and `account_manager`. Run `docs/demo/demo-up.sh links <id>` in a second terminal to print both full URLs, ready to paste into the other browsers. Each human opens their own URL in their own browser, types a name and **their own code**, then agrees to the consent notice. **Start** stays disabled ("Waiting for: ...") until both consent and the AI bot has joined. Press **Start**.
+- Players must be on this Mac: the seat cookie is `Secure`, and browsers accept it over plain HTTP only on `localhost`. Remote players need an HTTPS front end and `PUBLIC_ORIGIN` set to it, which this kit does not set up.
 
 **4. Scene 1, Team huddle (3 to 4 min).** Priya's email arrives. Humans talk; the AI tech lead answers after about 4 s of quiet.
 - Cue: **Send whisper** to one human (shows under "Updates").

@@ -33,13 +33,16 @@ export function Transcript({ lines, selfRole, names, playerRoles, aiRoles }: Tra
         // An AI player seat is known from `aiRoles` alone, never from a name; an AI character is a speaker that is no player seat.
         const aiPlayer = !self && aiRoles.has(l.roleId);
         const ai = aiPlayer || (!self && !playerRoles.has(l.roleId));
-        const name = self ? "You" : aiPlayer ? "AI player" : Object.hasOwn(names, l.roleId) ? names[l.roleId]! : roleLabel(l.roleId);
+        // The speaker's name comes first in bold; an AI speaker then gets the AI badge and what kind of AI it is. An AI player seat has no
+        // typed name, so it is named by its role (never by a name a model might invent).
+        const name = self ? "You" : Object.hasOwn(names, l.roleId) && !aiPlayer ? names[l.roleId]! : roleLabel(l.roleId);
+        const aiKind = aiPlayer ? "AI player" : "AI character";
         return (
           <li className="msg" key={l.seq}>
             <div className="h">
               <b>{name}</b>
               {ai ? <span className="pill ai">AI</span> : null}
-              {ai || self || Object.hasOwn(names, l.roleId) ? <span className="muted">{roleLabel(l.roleId)}</span> : null}
+              {ai ? <span className="muted">{aiKind}</span> : self || Object.hasOwn(names, l.roleId) ? <span className="muted">{roleLabel(l.roleId)}</span> : null}
             </div>
             <p className="line">{l.text}</p>
           </li>
