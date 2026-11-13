@@ -1,6 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -231,5 +231,26 @@ describe("audio replay end to end: real worker store, real control API, real aud
     expect(f.status).toBe(200);
     expect(f.body.equals(wavOnDisk(C, "coach", "seg5", dir))).toBe(true);
     expect((await get(`/sessions/${S}/audio`, {})).status).toBe(400); // the X-Acr-By rule is wired too
+  });
+
+  it("US-0075: the whole startControl wires DELETE /sessions/:id/audio (real lock acquirer, no voice host so never live): deleted, then 410", async () => {
+    const data = path.join(root, "data");
+    const dir = path.join(data, "audio");
+    mkdirSync(path.join(data, "sessions"), { recursive: true, mode: 0o700 });
+    mkdirSync(path.join(root, "scenarios"), { recursive: true });
+    record({ dir, identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg1", seed: 1 }], at: Date.now(), ended: true });
+    running = await startControl(
+      { CONTROL_DATA_DIR: data, LAUNCHER_TOKEN: TOKEN, SCENARIOS_DIR: path.join(root, "scenarios"), CONTROL_GRACE_MS: "200", VOICE_ENABLED: "0" },
+      { port: 0, spawn: (() => { throw new Error("no spawn"); }) as unknown as SpawnFn },
+    );
+    const r = await fetch(`http://127.0.0.1:${running.port}/sessions/${S}/audio`, {
+      method: "DELETE", headers: { "x-service-token": TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({ scope: { kind: "session" }, reason: "facilitator", by: BY }),
+    });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { data: unknown }).data).toStrictEqual({ deleted: 1, gone: [], identities: [{ identity: A, deleted: 1, state: "done" }], pending: [] });
+    expect(existsSync(path.join(dir, A, "coach", "seg1.wav"))).toBe(false);
+    expect(auditLines(A, dir).filter((l) => l.type === "audio.deleted").map((l) => [l.reason, l.by, l.segments])).toEqual([["facilitator", BY, 1]]);
+    expect((await client(running.port)(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410);
   });
 });
