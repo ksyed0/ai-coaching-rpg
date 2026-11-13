@@ -81,7 +81,7 @@ const EVENT_COPY: { [T in EventType]: (e: Ev<T>) => SessionEvent } = {
   },
   "scene.entered": (e) => ({ type: e.type, ...env(e), sceneId: e.sceneId, participants: e.participants }),
   "scene.exited": (e) => ({ type: e.type, ...env(e), sceneId: e.sceneId, reason: e.reason }),
-  utterance: (e) => ({ type: e.type, ...env(e), roleId: e.roleId, text: e.text, channel: e.channel, ...(e.fallback && { fallback: e.fallback }) }),
+  utterance: (e) => ({ type: e.type, ...env(e), roleId: e.roleId, text: e.text, channel: e.channel, ...(e.fallback && { fallback: e.fallback }), ...(typeof e.to === "string" && { to: e.to }) }),
   "inject.fired": (e) => ({ type: e.type, ...env(e), injectId: e.injectId, sceneId: e.sceneId, to: e.to, content: e.content }),
   // The frame stays so sequence numbers have no gap; the text does not.
   "npc.updated": (e) => ({ type: e.type, ...env(e), roleId: e.roleId, goals: [], knowledge: [], released: [] }),
