@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { consoleActivity } from "./activity-copy";
 import { consoleCharacters, isRecord, strings, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState, wellFormedHiddenFacts, type ConsoleFactText } from "./facilitator-copies";
 import type { FacilitatorJoin } from "./facilitator-socket";
-import type { LauncherClient } from "./launcher-client";
+import { LauncherError, type LauncherClient } from "./launcher-client";
 import type { RuntimeConnection, SetTimer } from "./runtime-connection";
 import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
 import type { CommandMessage, ServerMessage } from "./wire";
@@ -42,16 +42,34 @@ function joinedNpcs(state: unknown): Map<string, { goals: string[]; released: st
 
 /** Who opened a stream: an account and its epoch, or (both null) a legacy shared-secret sign-in. */
 export type StreamOwner = { accountId: string | null; epoch: number | null };
-/** The heartbeat's re-check: "refused" ends the stream; "unavailable" (control unreachable) keeps it and asks again next beat. */
-export type StreamRecheck = (who: StreamOwner) => Promise<"ok" | "refused" | "unavailable">;
+/**
+ * The heartbeat's re-check: "refused" (the sign-in no longer holds) ends the stream with `expired`; "gone" (the caller may no longer use
+ * this session: another owner, or control no longer knows it) ends it with `reconnecting`, like closeSession, so the browser reconnects
+ * and the route's ownership check answers; "unavailable" (control unreachable) keeps it and asks again next beat.
+ */
+export type RecheckResult = "ok" | "refused" | "gone" | "unavailable";
+export type StreamRecheck = (who: StreamOwner, sessionId: string) => Promise<RecheckResult>;
 
-/** The re-check against the control service: the same rule as requireConsole (an account that must change its password is refused too). */
-export function consoleRecheck(launcher: Pick<LauncherClient, "accountCheck" | "legacyAllowed">): StreamRecheck {
-  return async (who) => {
+/**
+ * The re-check against the control service: requireConsole's rule (an account that must change its password is refused too) and the
+ * stream route's ownership rule (an admin may use any session, a facilitator only its own; legacy acts as admin). It covers a stream that
+ * was still joining when closeAccount or closeSession ran: its next heartbeat ends it.
+ */
+export function consoleRecheck(launcher: Pick<LauncherClient, "accountCheck" | "legacyAllowed" | "session">): StreamRecheck {
+  return async (who, sessionId) => {
     try {
       if (who.accountId === null || who.epoch === null) return (await launcher.legacyAllowed()) ? "ok" : "refused";
       const a = await launcher.accountCheck(who.accountId, who.epoch);
-      return a === null || a.status === "revoked" || a.mustChange ? "refused" : "ok";
+      if (a === null || a.status === "revoked" || a.mustChange) return "refused";
+      if (a.role === "admin") return "ok";
+      let owner: string | undefined;
+      try {
+        owner = (await launcher.session(sessionId)).owner;
+      } catch (err) {
+        if (err instanceof LauncherError && err.reason === "not_found") return "gone";
+        return "unavailable";
+      }
+      return owner === a.id ? "ok" : "gone";
     } catch {
       return "unavailable";
     }
@@ -165,10 +183,10 @@ export class FacilitatorHub {
     const check = this.o.recheck;
     if (!check || s.checking) return;
     s.checking = true;
-    let pending: Promise<"ok" | "refused" | "unavailable">;
-    try { pending = check(s.owner); } catch { s.checking = false; return; }
+    let pending: Promise<RecheckResult>;
+    try { pending = check(s.owner, s.sessionId); } catch { s.checking = false; return; }
     pending.then(
-      (r) => { s.checking = false; if (r === "refused") this.finish(s, "expired"); },
+      (r) => { s.checking = false; if (r === "refused") this.finish(s, "expired"); else if (r === "gone") this.finish(s, "reconnecting"); },
       () => { s.checking = false; },
     );
   }

@@ -12,6 +12,7 @@ import type { Deps } from "../handlers";
 import { handleConsoleReportLinks } from "../report-handlers";
 import { CONSOLE_PASSWORD_PATH, adminPageRedirect, consolePageRedirect, consoleView } from "../routes";
 import { HEARTBEAT_MS } from "../sse";
+import { LauncherError } from "../launcher-client";
 import {
   ADMIN, FACILITATOR, FIXTURE_ORIGIN as ORIGIN, FIXTURE_T0 as T0, accountCookie, accountCookieValue, consoleAuth, consoleConfig, fakeDeps,
   legacyCookie, legacyCookieValue, type ConsoleAuth,
@@ -62,7 +63,6 @@ function streamDeps(auth: ConsoleAuth = consoleAuth()) {
   const deps = fakeDeps({
     auth,
     connect: (async () => { const c = new FacConn(); conns.push(c); return c; }) as unknown as Deps["connect"],
-    facilitatorHub: new FacilitatorHub({ setTimer: timers.setTimer, now: () => T0, recheck: consoleRecheck(auth.launcher) }),
     setTimer: timers.setTimer,
     launcher: {
       // US-0083 Task 6: owned by FACILITATOR, so its stream opens (admins and legacy open any session's stream).
@@ -70,6 +70,8 @@ function streamDeps(auth: ConsoleAuth = consoleAuth()) {
       facilitator: vi.fn(async () => ({ port: 43_211, token: "facilitator-token-" + "f".repeat(20) })),
     },
   });
+  // The hub re-checks through the same launcher the route uses (account methods from `auth`, `session` from the test).
+  deps.facilitatorHub = new FacilitatorHub({ setTimer: timers.setTimer, now: () => T0, recheck: consoleRecheck(deps.launcher!) });
   return { deps, timers, conns };
 }
 const streamReq = (cookie: string) =>
@@ -279,13 +281,13 @@ describe("console re-check (US-0083)", () => {
 
   it("test_console_recheck_heartbeat_check_refuses_must_change_and_asks_once_at_a_time", async () => {
     const auth = consoleAuth([ADMIN, { ...FACILITATOR, mustChange: true }]);
-    const check = consoleRecheck(auth.launcher);
-    expect(await check({ accountId: ADMIN.id, epoch: ADMIN.epoch })).toBe("ok");
-    expect(await check({ accountId: FACILITATOR.id, epoch: FACILITATOR.epoch })).toBe("refused");
-    expect(await check({ accountId: null, epoch: null })).toBe("ok");
+    const check = consoleRecheck({ ...auth.launcher, session: vi.fn(async () => ({ sessionId: SID, scenarioId: "pitch", status: "running" as const, owner: FACILITATOR.id })) });
+    expect(await check({ accountId: ADMIN.id, epoch: ADMIN.epoch }, SID)).toBe("ok");
+    expect(await check({ accountId: FACILITATOR.id, epoch: FACILITATOR.epoch }, SID)).toBe("refused");
+    expect(await check({ accountId: null, epoch: null }, SID)).toBe("ok");
     auth.down();
-    expect(await check({ accountId: ADMIN.id, epoch: ADMIN.epoch })).toBe("unavailable");
-    expect(await check({ accountId: null, epoch: null })).toBe("unavailable");
+    expect(await check({ accountId: ADMIN.id, epoch: ADMIN.epoch }, SID)).toBe("unavailable");
+    expect(await check({ accountId: null, epoch: null }, SID)).toBe("unavailable");
 
     // A re-check still waiting for control is not started again at the next beat; a re-check that throws keeps the stream.
     let release: (r: "ok" | "refused") => void = () => {};
@@ -328,5 +330,40 @@ describe("console re-check (US-0083)", () => {
     expect(adminPageRedirect(signedIn("admin"))).toBeNull();
     expect(adminPageRedirect({ kind: "disabled" })).toBeNull();
     expect(adminPageRedirect({ kind: "unavailable" })).toBeNull();
+  });
+
+  it("test_console_recheck_heartbeat_rechecks_ownership_so_a_stream_that_joined_after_a_reassign_ends", async () => {
+    const { deps, timers } = streamDeps();
+    const session = (deps.launcher as unknown as { session: ReturnType<typeof vi.fn> }).session;
+    const owner = await openStream(deps, accountCookie(FACILITATOR));
+    const admin = await openStream(deps, accountCookie(ADMIN));
+    const legacy = await openStream(deps, legacyCookie("Ann Lee"));
+    // An owner's, an admin's and a legacy stream stay open at a beat.
+    timers.fire(HEARTBEAT_MS);
+    await settle();
+    expect(deps.facilitatorHub.size()).toBe(3);
+
+    // Control unavailable for the session lookup: the streams stay open and the next beat asks again.
+    session.mockRejectedValue(new LauncherError("unavailable"));
+    timers.fire(HEARTBEAT_MS);
+    await settle();
+    expect(deps.facilitatorHub.size()).toBe(3);
+
+    // The session was reassigned while this stream was still joining (closeSession ran before it entered the hub): its first beat ends it.
+    session.mockResolvedValue({ sessionId: SID, scenarioId: "pitch", status: "running", port: 1, owner: "acc-someone-else" });
+    timers.fire(HEARTBEAT_MS);
+    await until(() => owner.frames().some((f) => f.event === "reconnecting"), { what: "the previous owner's stream to end" });
+    await settle();
+    expect(deps.facilitatorHub.size()).toBe(2);
+    for (const r of [admin, legacy]) expect(r.frames().some((f) => f.event === "reconnecting" || f.event === "expired")).toBe(false);
+
+    // A session control no longer knows ends a facilitator's stream too.
+    const fac2 = streamDeps();
+    const s2 = (fac2.deps.launcher as unknown as { session: ReturnType<typeof vi.fn> }).session;
+    const r2 = await openStream(fac2.deps, accountCookie(FACILITATOR));
+    s2.mockRejectedValue(new LauncherError("not_found"));
+    fac2.timers.fire(HEARTBEAT_MS);
+    await until(() => r2.frames().some((f) => f.event === "reconnecting"), { what: "the unknown session's stream to end" });
+    expect(fac2.deps.facilitatorHub.size()).toBe(0);
   });
 });
