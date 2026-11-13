@@ -3880,7 +3880,7 @@ Expected Result: The journey in AC-0515 passes: the forced change, once-only cre
 Actual Result: As expected in the Task 10 report (2026-11-13): the spec passed 2 of 2 on a fresh data directory. Prior evidence: not re-run in the Task 11 pass; the controller re-runs the e2e with the full gates.
 Status: [x] Pass
 Defect Raised: None
-Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+Notes: Filed 2026-11-13 in the Task 11 documents pass; the result is the Task 10 run (prior evidence, not re-run in that pass).
 TC-0286: Axe on the password change, the admin screen and the Owner column
 Related Story: US-0083
 Related Task: TASK-0140
@@ -3893,7 +3893,7 @@ Expected Result: No serious or critical Axe violation in light and dark on the l
 Actual Result: As expected in the Task 10 report (2026-11-13): the Axe test passed (light and dark, three screens, both widths). Prior evidence: not re-run in the Task 11 pass.
 Status: [x] Pass
 Defect Raised: None
-Notes: Filed and run 2026-11-13 in the Task 11 documents pass.
+Notes: Filed 2026-11-13 in the Task 11 documents pass; the result is the Task 10 run (prior evidence, not re-run in that pass).
 TC-0287: The legacy shared secret and its latch
 Related Story: US-0083
 Related Task: TASK-0135
@@ -3916,7 +3916,7 @@ Preconditions: A checkout with dependencies installed.
 Steps:
   1. From the repository root: `npm run plan:generate` then `npm run plan:test`; read the sections named in AC-0518.
 Expected Result: The generator and its tests pass and the documents carry the facts named in AC-0518 (the default admin and its mitigations, the 72 h expiry, the epoch revoke and heartbeat backstop, ownership, the throttles and the accepted lockout, file safety, deletion equals reset, the latch, deploy order and rollback).
-Actual Result: As expected: see the Task 11 report for the `npm run plan:generate` and `npm run plan:test` results.
+Actual Result: As expected: `npm run plan:generate` wrote 9 epics, 82 stories, 262 TCs, 34 bugs, 43 lessons; `npm run plan:test` passed (61 suites, 1247 tests).
 Status: [x] Pass
 Defect Raised: None
 Notes: Filed and run 2026-11-13 in the Task 11 documents pass.

@@ -654,7 +654,7 @@ Rollback trigger: facilitators cannot sign in, a revoked or changed sign-in stil
 
 ### Recovering a locked-out admin
 
-Set `ADMIN_RESET=1` on the control service and restart it: the admin's password goes back to the default (or `ADMIN_BOOTSTRAP_PASSWORD`) with "must change" set and every old admin sign-in dies. Control logs a loud line at every start while it is set; **unset it after use** (a start with it still set resets the admin again). It never reopens the shared secret. Deleting `accounts.json` and restarting is a harder reset (the default admin returns, every other account is forgotten and the shared secret works again until the first change); host access is the authority for both.
+Set `ADMIN_RESET=1` on the control service and restart it: the admin's password goes back to the default (or `ADMIN_BOOTSTRAP_PASSWORD`) with "must change" set and every old admin sign-in dies. Control logs a loud line at every start while it is set; **unset it after use** (a start with it still set resets the admin again). It never reopens the shared secret. Deleting `accounts.json` and restarting is a harder reset (the default admin returns, every other account is forgotten and the shared secret works again until the first change; existing sessions' owner ids then dangle, so those sessions are admin-only and show "Unknown account" until an admin reassigns them); host access is the authority for both.
 
 ### Rolling back
 
@@ -665,4 +665,4 @@ Set `ADMIN_RESET=1` on the control service and restart it: the admin's password 
 
 ### Rolling forward again
 
-Redeploy control, then web. The existing `accounts.json` and `session-owners.json` are used as they were; if the shared secret was restored in the meantime, it works again only if the latch (`legacyClosed`) is still open. Nothing to migrate. If `accounts.json` was deleted, the admin starts again with the default password and must create the facilitators again.
+Redeploy control, then web. The existing `accounts.json` and `session-owners.json` are used as they were; if the shared secret was restored in the meantime, it works again only if the latch (`legacyClosed`) is still open. Nothing to migrate. Sessions created on the older build have no owner, so they are admin-only after rolling forward until an admin assigns them. If `accounts.json` was deleted, the admin starts again with the default password and must create the facilitators again.
