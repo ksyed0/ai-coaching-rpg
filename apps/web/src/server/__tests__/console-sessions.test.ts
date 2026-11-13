@@ -1161,6 +1161,7 @@ describe("console session API", () => {
       login_expired: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       account_refused: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       weak_password: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      state: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,

@@ -51,7 +51,9 @@ export type LauncherReason =
   | "login_refused"
   | "login_expired"
   | "account_refused"
-  | "weak_password";
+  | "weak_password"
+  // US-0083: control's AccountError `state` (the account's status does not allow the action).
+  | "state";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -204,6 +206,7 @@ const BY_CODE: Record<string, LauncherReason> = {
   login_expired: "login_expired",
   account_refused: "account_refused",
   weak_password: "weak_password",
+  state: "state",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -269,6 +272,13 @@ function toInfo(v: unknown): SessionInfo {
 const isAccountId = (v: unknown): v is string =>
   typeof v === "string" && v.length >= 1 && v.length <= 64 && [...v].every((c) => c.charCodeAt(0) > 0x1f && c.charCodeAt(0) !== 0x7f);
 const isEpoch = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+/** US-0083: an account that was just created or given a new temporary password. The password is shown once and never kept. */
+export type IssuedAccount = { account: AccountInfo; temporaryPassword: string };
+const MAX_TEMP_PASSWORD_CHARS = 200;
+function toIssuedAccount(d: unknown): IssuedAccount {
+  if (!isObject(d) || typeof d.temporaryPassword !== "string" || d.temporaryPassword.length < 1 || d.temporaryPassword.length > MAX_TEMP_PASSWORD_CHARS) return bad();
+  return { account: toAccount(d), temporaryPassword: d.temporaryPassword };
+}
 /** The `account` of an account answer, picked field by field; anything that does not fit fails closed. */
 function toAccount(d: unknown): AccountInfo {
   return toAccountFields(isObject(d) ? d.account : undefined);
@@ -608,6 +618,24 @@ export class LauncherClient {
     const d = await this.call("GET", "/accounts", undefined, this.timeoutMs);
     if (!isObject(d) || !Array.isArray(d.accounts)) return bad();
     return d.accounts.map(toAccountFields);
+  }
+
+  /** US-0083: creates an account (POST /accounts); `by` is the acting admin's account id. The answer carries the one-time temporary password. */
+  async accountCreate(i: { login: string; name: string; role: "admin" | "facilitator"; by: string }): Promise<IssuedAccount> {
+    return toIssuedAccount(await this.call("POST", "/accounts", { login: i.login, name: i.name, role: i.role, by: i.by }, this.timeoutMs));
+  }
+
+  /**
+   * US-0083: resend, reset or reinstate an account (each answers with a new temporary password), or revoke it (answers `{}`). The id is
+   * checked (1 to 64 characters, no control character) before it goes into a path.
+   */
+  async accountAction(id: string, action: "revoke"): Promise<Record<string, never>>;
+  async accountAction(id: string, action: "resend" | "reset" | "reinstate"): Promise<IssuedAccount>;
+  async accountAction(id: string, action: "resend" | "reset" | "reinstate" | "revoke"): Promise<IssuedAccount | Record<string, never>>;
+  async accountAction(id: string, action: "resend" | "reset" | "reinstate" | "revoke"): Promise<IssuedAccount | Record<string, never>> {
+    if (!isAccountId(id)) throw new LauncherError("not_found");
+    const d = await this.call("POST", `/accounts/${encodeURIComponent(id)}/${action}`, {}, this.timeoutMs);
+    return action === "revoke" ? {} : toIssuedAccount(d);
   }
 
   /** US-0083: records (or with null clears) the session's owner; the answer is the session's info. An unknown session is `not_found`. */

@@ -5,7 +5,7 @@ import {
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
 import { handleConsoleAiIntents, handleConsoleAiPrompt, handleConsoleAiRoles } from "./console-ai";
-import { handleConsoleSetOwner } from "./console-accounts";
+import { handleAdminAccountAction, handleAdminAccountCreate, handleAdminAccountsList, handleConsoleSetOwner } from "./console-accounts";
 import {
   handleConsoleReportAccept, handleConsoleReportCancel, handleConsoleReportComment, handleConsoleReportEdit, handleConsoleReportEditSummary,
   handleConsoleReportEvaluate, handleConsoleReportOpen, handleConsoleReportOverview, handleConsoleReportSubject,
@@ -185,6 +185,12 @@ export const consoleRemovePOST = route(handleConsoleRemove);
 export const consoleRestartPOST = route(handleConsoleRestart);
 export const consoleStreamGET = route(handleConsoleStream);
 export const consoleSessionOwnerPOST = route(handleConsoleSetOwner);
+export const adminAccountsGET = route(handleAdminAccountsList);
+export const adminAccountsPOST = route(handleAdminAccountCreate);
+export const adminAccountResendPOST = route(handleAdminAccountAction("resend"));
+export const adminAccountResetPOST = route(handleAdminAccountAction("reset"));
+export const adminAccountRevokePOST = route(handleAdminAccountAction("revoke"));
+export const adminAccountReinstatePOST = route(handleAdminAccountAction("reinstate"));
 export const consoleCommandPOST = route(handleConsoleCommand);
 export const consoleFactsPOST = route(handleConsoleFacts);
 export const consoleAiRolesPOST = route(handleConsoleAiRoles);

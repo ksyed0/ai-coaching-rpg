@@ -1,4 +1,5 @@
 import { fail, ok } from "./envelope";
+import type { ConsoleCaller } from "./console-handlers";
 import { failure, guard, readBody, sessionIdOf } from "./console-sessions";
 import type { Deps } from "./handlers";
 import { LauncherError } from "./launcher-client";
@@ -52,4 +53,116 @@ export async function handleConsoleSetOwner(req: Request, deps: Deps): Promise<R
     if (err instanceof LauncherError && err.reason === "not_found") return notFound();
     return failure(err);
   }
+}
+
+// ---- admin account routes (US-0083 Task 7) ----
+
+const MAX_FIELD_CHARS = 200;
+const MAX_ADMIN_BODY_BYTES = 1024;
+
+const forbiddenAnswer = () => fail(403, "forbidden", "This request was refused.");
+const accountNotFound = () => fail(404, "not_found", "That account was not found.");
+
+/** Admin ACCOUNTS only: a facilitator is refused by the guard, a legacy (shared secret) sign-in here. */
+async function adminGuard(req: Request, deps: Deps, change: boolean): Promise<{ who: ConsoleCaller } | { response: Response }> {
+  const g = await guard(req, deps, change, { adminOnly: true });
+  if ("response" in g) return g;
+  if (g.who.legacy || g.who.accountId === null) return { response: forbiddenAnswer() };
+  return g;
+}
+
+/** The account's answer to a failed control call: our own text, never control's. */
+function accountFailure(err: unknown, context: "create" | "revoke" | "other"): Response {
+  if (err instanceof LauncherError) {
+    switch (err.reason) {
+      case "not_found":
+        return accountNotFound();
+      case "conflict":
+        return fail(409, "conflict",
+          context === "create" ? "An account with that login already exists."
+            : context === "revoke" ? "That account cannot be revoked: it is the last active admin."
+              : "That action is not possible for this account.");
+      case "state":
+        return fail(409, "conflict", "That action is not possible for the account in its current state.");
+      case "invalid":
+      case "bad_request":
+        return fail(400, "invalid", "Check the login, name and role and try again.");
+      default:
+        return failure(err);
+    }
+  }
+  return failure(err);
+}
+
+const field = (v: unknown): v is string => typeof v === "string" && v.trim().length >= 1 && v.length <= MAX_FIELD_CHARS;
+
+/** GET /api/v1/console/admin/accounts: every account, never a password. */
+export async function handleAdminAccountsList(req: Request, deps: Deps): Promise<Response> {
+  const g = await adminGuard(req, deps, false);
+  if ("response" in g) return g.response;
+  if (!deps.launcher) return unreachable();
+  try {
+    return ok({ accounts: await deps.launcher.accountsList() });
+  } catch (err) {
+    return accountFailure(err, "other");
+  }
+}
+
+/** POST /api/v1/console/admin/accounts { login, name, role }: `by` is the caller's account id; a `by` in the body is accepted and ignored. */
+export async function handleAdminAccountCreate(req: Request, deps: Deps): Promise<Response> {
+  const g = await adminGuard(req, deps, true);
+  if ("response" in g) return g.response;
+  const body = await readBody(req, ["login", "name", "role", "by"], MAX_ADMIN_BODY_BYTES);
+  if (body === null || !field(body.login) || !field(body.name) || (body.role !== "admin" && body.role !== "facilitator")) return badRequest();
+  if (!deps.launcher) return unreachable();
+  try {
+    return ok(await deps.launcher.accountCreate({ login: body.login, name: body.name, role: body.role, by: g.who.accountId! }));
+  } catch (err) {
+    return accountFailure(err, "create");
+  }
+}
+
+/** The target id of /admin/accounts/:id/<action>, only when it is 1 to 64 characters without a control character. */
+function targetIdOf(req: Request): string | null {
+  const parts = new URL(req.url).pathname.split("/");
+  const at = parts.lastIndexOf("accounts");
+  const raw = at >= 0 ? parts[at + 1] : undefined;
+  if (raw === undefined) return null;
+  let id: string;
+  try {
+    id = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  return id.length >= 1 && id.length <= MAX_ACCOUNT_ID_CHARS && [...id].every((c) => c.charCodeAt(0) > 0x1f && c.charCodeAt(0) !== 0x7f) ? id : null;
+}
+
+/**
+ * POST /api/v1/console/admin/accounts/:id/{resend,reset,revoke,reinstate}. Reset, revoke and reinstate end the target's open console
+ * streams afterwards (the change is already recorded, so a throw there does not turn the answer into an error); resend leaves them (the
+ * epoch bump already fails an old cookie on its next request). The one-time temporary password is in the answer only, never logged.
+ */
+export function handleAdminAccountAction(action: "resend" | "reset" | "revoke" | "reinstate"): (req: Request, deps: Deps) => Promise<Response> {
+  return async (req, deps) => {
+    const g = await adminGuard(req, deps, true);
+    if ("response" in g) return g.response;
+    const id = targetIdOf(req);
+    if (id === null) return accountNotFound();
+    const body = await readBody(req, [], MAX_ADMIN_BODY_BYTES);
+    if (body === null) return badRequest();
+    if (!deps.launcher) return unreachable();
+    try {
+      const out = await deps.launcher.accountAction(id, action);
+      if (action !== "resend") {
+        try {
+          deps.facilitatorHub.closeAccount(id);
+        } catch {
+          console.error("web: console: the account's open streams could not be ended");
+        }
+      }
+      return ok(out);
+    } catch (err) {
+      return accountFailure(err, action === "revoke" ? "revoke" : "other");
+    }
+  };
 }
