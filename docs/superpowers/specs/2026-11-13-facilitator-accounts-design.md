@@ -63,6 +63,15 @@ My calls (for the owner to correct):
 - The session list records an `owner` (account id) at creation; sessions without one are admin-only.
 - The audit label (today a typed name) becomes the account's display name.
 
+## Calls added after the builder check (mine; the owner may correct them)
+
+1. **Revoke ends sign-ins, not game sessions.** Revoking a facilitator invalidates their console sign-ins and open console streams at once. Role-play sessions they own keep running (players are not dropped). After a revoke those sessions are reachable by the admin only, and the admin can **assign a new owner** to any session. This also covers sessions that exist at cutover (no owner).
+2. **The admin is a superuser.** The admin can do everything a facilitator can in any session (stream, commands, hidden facts, AI roles, reports, moderation, voice) and can create and run sessions of their own. The authorization rule on every console route that takes a session is: the caller is the session's owner or an admin.
+3. **Default admin password and recovery.** The default is a documented constant that the deploy can override with `ADMIN_BOOTSTRAP_PASSWORD`; it is only valid until the first change. Recovery for a locked-out admin: the operator sets `ADMIN_RESET=1` on the control service's next start, which resets the admin to the default password with "must change" set (host access is the proof of authority); document it in `docs/ROLLBACK.md` and the runbook.
+4. **Status machine.** `invited` (temporary password issued, not yet changed), `active`, `revoked`. Admin actions: **Resend** (invited), **Reset password** (active: issues a new temporary password and returns the account to "must change"), **Revoke** (invited or active), **Reinstate** (revoked: issues a new temporary password). An email is unique forever, so a revoked account is reinstated, never duplicated.
+3b. **Cutover.** Sessions that exist when accounts are first enabled have no owner and are admin-only until the admin assigns one. Deploy between live sessions; say so in the deploy note.
+6. **More than one admin.** The admin may create another admin when creating an account (a role choice on the create form). There is no promote or demote; revoke applies to admins too, except the last active admin cannot be revoked.
+
 ## What it looks like (sketch)
 
 ```
@@ -81,7 +90,7 @@ After create / resend:  "Share these with Dana. Shown once."
   Login: dana@client.com     Temporary password: ************  [Copy]
 ```
 
-Facilitator console = the existing console, filtered to their sessions. Admin also gets the Facilitators page.
+Facilitator console = the existing console, filtered to their sessions. Admin also gets the Facilitators page and an owner column with an Assign action on every session.
 
 ## Left to the builder
 
