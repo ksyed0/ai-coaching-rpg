@@ -5,3 +5,4 @@ export * from "./ids.js";
 export * from "./player-view.js";
 export * from "./report-sentences.js";
 export * from "./address.js";
+export * from "./display-name.js";
