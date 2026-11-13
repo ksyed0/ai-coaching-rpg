@@ -137,7 +137,9 @@ function toInject(x: unknown): ConsoleInject | null {
 function toScene(x: unknown): ConsoleScene | null {
   if (!isScene(x)) return null;
   const injects = Array.isArray((x as { injects?: unknown }).injects) ? ((x as unknown as { injects: unknown[] }).injects).flatMap((i) => { const v = toInject(i); return v ? [v] : []; }) : [];
-  return { id: x.id, title: x.title, goal: x.goal, timeBoxMinutes: x.timeBoxMinutes, injects };
+  // US-0080: optional end rule (at most 200 characters, as the runtime sends it).
+  const endsWhen = typeof x.endsWhen === "string" && x.endsWhen.length <= 200 ? { endsWhen: x.endsWhen } : {};
+  return { id: x.id, title: x.title, goal: x.goal, timeBoxMinutes: x.timeBoxMinutes, ...endsWhen, injects };
 }
 
 function toCharacter(x: unknown): ConsoleCharacter | null {

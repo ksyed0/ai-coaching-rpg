@@ -205,6 +205,22 @@ describe("useSession: the stream", () => {
     expect(hook.result.current.state.notice).toBe(MESSAGES.serverError);
   });
 
+  it("test_joined_scenes_are_picked_field_by_field_with_an_optional_endsWhen (US-0080)", () => {
+    const { hook, es } = start();
+    emit(es(), "joined", { roleId: "am", state: snapshot(), scenes: [
+      { id: "s1", title: "T1", goal: "G1", timeBoxMinutes: 5, endsWhen: "the team agrees", injects: [{ id: "x" }], extra: "drop me" },
+      { id: "s2", title: "T2", goal: "G2", timeBoxMinutes: 3 }, // an older runtime: no endsWhen
+      { id: "s3", title: "T3", goal: "G3", timeBoxMinutes: 3, endsWhen: 7 }, // a malformed rule: the scene stays, the rule goes
+      { id: "s4", title: "T4", goal: "G4", timeBoxMinutes: 3, endsWhen: "x".repeat(201) }, // longer than the runtime ever sends
+    ] });
+    expect(hook.result.current.state.joined?.scenes).toStrictEqual([
+      { id: "s1", title: "T1", goal: "G1", timeBoxMinutes: 5, endsWhen: "the team agrees" },
+      { id: "s2", title: "T2", goal: "G2", timeBoxMinutes: 3 },
+      { id: "s3", title: "T3", goal: "G3", timeBoxMinutes: 3 },
+      { id: "s4", title: "T4", goal: "G4", timeBoxMinutes: 3 },
+    ]);
+  });
+
   it("a joined frame with only the required fields is accepted; bad optional fields are dropped, not trusted", () => {
     const { hook, es } = start();
     emit(es(), "event", ev(1, "utterance", { roleId: "x", text: "before any join", channel: "text" }));

@@ -19,7 +19,7 @@ describe("initPlayerView", () => {
   it("initPlayerView takes the redacted snapshot as is", () => {
     const v = initPlayerView(snapshot({ paused: true, pausedSince: 1_500 }));
     expect(v).toEqual({ lastSeq: 5, status: "running", paused: true, pausedSince: 1_500, scene: { id: "s1", enteredAt: 1_002, pausedMs: 40 },
-      transcript: [{ seq: 3, ts: 1_003, roleId: "me", text: "earlier", sceneId: "s1" }], injects: [], ended: null, aiRoles: [] });
+      transcript: [{ seq: 3, ts: 1_003, roleId: "me", text: "earlier", sceneId: "s1" }], injects: [], ended: null, aiRoles: [], lastExit: null });
   });
   it("initPlayerView takes aiRoles from the snapshot and [] when absent", () => {
     expect(initPlayerView(snapshot({ aiRoles: ["them"] })).aiRoles).toEqual(["them"]);
@@ -88,6 +88,30 @@ describe("applyPlayerEvent", () => {
     expect(v.scene).toEqual({ id: "s1", enteredAt: 2_000, pausedMs: 0 });
     v = applyPlayerEvent(v, { ...env(7), type: "scene.exited", sceneId: "s1", reason: "facilitator_advance" } as SessionEvent);
     expect(v.scene).toBeNull();
+  });
+  it("test_applyPlayerEvent_scene_exited_records_lastExit_with_seq_scene_and_reason (US-0080)", () => {
+    let v = applyPlayerEvent(initPlayerView(snapshot({ currentScene: null })), entered(6, 2_000));
+    expect(v.lastExit).toBeNull();
+    v = applyPlayerEvent(v, { ...env(7), type: "scene.exited", sceneId: "s1", reason: "gm_detects" });
+    expect(v.lastExit).toEqual({ seq: 7, sceneId: "s1", reason: "gm_detects" });
+    // The next scene does not clear it (the dialog names the next scene from it); a later exit replaces it.
+    v = applyPlayerEvent(v, { ...env(8), type: "scene.entered", sceneId: "s2", participants: ["me"] });
+    expect(v.lastExit).toEqual({ seq: 7, sceneId: "s1", reason: "gm_detects" });
+    v = applyPlayerEvent(v, { ...env(9), type: "scene.exited", sceneId: "s2", reason: "time_box_elapsed" });
+    expect(v.lastExit).toEqual({ seq: 9, sceneId: "s2", reason: "time_box_elapsed" });
+    // A duplicate or stale copy changes nothing.
+    expect(applyPlayerEvent(v, { ...env(7), type: "scene.exited", sceneId: "s1", reason: "gm_detects" })).toBe(v);
+  });
+  it("test_applyPlayerEvent_a_malformed_scene_exited_clears_the_scene_but_records_no_lastExit (US-0080)", () => {
+    const start = applyPlayerEvent(initPlayerView(snapshot({ currentScene: null })), entered(6, 2_000));
+    for (const bad of [{ sceneId: 5, reason: "gm_detects" }, { sceneId: "s1", reason: 7 }, { sceneId: "s1" }]) {
+      const v = applyPlayerEvent(start, { ...env(7), type: "scene.exited", ...bad } as unknown as SessionEvent);
+      expect(v.scene, JSON.stringify(bad)).toBeNull();
+      expect(v.lastExit, JSON.stringify(bad)).toBeNull();
+    }
+  });
+  it("test_initPlayerView_never_has_a_lastExit: a join or reload after the fact shows no scene-ended dialog (US-0080)", () => {
+    expect(initPlayerView(snapshot({ currentScene: null, sceneHistory: [{ id: "s1", participants: ["me"] }] })).lastExit).toBeNull();
   });
   it("an utterance outside a scene has sceneId null", () => {
     const v = applyPlayerEvent(initPlayerView(snapshot({ currentScene: null })), said(6));

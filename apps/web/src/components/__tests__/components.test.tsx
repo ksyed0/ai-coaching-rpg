@@ -291,6 +291,29 @@ describe("SceneStatus", () => {
     expect(clock.listeners).toBe(0);
   });
 
+  it("test_SceneStatus_shows_the_objective_and_what_ends_the_scene (US-0080)", () => {
+    const clock = new FakeClock(T);
+    const view = { paused: false, pausedSince: null, scene: { id: "s2", enteredAt: T, pausedMs: 0 } };
+    const { rerender, container } = render(<SceneStatus scene={{ ...scene, endsWhen: "Priya agrees a next step" }} index={1} count={3} view={view} clock={clock} />);
+    const objective = screen.getByText("Objective: Agree the plan.");
+    expect(objective.className).toBe("objective"); // prominent: its own class, not the small muted line it was
+    expect(objective.className).not.toMatch(/muted|small/);
+    expect(screen.getByText("Ends when: Priya agrees a next step, at 10 min, or when your facilitator moves on")).toBeTruthy();
+    expect(screen.queryByText(/^Goal:/)).toBeNull();
+    // Neither an ends_when nor a Game Master condition (or an older runtime): only the time box and the facilitator.
+    rerender(<SceneStatus scene={scene} index={1} count={3} view={view} clock={clock} />);
+    expect(screen.getByText("Ends when: at 10 min, or when your facilitator moves on")).toBeTruthy();
+    expect(screen.getByRole("timer").textContent).toBe("Time left in scene: 10:00");
+    noInlineStyles(container);
+  });
+
+  it("test_SceneStatus_renders_a_rule_with_markup_as_text (US-0080)", () => {
+    const { container } = render(<SceneStatus scene={{ ...scene, endsWhen: XSS }} index={0} count={1} view={{ paused: false, pausedSince: null, scene: { id: "s2", enteredAt: T, pausedMs: 0 } }} clock={new FakeClock(T)} />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.textContent).toContain(XSS);
+  });
+
   it("without a scene it shows no timer", () => {
     render(<SceneStatus scene={undefined} index={-1} count={0} view={{ paused: false, pausedSince: null, scene: null }} clock={new FakeClock(0)} />);
     expect(screen.queryByRole("timer")).toBeNull();

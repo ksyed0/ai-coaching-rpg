@@ -85,8 +85,13 @@ test("no serious or critical Axe violations on /join, the lobby, the session vie
   await expect(stranger.getByRole("heading", { name: "Connection closed" })).toBeVisible({ timeout: 30_000 });
   await checkBothSchemes(stranger, "connection closed");
   await stack.terminalFacilitator.command({ command: "resume" });
-  for (let i = 0; i < 3; i++) await stack.terminalFacilitator.command({ command: "advance" });
+  // US-0080: the scene-ended dialog, open over the running next scene.
+  await stack.terminalFacilitator.command({ command: "advance" });
+  await expect(pages.tech_lead.getByRole("dialog", { name: "Scene 1 of 2 has ended: Team huddle" })).toBeVisible({ timeout: 30_000 });
+  await checkBothSchemes(pages.tech_lead, "the scene-ended dialog");
+  for (let i = 0; i < 2; i++) await stack.terminalFacilitator.command({ command: "advance" });
   await expect(pages.tech_lead.getByRole("heading", { name: "The session has ended" })).toBeVisible({ timeout: 30_000 });
+  await expect(pages.tech_lead.getByRole("heading", { name: "Session complete" })).toBeVisible();
   await checkBothSchemes(pages.tech_lead, "the end");
 });
 
@@ -107,6 +112,12 @@ test("no horizontal scroll at 400 px", async ({ browser }) => {
   await say(pages.tech_lead, `A${"a".repeat(180)}h, said without a single space to break it.`);
   await say(pages.delivery_lead, "A short reply.");
   for (const role of PLAYERS) expect(await noHorizontalScroll(pages[role]), `the session view (${role})`).toEqual({ scroll: 400, client: 400 });
+  // US-0080: the scene-ended dialog fits a 400 px screen too.
+  await stack.terminalFacilitator.command({ command: "advance" });
+  for (const role of PLAYERS) {
+    await expect(pages[role].getByRole("dialog", { name: /^Scene 1 of \d has ended: Team huddle$/ })).toBeVisible({ timeout: 30_000 });
+    expect(await noHorizontalScroll(pages[role]), `the scene-ended dialog (${role})`).toEqual({ scroll: 400, client: 400 });
+  }
 });
 
 // ---- US-0063: the participant report page's states and the console panel's draft rows (launcher stack, seeded review folders) ----

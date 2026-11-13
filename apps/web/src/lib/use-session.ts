@@ -135,6 +135,16 @@ function toVoice(v: unknown): SeatVoice | null {
   return { state: v.state as VoiceState, muted: v.muted === true };
 }
 
+/** US-0080: the runtime never sends a longer rule (`MAX_ENDS_WHEN_CHARS` in @acr/script); a longer one is dropped, not shown. */
+const MAX_ENDS_WHEN_CHARS = 200;
+
+/** A scene picked field by field (never kept whole): `endsWhen` only when it is a short string (OPTIONAL: an older runtime sends none). */
+function toScene(x: unknown): PlayerScene | null {
+  if (!isObj(x) || typeof x.id !== "string" || typeof x.title !== "string" || typeof x.goal !== "string" || typeof x.timeBoxMinutes !== "number") return null;
+  const endsWhen = typeof x.endsWhen === "string" && x.endsWhen.length <= MAX_ENDS_WHEN_CHARS ? x.endsWhen : undefined;
+  return { id: x.id, title: x.title, goal: x.goal, timeBoxMinutes: x.timeBoxMinutes, ...(endsWhen !== undefined ? { endsWhen } : {}) };
+}
+
 function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null {
   if (!isObj(d) || typeof d.roleId !== "string" || !isObj(d.state)) return null;
   const st = d.state;
@@ -142,9 +152,7 @@ function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null 
   const c = d.consent;
   const consent = isObj(c) && typeof c.noticeVersion === "string" && typeof c.notice === "string" && typeof c.given === "boolean"
     ? { noticeVersion: c.noticeVersion, notice: c.notice, given: c.given } : undefined;
-  const scenes = Array.isArray(d.scenes)
-    ? d.scenes.filter((x): x is PlayerScene => isObj(x) && typeof x.id === "string" && typeof x.title === "string" && typeof x.goal === "string" && typeof x.timeBoxMinutes === "number")
-    : [];
+  const scenes = Array.isArray(d.scenes) ? d.scenes.flatMap((x: unknown) => { const v = toScene(x); return v ? [v] : []; }) : [];
   const joined: Joined = {
     roleId: d.roleId, scenes,
     ...(typeof d.brief === "string" ? { brief: d.brief } : {}),

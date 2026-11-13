@@ -370,7 +370,7 @@ describe("wire contract", () => {
         within(m, PLAYER_JOINED_KEYS, ["type", "roleId", "state", "replay", "credential", "logIdentity", "consent", "brief", "privateFacts", "reconnectToken", "scenes"], "joined");
         within(m.replay!, REPLAY_KEYS, REPLAY_KEYS, "replay");
         within(m.consent!, CONSENT_KEYS, CONSENT_KEYS, "consent");
-        for (const sc of m.scenes!) within(sc, ["id", "title", "goal", "timeBoxMinutes"], ["id", "title", "goal", "timeBoxMinutes"], "scene");
+        for (const sc of m.scenes!) within(sc, ["id", "title", "goal", "timeBoxMinutes", "endsWhen"], ["id", "title", "goal", "timeBoxMinutes"], "scene");
         expect(typeof m.state.lastSeq).toBe("number");
       } else if (m.type === "event") {
         within(m, EVENT_FRAME_KEYS, EVENT_FRAME_KEYS, "event frame");

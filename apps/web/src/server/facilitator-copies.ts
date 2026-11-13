@@ -117,6 +117,9 @@ export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v =
 export const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const ownList = (o: Record<string, string[]> | undefined, key: string): string[] => (o && Object.hasOwn(o, key) ? strings(o[key]) : []);
 
+/** US-0080: the runtime never sends a longer end rule (`MAX_ENDS_WHEN_CHARS` in @acr/script). */
+const MAX_ENDS_WHEN_CHARS = 200;
+
 /** A scene as the console sees it: the player fields plus the injects the facilitator may fire. */
 export type ConsoleScene = PlayerScene & { injects: FacilitatorInject[] };
 
@@ -134,7 +137,9 @@ export function consoleScenes(scenes: unknown): ConsoleScene[] {
   for (const c of scenes as unknown[]) {
     if (!isRecord(c) || typeof c.id !== "string" || typeof c.title !== "string" || typeof c.goal !== "string" || typeof c.timeBoxMinutes !== "number" || !Number.isFinite(c.timeBoxMinutes)) continue;
     const injects = (Array.isArray(c.injects) ? (c.injects as unknown[]) : []).flatMap((i) => { const x = consoleInject(i); return x ? [x] : []; });
-    out.push({ id: c.id, title: c.title, goal: c.goal, timeBoxMinutes: c.timeBoxMinutes, injects });
+    // US-0080: the scene's end rule as the players see it; optional (an older runtime sends none), at most 200 characters.
+    const endsWhen = typeof c.endsWhen === "string" && c.endsWhen.length <= MAX_ENDS_WHEN_CHARS ? { endsWhen: c.endsWhen } : {};
+    out.push({ id: c.id, title: c.title, goal: c.goal, timeBoxMinutes: c.timeBoxMinutes, ...endsWhen, injects });
   }
   return out;
 }

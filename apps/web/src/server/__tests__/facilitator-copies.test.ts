@@ -80,6 +80,19 @@ describe("console copies", () => {
     expect(Object.hasOwn(consoleRoster([e as never])[0]!, "ai")).toBe(false);
   });
 
+  it("test_consoleScenes_carries_an_optional_endsWhen_string_and_drops_a_bad_one (US-0080)", () => {
+    const out = consoleScenes([
+      { id: "a", title: "T", goal: "G", timeBoxMinutes: 5, endsWhen: "the team agrees" },
+      { id: "b", title: "U", goal: "H", timeBoxMinutes: 1, endsWhen: 7 },
+      { id: "c", title: "V", goal: "I", timeBoxMinutes: 1, endsWhen: "x".repeat(201) },
+    ]);
+    expect(out).toStrictEqual([
+      { id: "a", title: "T", goal: "G", timeBoxMinutes: 5, endsWhen: "the team agrees", injects: [] },
+      { id: "b", title: "U", goal: "H", timeBoxMinutes: 1, injects: [] },
+      { id: "c", title: "V", goal: "I", timeBoxMinutes: 1, injects: [] },
+    ]);
+  });
+
   it("consoleScenes keeps scene and inject fields and nothing else", () => {
     const raw = [
       { id: "a", title: "T", goal: "G", timeBoxMinutes: 5, hiddenFacts: ["SCENE-HIDDEN"], knowledge: ["K"], injects: [
