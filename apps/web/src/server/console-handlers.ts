@@ -185,9 +185,18 @@ export async function handleConsolePassword(
   } catch (err) {
     if (err instanceof LauncherError) {
       if (err.reason === "weak_password") return fail(400, "weak_password", "Choose a longer password that is not easy to guess.");
-      if (err.reason === "account_refused") return unauthorized({ "Set-Cookie": CLEAR });
-      if (err.reason === "login_refused") {
+      if (err.reason === "account_refused") {
+        // Control answers a wrong current password and a revoked or stale account alike, so ask which one it was.
+        let still: AccountInfo | null;
+        try {
+          still = await deps.launcher!.accountCheck(accountId, who.epoch);
+        } catch {
+          return unreachableAnswer();
+        }
+        if (still === null) return unauthorized({ "Set-Cookie": CLEAR });
         deps.consoleLoginThrottle.fail(accountId, PASSWORD_ROLE);
+        const after = deps.consoleLoginThrottle.blockedForMs(accountId, PASSWORD_ROLE);
+        if (after > 0) return throttled(after);
         return fail(403, "wrong_password", "The current password is not right.");
       }
     }

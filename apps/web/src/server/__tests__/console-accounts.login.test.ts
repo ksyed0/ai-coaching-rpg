@@ -28,8 +28,8 @@ function setup(over: { loginError?: LauncherError; info?: AccountInfo } = {}) {
     return { ...info };
   });
   const accountChangePassword = vi.fn(async (id: string, epoch: number, current: string, next: string) => {
-    if (id !== info.id || epoch !== info.epoch) throw new LauncherError("account_refused");
-    if (current !== PW) throw new LauncherError("login_refused");
+    // Control's real answers: a revoked or stale account and a wrong current password are both `account_refused`.
+    if (id !== info.id || epoch !== info.epoch || current !== PW) throw new LauncherError("account_refused");
     if (next.length < 12) throw new LauncherError("weak_password");
     deps.auth.bump(id, { mustChange: false });
     return { ...info, epoch: info.epoch + 1, mustChange: false };
@@ -227,6 +227,45 @@ describe("console password change", () => {
       expect((await handleConsolePassword(password(body, c), deps)).status).toBe(400);
     }
     expect(accountChangePassword).not.toHaveBeenCalled();
+  });
+
+  it("wrong current with a valid account: 403, cookie kept, charged per account and eventually throttled", async () => {
+    const { deps, closeAccount } = setup();
+    const c = accountCookie(FACILITATOR);
+    for (let i = 0; i < 5; i++) {
+      const r = await handleConsolePassword(password({ current: `wrong-${i}-wrong`, next: NEW_PW }, c), deps);
+      expect(r.status).toBe(403);
+      expect((await r.json()).error.code).toBe("wrong_password");
+      expect(r.headers.get("Set-Cookie")).toBeNull();
+    }
+    const sixth = await handleConsolePassword(password({ current: "wrong-6-wrong", next: NEW_PW }, c), deps);
+    expect(sixth.status).toBe(429);
+    expect(sixth.headers.get("Set-Cookie")).toBeNull();
+    // blocked even with the right current password
+    expect((await handleConsolePassword(password({ current: PW, next: NEW_PW }, c), deps)).status).toBe(429);
+    expect(closeAccount).not.toHaveBeenCalled();
+  });
+
+  it("revoked or stale account during the change: 401 and the cookie is cleared", async () => {
+    const { deps, closeAccount } = setup();
+    const c = accountCookie(FACILITATOR);
+    deps.auth.revoke(FACILITATOR.id);
+    // requireConsole already refuses; also cover the race where it passes and control then refuses
+    const racing = setup();
+    racing.accountChangePassword.mockImplementationOnce(async () => { racing.deps.auth.revoke(FACILITATOR.id); throw new LauncherError("account_refused"); });
+    const r = await handleConsolePassword(password({ current: PW, next: NEW_PW }, c), racing.deps);
+    expect(r.status).toBe(401);
+    expect(r.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    expect((await handleConsolePassword(password({ current: PW, next: NEW_PW }, c), deps)).status).toBe(401);
+    expect(closeAccount).not.toHaveBeenCalled();
+  });
+
+  it("accountCheck unavailable while classifying a refusal: 502 and the cookie is kept", async () => {
+    const t = setup();
+    t.accountChangePassword.mockImplementationOnce(async () => { t.deps.auth.down(); throw new LauncherError("account_refused"); });
+    const r = await handleConsolePassword(password({ current: "wrong-wrong-wrong", next: NEW_PW }, accountCookie(FACILITATOR)), t.deps);
+    expect(r.status).toBe(502);
+    expect(r.headers.get("Set-Cookie")).toBeNull();
   });
 
   it("maps control's refusals: weak password 400, wrong current 403 (cookie kept), unreachable 502", async () => {
