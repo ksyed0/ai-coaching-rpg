@@ -3350,7 +3350,7 @@
         },
         {
           "id": "AC-0443",
-          "text": "route: `DELETE /sessions/:id/audio` behind the service token (401 before any file call, 404 on a bad session id or no audio) takes a strict body `{ scope, reason, by }` (scope session, role or participant; reason `facilitator` or `participant_request`; `by` required in the `<name>-console` form, `X-Acr-By` when present must equal it; unknown keys 400) and covers every role and identity the scope names; at most 4 deletes in flight (503 `busy`) (TC-0234); ticked 2026-11-13: control audio-routes.test.ts (`DELETE /sessions/:id/audio: refusals before any file call`: 401, 404, the strict body table, `X-Acr-By` differing; `outcomes`: the session and participant scopes over HTTP; the cap of 4 and its own counter) and audio-delete.test.ts (`deleteAudio: scopes`: session, role and participant); an oversize body is 413 `payload_too_large` like every other body route (the controller's fix wave, tested there)",
+          "text": "route: `DELETE /sessions/:id/audio` behind the service token (401 before any file call, 404 on a bad session id or no audio) takes a strict body `{ scope, reason, by }` (scope session, role or participant; reason `facilitator` or `participant_request`; `by` required in the `<name>-console` form, `X-Acr-By` when present must equal it; unknown keys 400) and covers every role and identity the scope names; at most 4 deletes in flight (503 `busy`) (TC-0234); ticked 2026-11-13: control audio-routes.test.ts (`DELETE /sessions/:id/audio: refusals before any file call`: 401, 404, the strict body table, `X-Acr-By` differing; `outcomes`: the session and participant scopes over HTTP; the cap of 4 and its own counter) and audio-delete.test.ts (`deleteAudio: scopes`: session, role and participant); an oversize body is 413 `payload_too_large` like every other body route, with the connection closed, no file call and no audit line (audio-routes.test.ts: `a body over 4096 bytes with a declared Content-Length is 413 payload_too_large` and `a streamed (chunked, undeclared) body over 4096 bytes is 413 payload_too_large`)",
           "done": true
         },
         {
@@ -3365,7 +3365,7 @@
         },
         {
           "id": "AC-0446",
-          "text": "partial results: identities are processed one at a time in sorted order and never under several locks; 200 `{ deleted, identities, pending: [] }` when all are done, otherwise 503 with the same body and the worst reason as the code (`store_unsafe` over `audit_unavailable` over `busy`), `Retry-After: 1` only with `busy`; a retry only does the rest (TC-0237); ticked 2026-11-13: control audio-delete.test.ts (`busy and retry`, catalog order) and audio-routes.test.ts (the 200 body, 503 with `busy` and `Retry-After: 1`, `store_unsafe` and `audit_unavailable` without it, the retry; an all-`gone` outcome is a normal 200 `deleted: 0` with a `gone` list) and audio-delete.e2e.test.ts (two identities, one held; delete racing the sweep is 503 `busy`, never 409). An identity whose root or folder cannot be re-checked under the lock is `pending store_unsafe`, not `gone` (the controller's fix wave)",
+          "text": "partial results: identities are processed one at a time in sorted order and never under several locks; under the lock each identity is re-checked: one that provably no longer belongs to the session (its folder missing, or its marker naming another session) is listed in `gone`, and one whose root or folder cannot be re-checked (an unsafe root, the folder swapped for a link, a file or another user's folder) is `pending store_unsafe`, never `gone`; 200 `{ deleted, gone, identities, pending: [] }` when all are done, otherwise 503 with the same body and the worst reason as the code (`store_unsafe` over `audit_unavailable` over `busy`), `Retry-After: 1` only with `busy`; a retry only does the rest (TC-0237); ticked 2026-11-13: control audio-delete.test.ts (`busy and retry`, catalog order) and audio-routes.test.ts (the 200 body, 503 with `busy` and `Retry-After: 1`, `store_unsafe` and `audit_unavailable` without it, the retry; an all-`gone` outcome is a normal 200 `deleted: 0` with a `gone` list) and audio-delete.e2e.test.ts (two identities, one held; delete racing the sweep is 503 `busy`, never 409). The unsafe recheck: audio-catalog.test.ts (`recheckIdentity`: belongs, gone, unsafe), audio-delete.test.ts (`a recheck that cannot tell is pending store_unsafe, never gone`: a root made group-writable after `find`, the folder replaced by a link to a valid copy, the path replaced by a file) and audio-routes.test.ts (`an identity whose folder can no longer be judged under the lock (a file in its place) is 503 store_unsafe, not gone`)",
           "done": true
         },
         {
@@ -3385,7 +3385,7 @@
         },
         {
           "id": "AC-0450",
-          "text": "a real store, worker files and control API work end to end (list, delete by each scope, replay 410, the sweep finishing a crash after the audit and after the index write, two identities with one busy) and the mutation checks (audit before marks, the live check, the mutex, the deleted mark, the fail-closed reader, path containment) each fail a named test and are reverted (TC-0241); ticked 2026-11-13: control audio-delete.e2e.test.ts (13 tests, real worker store, real API, real audit and sweep; crashes injected through file permissions; delete by the role and session scopes end to end, the participant scope is proven by audio-routes.test.ts and audio-delete.test.ts, not end to end) and the nine mutation runs of the Task 9 report (six mutation kinds: audit before marks, the live check (three places), the mutex (and a second mutex in `main.ts`), the deleted mark, the fail-closed reader, path containment), each failing named tests and reverted; prior evidence, not re-run here; the path-containment mutation is killed by unit tests only (the swap needs in-process timing). The AC's \"each scope\" is therefore met by the e2e (role, session) plus the route and unit tests (participant)",
+          "text": "a real store, worker files and control API work end to end (list, delete by the role and session scopes end to end, with the participant scope covered by the route and unit tests; replay 410, the sweep finishing a crash after the audit and after the index write, two identities with one busy) and the mutation checks (audit before marks, the live check, the mutex, the deleted mark, the fail-closed reader, path containment) each fail a named test and are reverted (TC-0241); ticked 2026-11-13: control audio-delete.e2e.test.ts (13 tests, real worker store, real API, real audit and sweep; crashes injected through file permissions; delete by the role and session scopes end to end, the participant scope is proven by audio-routes.test.ts and audio-delete.test.ts, not end to end) and the nine mutation runs of the Task 9 report (six mutation kinds: audit before marks, the live check (three places), the mutex (and a second mutex in `main.ts`), the deleted mark, the fail-closed reader, path containment), each failing named tests and reverted; prior evidence, not re-run here; the path-containment mutation is killed by unit tests only (the swap needs in-process timing). The e2e covers the role and session scopes; the participant scope is covered by the route and unit tests",
           "done": true
         }
       ],
@@ -8927,9 +8927,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-13T17:35:13.406Z",
-  "commitSha": "bb16061c",
-  "buildNumber": "576",
+  "generatedAt": "2026-11-13T18:05:23.867Z",
+  "commitSha": "ac122f45",
+  "buildNumber": "578",
   "branch": "feature/EPIC-0003-US-0075-voice-audio-delete",
   "sessionTimeline": [
     {
@@ -9181,10 +9181,12 @@
       "2026-11-11T19:47:52.607Z",
       "2026-11-12T20:37:55.878Z",
       "2026-11-12T21:50:41.141Z",
-      "2026-11-13T17:35:13.525Z"
+      "2026-11-13T17:35:13.525Z",
+      "2026-11-13T18:05:24.013Z"
     ],
     "doneCounts": [
       0,
+      6,
       6,
       6,
       6,
@@ -9197,6 +9199,7 @@
       73,
       74,
       74,
+      75,
       75
     ],
     "aiCosts": [
@@ -9205,9 +9208,11 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -9221,6 +9226,7 @@
       29,
       29,
       29,
+      29,
       29
     ],
     "openBugs": [
@@ -9229,9 +9235,11 @@
       1,
       1,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -9245,10 +9253,12 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -9261,6 +9271,7 @@
       1.135820895522388,
       1.1352941176470586,
       1.1352941176470586,
+      1.1347826086956518,
       1.1347826086956518
     ],
     "velocityByWeek": {
