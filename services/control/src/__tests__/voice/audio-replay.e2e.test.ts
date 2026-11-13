@@ -1,113 +1,16 @@
-import http from "node:http";
-import type { AddressInfo } from "node:net";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { JsonlEventLog } from "../../../../runtime/src/engine/event-log.js";
-import { AudioStore } from "../../../../speech/src/store/audio-store.js";
-import { createApi } from "../../api.js";
-import type { ControlConfig } from "../../config.js";
-import { buildAudioService, startControl, type RunningControl } from "../../main.js";
-import { AuditLog } from "../../voice/audit-log.js";
-import { makeAcquireLock, sweepAudio } from "../../voice/sweep.js";
-import type { SpawnFn } from "../../supervisor.js";
+import { describe, expect, it } from "vitest";
+import { A, B, BY, C, D, DAY_MS, S, S2, T0, TOKEN, client, listing, useAudioE2e } from "./audio-e2e-harness.js";
 
 /**
  * US-0074 (voice A2b-1a, Task 8): the audio listing and replay end to end. The REAL speech `AudioStore` writes the session marker, the WAV
  * and the index line on a private temp dir; the REAL control API (`createApi` with the service main.ts builds, `buildAudioService`, and
  * once the whole `startControl` with VOICE_ENABLED=0) answers over real HTTP; the REAL `AuditLog` writes the `audio.played` lines and the
- * REAL `sweepAudio` (on an injected clock) expires a folder. Nothing in between is faked.
+ * REAL `sweepAudio` (on an injected clock) expires a folder. Nothing in between is faked. The harness is shared with the delete e2e.
  */
-const DAY_MS = 86_400_000;
-const T0 = 1_800_000_000_000;
-const TOKEN = "e".repeat(40);
-const BY = "kamal-console";
-const S = "session-1", S2 = "session-2";
-const id = (n: number): string => n.toString(16).padStart(32, "0");
-const A = id(0xa1), B = id(0xb2), C = id(0xc3), D = id(0xd4);
-
-let root = "";
-let audioDir = "";
-let sessionsDir = "";
-const servers: http.Server[] = [];
-let running: RunningControl | undefined;
-beforeEach(() => {
-  root = mkdtempSync(path.join(tmpdir(), "acr-replay-e2e-"));
-  audioDir = path.join(root, "audio");
-  sessionsDir = path.join(root, "sessions");
-  mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
-});
-afterEach(async () => {
-  await running?.close();
-  running = undefined;
-  await Promise.all(servers.splice(0).map((s) => new Promise<void>((r) => { s.closeAllConnections(); s.close(() => r()); })));
-  rmSync(root, { recursive: true, force: true });
-});
-
-/** A distinct 0.25 s 16 kHz tone per seed, so two segments never share bytes. */
-const pcm = (seed: number): Int16Array => Int16Array.from({ length: 4000 }, (_, i) => Math.round(8000 * Math.sin((i * (seed + 1)) / 9)));
-
-/** The REAL worker store for one identity: writes the marker before the first WAV, then each WAV and its index line; optionally ended.json. */
-function record(o: { identity: string; sessionId: string; segments: { role: string; segment: string; seed: number; seq?: number }[]; at?: number; ended?: boolean; dir?: string }): void {
-  const stops: string[] = [];
-  const store = new AudioStore({
-    audioDir: o.dir ?? audioDir, logIdentity: o.identity, sessionId: o.sessionId, sessionsDir, minFreeMb: 512, now: () => o.at ?? T0,
-    lock: { lost: false }, onStopped: (r) => stops.push(r),
-  });
-  for (const s of o.segments) {
-    const r = store.write({
-      roleId: s.role, participantId: `p-${s.segment}`, segmentId: s.segment, startMs: 1000 * s.seed, endMs: 1000 * s.seed + 250,
-      pcm: pcm(s.seed), outcome: { kind: "accepted" }, ...(s.seq !== undefined ? { seq: s.seq } : {}), raw: "words somebody said",
-    });
-    expect(r).toBe("written");
-  }
-  if (o.ended) store.markEnded();
-  expect(stops).toEqual([]);
-}
-const wavOnDisk = (identity: string, role: string, segment: string, dir = audioDir) => readFileSync(path.join(dir, identity, role, `${segment}.wav`));
-const auditLines = (identity: string, dir = audioDir): Record<string, unknown>[] => {
-  let text: string;
-  try { text = readFileSync(path.join(dir, `${identity}.audio-audit.jsonl`), "utf8"); } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-  return text.split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
-};
-const played = (identity: string, dir = audioDir) => auditLines(identity, dir).filter((l) => l.type === "audio.played");
-
-/** A real session log as the runtime writes it (the runtime's own JsonlEventLog): `session.started` first, naming `logIdentity`. */
-async function sessionLog(sessionId: string, logIdentity: string, dir = sessionsDir): Promise<void> {
-  const log = new JsonlEventLog(sessionId, dir, { sync: false });
-  await log.append({ type: "session.started", scenarioId: "sc", version: "1", roles: {}, logFormat: 3, logIdentity } as never, T0);
-  await log.append({ type: "scene.entered", sceneId: "a", participants: [] } as never, T0 + 1);
-  await log.close?.();
-}
-
-/** The control API main.ts builds (its `buildAudioService`, the real AuditLog), on a real loopback port. */
-async function boot(now: () => number = () => T0 + 5) {
-  const audit = new AuditLog({ audioDir, now, log: () => {} });
-  const audio = buildAudioService({ audioDir, sessionsDir }, { audit });
-  const untouchable = new Proxy({}, { get: () => { throw new Error("the audio routes must not use the supervisor"); } });
-  const server = http.createServer(createApi({
-    config: { serviceToken: TOKEN } as ControlConfig, supervisor: untouchable as never, scenarios: () => Promise.resolve([]), audio,
-  }));
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  servers.push(server);
-  return client((server.address() as AddressInfo).port);
-}
-function client(port: number) {
-  return async (p: string, headers: Record<string, string> = { "x-acr-by": BY }) => {
-    const r = await fetch(`http://127.0.0.1:${port}${p}`, { headers: { "x-service-token": TOKEN, ...headers } });
-    return { status: r.status, headers: r.headers, body: Buffer.from(await r.arrayBuffer()) };
-  };
-}
-type Listing = { identities: number; recordingStopped: boolean; segments: { identity: string; role: string; segment: string; audio: string }[] };
-const listing = (b: Buffer): Listing => (JSON.parse(b.toString("utf8")) as { data: Listing }).data;
-const sweep = (now: number) => {
-  const audit = new AuditLog({ audioDir, now: () => now, log: () => {} });
-  return sweepAudio({ audioDir, retentionDays: 30, now: () => now, audit, acquireLock: makeAcquireLock(() => {}), log: () => {} });
-};
+const h = useAudioE2e("acr-replay-e2e-");
+const { record, wavOnDisk, auditLines, played, sessionLog, boot, sweep } = h;
 
 describe("audio replay end to end: real worker store, real control API, real audit and sweep (US-0074, Task 8)", () => {
   it("the listing shows the session's segment, and not another session's", async () => {
@@ -184,7 +87,7 @@ describe("audio replay end to end: real worker store, real control API, real aud
 
   it("a pre-marker folder (no session.json) is found through the session log's first line naming its identity", async () => {
     record({ identity: C, sessionId: S, segments: [{ role: "coach", segment: "seg5", seed: 5 }] });
-    unlinkSync(path.join(audioDir, C, "session.json")); // as a worker from before markers left it
+    unlinkSync(path.join(h.ctx.audioDir, C, "session.json")); // as a worker from before markers left it
     const get = await boot();
     expect((await get(`/sessions/${S}/audio`)).status).toBe(404); // no marker and no log yet
     await sessionLog(S, C);
@@ -207,21 +110,14 @@ describe("audio replay end to end: real worker store, real control API, real aud
   });
 
   it("the whole startControl with VOICE_ENABLED=0 still lists and replays (marker and pre-marker fallback) and audits", async () => {
-    const data = path.join(root, "data");
-    const dir = path.join(data, "audio"); // the default AUDIO_DIR, <dataDir>/audio
-    const logs = path.join(data, "sessions"); // config.sessionsDir
-    mkdirSync(logs, { recursive: true, mode: 0o700 });
-    mkdirSync(path.join(root, "scenarios"), { recursive: true });
+    const { dir, logs } = h.whole(); // the default AUDIO_DIR <data>/audio, and config.sessionsDir
     const now = Date.now(); // the start-up sweep runs on the real clock: this audio is fresh
     record({ dir, identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg1", seed: 1 }], at: now, ended: true });
     record({ dir, identity: C, sessionId: S2, segments: [{ role: "coach", segment: "seg5", seed: 5 }], at: now, ended: true });
     unlinkSync(path.join(dir, C, "session.json"));
     await sessionLog(S2, C, logs);
-    running = await startControl(
-      { CONTROL_DATA_DIR: data, LAUNCHER_TOKEN: TOKEN, SCENARIOS_DIR: path.join(root, "scenarios"), CONTROL_GRACE_MS: "200", VOICE_ENABLED: "0" },
-      { port: 0, spawn: (() => { throw new Error("no spawn"); }) as unknown as SpawnFn },
-    );
-    const get = client(running.port);
+    const port = await h.startWhole();
+    const get = client(port);
     expect(listing((await get(`/sessions/${S}/audio`)).body).segments.map((s) => s.segment)).toEqual(["seg1"]);
     const r = await get(`/sessions/${S}/audio/coach/seg1`);
     expect(r.status).toBe(200);
@@ -231,5 +127,20 @@ describe("audio replay end to end: real worker store, real control API, real aud
     expect(f.status).toBe(200);
     expect(f.body.equals(wavOnDisk(C, "coach", "seg5", dir))).toBe(true);
     expect((await get(`/sessions/${S}/audio`, {})).status).toBe(400); // the X-Acr-By rule is wired too
+  });
+
+  it("US-0075: the whole startControl wires DELETE /sessions/:id/audio (real lock acquirer, no voice host so never live): deleted, then 410", async () => {
+    const { dir } = h.whole();
+    record({ dir, identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg1", seed: 1 }], at: Date.now(), ended: true });
+    const port = await h.startWhole();
+    const r = await fetch(`http://127.0.0.1:${port}/sessions/${S}/audio`, {
+      method: "DELETE", headers: { "x-service-token": TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({ scope: { kind: "session" }, reason: "facilitator", by: BY }),
+    });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { data: unknown }).data).toStrictEqual({ deleted: 1, gone: [], identities: [{ identity: A, deleted: 1, state: "done" }], pending: [] });
+    expect(existsSync(path.join(dir, A, "coach", "seg1.wav"))).toBe(false);
+    expect(auditLines(A, dir).filter((l) => l.type === "audio.deleted").map((l) => [l.reason, l.by, l.segments])).toEqual([["facilitator", BY, 1]]);
+    expect((await client(port)(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410);
   });
 });

@@ -27,6 +27,7 @@ import { AudioCatalog } from "./voice/audio-catalog.js";
 import { AudioService } from "./voice/audio-routes.js";
 import { AuditLog } from "./voice/audit-log.js";
 import { makeFallbackIdentity } from "./voice/log-identity.js";
+import { IdentityMutex } from "./voice/store-lock.js";
 import { startAudioSweep, stopWithin } from "./voice/sweep.js";
 import { livekitProbe } from "./voice/livekit-probe.js";
 import { timingLogSink } from "./voice/timing-log.js";
@@ -50,9 +51,21 @@ const realSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unr
  * of the voice host (audio recorded before a rollback to VOICE_ENABLED=0 stays replayable until the sweep removes it). The catalog falls
  * back to the session log's identity (`<sessionsDir>/<id>.jsonl`) for folders recorded before session markers existed.
  */
-export function buildAudioService(config: Pick<ControlConfig, "audioDir" | "sessionsDir">, deps: { audit: Pick<AuditLog, "append"> }): AudioService {
+export function buildAudioService(
+  config: Pick<ControlConfig, "audioDir" | "sessionsDir">,
+  deps: {
+    audit: Pick<AuditLog, "append">;
+    /** US-0075: the identity mutex shared with the sweep (default: a private one). */
+    mutex?: IdentityMutex;
+    /** US-0075: `VoiceHost.isLive` (default: never live). */
+    isLive?: (sessionId: string) => boolean;
+  },
+): AudioService {
   const catalog = new AudioCatalog({ audioDir: config.audioDir, fallbackIdentity: makeFallbackIdentity(config.sessionsDir) });
-  return new AudioService({ catalog, audit: deps.audit, audioDir: config.audioDir });
+  return new AudioService({
+    catalog, audit: deps.audit, audioDir: config.audioDir, now: Date.now,
+    ...(deps.mutex ? { mutex: deps.mutex } : {}), ...(deps.isLive ? { isLive: deps.isLive } : {}),
+  });
 }
 
 export type RunningControl = {
@@ -103,6 +116,10 @@ export async function startControl(
   };
   // US-0073 (A2a Task 8): the audio audit log (opt-in, opt-out, recording stops, sweep deletions), under AUDIO_DIR with its own lock per identity.
   const audit = new AuditLog({ audioDir: config.audioDir, now: Date.now, log });
+  // US-0075: ONE identity mutex for the process, shared by the sweep and the facilitator delete (a held identity is skipped or pending).
+  const mutex = new IdentityMutex();
+  // US-0075: the delete's live check reads the VoiceHost the Supervisor builds below (none without voice hosting: never live).
+  let voiceHost: VoiceHost | undefined;
   const supervisor = new Supervisor({
     config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
@@ -122,6 +139,7 @@ export async function startControl(
         ...(tokens && lkWanted ? { tokens, livekitReachable: opts.livekitReachable ?? livekitProbe(lkWanted.host) } : {}),
         audit,
       });
+      voiceHost = v;
       opts.onVoiceHost?.(v);
       return v;
     },
@@ -129,9 +147,9 @@ export async function startControl(
   await supervisor.resumeAll();
   // US-0073 (A2a Task 9b): the audio retention sweep runs whenever control runs, NOT only with voice hosting: a rollback to VOICE_ENABLED=0
   // must not strand recordings the notice promises to delete. Stopped in close().
-  const sweep = startAudioSweep(config, { audit, setTimer: realSetTimer, log });
-  // US-0074: the audio routes, under the same rule (and the same audit log, so a replay's line sits with the sweep's).
-  const audio = buildAudioService(config, { audit });
+  const sweep = startAudioSweep(config, { audit, setTimer: realSetTimer, log, mutex });
+  // US-0074: the audio routes, under the same rule (and the same audit log, so a replay's line sits with the sweep's). US-0075: the same mutex.
+  const audio = buildAudioService(config, { audit, mutex, isLive: (id) => voiceHost?.isLive(id) ?? false });
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
   const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
   const secrets = collectSecrets(env);

@@ -3527,3 +3527,147 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-12 (Task 9). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-1a. The owner runs it with the room test.
+
+## US-0075: voice audio delete (EPIC-0003 voice A2b-1b)
+
+TC-0233: The `deleted` index line, its guard and its one-write append
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0442
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/protocol-deleted-line.test.ts src/__tests__/imports.test.ts src/__tests__/store/index-file.test.ts`.
+Expected Result: The guard accepts a valid line and rejects a wrong `v` or `kind`, a segment with `/` or `..`, an op of 15 or 17 hex or upper case, a negative or NaN `ts`; `appendDeletedLines` writes N lines in one write, terminates a torn line first, refuses a link, a non-regular file and a file of another user, never creates a file, continues a short write and throws `short_write` on no progress, with no path in any message; `readIndex` skips the line; `protocol.ts` imports only zod, `@acr/events` and `node:fs`.
+Actual Result: As expected (speech `protocol-deleted-line.test.ts` (27 tests: the guard, `appendDeletedLines` one write, torn line, link, non-regular file, foreign owner via `process.getuid`, no create, short write and `short_write`, no path in a message), `imports.test.ts` (only zod, `@acr/events` and `node:fs`; `node:child_process` and a speech-internal import still refused) and `store/index-file.test.ts` (`readIndex` skips a deleted line, a regression pin). The one-fsync count is not asserted (no seam); the one-write count is). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0234: The delete route: auth, body and scopes
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0443
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-routes.test.ts src/__tests__/voice/audio-delete.test.ts`.
+Expected Result: 401 before any file call, 404 for a bad session id or no audio, 400 for a bad body, unknown key, or `by` and `X-Acr-By` that differ, one scope kind only; session, role and participant scopes cover the right roles and identities; a fifth concurrent delete is 503 `busy`.
+Actual Result: As expected (control `audio-routes.test.ts` `DELETE /sessions/:id/audio: refusals before any file call` (401, 404 on a bad id, the bad-body table, `X-Acr-By` differing, a longer path is not the route), `outcomes` (session and participant scopes over HTTP, a 128-character participant, the cap of 4 with its own counter, the slot freed on every path) and `audio-delete.test.ts` `deleteAudio: scopes` (session, role and participant across roles and identities, an odd participant id never used as a path)). An oversize body is 413 `payload_too_large` through the same body reader as every other route, with the connection closed, no file call, no audit line and the WAV kept (`a body over 4096 bytes with a declared Content-Length is 413 payload_too_large`, `a streamed (chunked, undeclared) body over 4096 bytes is 413 payload_too_large`); the participant scope uses the protocol's `ParticipantIdSchema` (the bad-body rows for an empty, 129-character, `rebind-pending` and non-string participant). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0235: Delete is refused while the session is live
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0444
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-delete.test.ts src/__tests__/voice/audio-routes.test.ts src/__tests__/voice/voice-host.test.ts src/__tests__/voice/livekit-outage.test.ts src/__tests__/voice/audio-delete.e2e.test.ts`.
+Expected Result: 409 `session_live` with nothing written for a worker, a restart backoff, `mediaLost`, a probe in flight and a store lock held by another process; the check is repeated per identity.
+Actual Result: As expected (`audio-delete.test.ts` `deleteAudio: live` (isLive true, a throwing predicate, asked again before each identity, `locked_other`); `audio-routes.test.ts` (409 before the catalog and with no file call); `voice-host.test.ts` and `livekit-outage.test.ts` (`isLive` for a worker, a backoff, `mediaLost`, a probe in flight, an unknown id creating no entry); `audio-delete.e2e.test.ts` (409 with no audio folder, going live between identities, a real second process holding the store lock: nothing written)). A crashed-but-not-ended session staying live is by design (owner decision). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0236: Audit first, then the index lines, then the unlink
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0445
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-delete.test.ts src/__tests__/voice/audio-delete.e2e.test.ts`.
+Expected Result: The audit line is appended before any index line or unlink; a failed audit leaves the identity pending with no index line and no unlink; the lines go in one write; a WAV with `nlink` above 1 and a role folder that is a link are handled as the spec says; a `participant_request` with no audio writes `segments: 0`.
+Actual Result: As expected (`audio-delete.test.ts` `the audit comes first` (the audit sees every index untouched and every WAV present; a false audit leaves files and index untouched and the identity `pending audit_unavailable`; `participant_request` writes `segments: 0` only for an identity holding audio; a facilitator request with nothing in scope writes nothing), `the files themselves` (a torn line terminated, a WAV link not followed, a role folder swapped for a link or another folder, `nlink` 2, all marks in one write) and `audio-delete.e2e.test.ts` (an audit that cannot be written leaves the audio playable; a crash after the audit, then a retry with a new op; a crash after the marks, finished by the sweep)). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0237: Partial results and the worst reason
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0446
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-delete.test.ts src/__tests__/voice/audio-routes.test.ts src/__tests__/voice/audio-delete.e2e.test.ts`.
+Expected Result: Two identities with one busy answer 503 with partial counts, `Retry-After: 1` only for `busy`, the worst reason as the code, and a retry finishes the rest; a delete and the sweep at once in one process give 503, not 409.
+Actual Result: As expected (`audio-delete.test.ts` `busy and retry`; `audio-routes.test.ts` (503 `busy` with `Retry-After: 1` and the partial body, `store_unsafe` and `audit_unavailable` without it, a retry finishing the rest, `gone` in a 200, an all-deleted retry is a normal 200 `deleted: 0`); `audio-delete.e2e.test.ts` (two identities with one held: partial counts then the rest; a delete racing the real sweep through `startControl` is 503 `busy`, never 409)). An identity whose root or folder cannot be re-checked under the lock is `pending store_unsafe`, not `gone`: `audio-catalog.test.ts` `recheckIdentity (US-0075): belongs, gone, or cannot tell (unsafe)`; `audio-delete.test.ts` `a recheck that cannot tell is pending store_unsafe, never gone` (a root made group-writable after `find`, the folder replaced by a link to a valid copy, the path replaced by a regular file: nothing audited, marked or removed); `audio-routes.test.ts` `an identity whose folder can no longer be judged under the lock (a file in its place) is 503 store_unsafe, not gone` (no `Retry-After`). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0238: An untrusted index fails closed
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0447
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-catalog.test.ts src/__tests__/voice/audio-replay.test.ts src/__tests__/voice/audio-routes.test.ts src/__tests__/voice/audio-delete.test.ts src/__tests__/voice/audio-delete.e2e.test.ts`.
+Expected Result: A link, another user's file or an over-cap index gives 503 `store_unsafe` for replay and for delete and never falls through to another identity; a missing index is a trusted empty one.
+Actual Result: As expected (`audio-catalog.test.ts` `readSegmentIndex` (trusted-empty for a missing index, role folder or identity folder; untrusted for a symlinked role or identity folder or index, ENOTDIR, a foreign file or folder, an index over 64 MiB, mode 000, a bad id with no file call); `audio-replay.test.ts` (an untrusted first identity gives `store_unsafe` and never opens the second's copy, the second and third reads); `audio-routes.test.ts` and `audio-delete.test.ts` (503 `store_unsafe`, nothing marked); `audio-delete.e2e.test.ts` (a symlinked index: replay and delete 503, no RIFF byte, the link target unmarked)). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0239: The sweep honours the deleted mark and the shared mutex
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0448
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/store-lock.test.ts src/__tests__/voice/sweep.test.ts src/__tests__/voice/audio-delete.e2e.test.ts`.
+Expected Result: A deleted-but-unlinked WAV is removed by the sweep; a held mutex or `locked_here` leaves the identity for the next run; `locked_other` is reported only after the mutex was taken; the sweep's audit shape is unchanged.
+Actual Result: As expected (`store-lock.test.ts` (`IdentityMutex` try-take and idempotent release; `held`, `locked_here`, `locked_other`, `unsafe`, `error`; `assertHeld`; the source scan pinning every acquirer), `sweep.test.ts` (a marked WAV is an orphan and is unlinked; a deleted line with no `op`, no `ts` or a malformed one removes nothing; an untrusted index removes nothing; the sweep's own audit shape unchanged), `audio-delete.e2e.test.ts` (one mutex through `startControl`; the sweep finishing a crash after the marks)). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0240: A deleted segment never plays and nothing leaks
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0449
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-replay.test.ts src/__tests__/voice/audio-routes.test.ts src/__tests__/voice/audio-catalog.test.ts src/__tests__/voice/audit-log.test.ts src/__tests__/voice/audio-delete.e2e.test.ts`.
+Expected Result: Replay answers 410 `audio_deleted` and the listing `deleted` after a delete; no response, log or audit line holds a path, id, name or audio; an extra audit key is dropped.
+Actual Result: As expected (`audio-replay.test.ts` and `audio-routes.test.ts` (410 `audio_deleted`, a replay that races a delete returns no bytes), `audio-catalog.test.ts` (the listing says `deleted`), `audit-log.test.ts` (`audio.deleted` role, participant and sweep lines; smuggled keys on the event and the scope dropped), `audio-routes.test.ts` `nothing in any response, and nothing logged, contains a path`, `audio-delete.e2e.test.ts` (the audit file holds one line with no raw text, path, `.wav`, `RIFF` or `raw`; replay 410 after a delete; session scope keeps `session.json` and every index)). 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0241: End to end and the mutation checks
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0450
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/audio-delete.e2e.test.ts` (13 tests: real `AudioStore`, real `createApi` over HTTP, real `AuditLog`, real `sweepAudio`, a real second process for the live lock); the mutation checks are recorded in the Task 9 report and the closing comment of that file.
+Expected Result: Delete by the role and session scopes against a real store (the participant scope by the route and unit tests), replay 410, the sweep finishing a crash after the audit and after the index write; each of the six mutation kinds (nine runs) fails a named test and is reverted.
+Actual Result: As expected (13 end-to-end tests pass: delete by the role and session scopes (the participant scope is proven by `audio-routes.test.ts` and `audio-delete.test.ts`, not end to end), replay 410 and the other role still playing, the sweep finishing a crash after the audit (retry, new op) and after the marks, two identities with one busy, the sweep race through `startControl`, an untrusted index with no fall-through). The six mutation kinds, run nine times (marks before the audit; the live check at the service, at the per-identity re-check and at the first check; no mutex; a second mutex in `main.ts`; no deleted mark; an untrusted index treated as empty; an unchecked unlink path) each failed named tests and were reverted: prior evidence from the Task 9 report, not re-run here; the unlink mutation is killed by unit tests only (the swap needs in-process timing). The four chmod-based crash tests (two here, two in `audio-delete.test.ts`) sit under `describe.skipIf(isRoot)` with the reason in the name (root ignores chmod; they run as a normal user, as CI does); the sweep-race test waits for the aside folder with `vi.waitFor`. Linux container, 2026-11-13, `git archive` tree of ac122f45, `node:22`, the AGENTS.md recipe, `pnpm -s vitest run` of 7 files (`audio-delete.test.ts`, `audio-delete.e2e.test.ts`, `store-lock.test.ts`, `audio-catalog.test.ts`, `audio-routes.test.ts`, `sweep.test.ts` in control, `protocol-deleted-line.test.ts` in speech): with `--user node` 7 files passed, 486 tests passed, 1 skipped (a root-only catalog test); as root 461 passed, 23 skipped (the four chmod-based delete tests among them, plus catalog and sweep tests that need a normal user) and 3 failed, all in `sweep.test.ts` (`exactly one audit line across a removal that fails`, `never logs a path or an identity`, `a failed removal logs the fixed sentence`): older US-0073 sweep tests that make a folder unwritable with chmod and are not skipped as root; every US-0075 test passed as root. 2026-11-13 (macOS arm64; the whole `pnpm -r test` run: events 89, script 222, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4538 (+1 skipped), speech 483 (+17 skipped), web 1614, control 1585 (+1 skipped), all passed; `pnpm -r typecheck` clean; `pnpm lint:sdk` ok).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 1); run and recorded 2026-11-13 in the Task 10 documents pass.
+
+TC-0242: Delete on a real recorded session (owner-run)
+Related Story: US-0075
+Related Task: TASK-0111
+Related AC: AC-0443, AC-0444, AC-0445, AC-0449
+Type: Manual
+Preconditions: The owner's real stack with the room test (`docs/VOICE_RUNBOOK.md` section 11 item 10): a session recorded with the real worker, the session ended, and the control service's service token.
+Steps:
+  1. While the session is still live, call `DELETE /sessions/<id>/audio` with `x-service-token`, `Content-Type: application/json` and a body `{ "scope": { "kind": "session" }, "reason": "facilitator", "by": "<name>-console" }` and confirm `409 session_live` and that every segment still plays.
+  2. End the session. Delete one role (`{ "kind": "role", "role": "<role id>" }`), then one participant with `"reason": "participant_request"`, then the rest with the session scope; after each, call the listing and replay a deleted segment.
+  3. Check `<logIdentity>.audio-audit.jsonl` for one `audio.deleted` line per folder per call (scope, reason, `by`, segments, op; no text, no path) written before the files went, that the WAV files are gone, that `index.jsonl` holds the `deleted` lines, and that the session log is unchanged. Make the audit file unwritable once and confirm `503 audit_unavailable` and that the audio still plays.
+Expected Result: `409` while live; after the delete the listing says `deleted`, a replay answers `410`, the WAVs are removed, the audit lines are present with no content keys, the transcript in the session log is unchanged, and nothing is removed when the audit line cannot be written.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-13 (Task 10). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-1b. The owner runs it with the room test.

@@ -79,7 +79,7 @@ The audit log holds participant ids and facilitator labels, never content (revie
 - Alerts: `store_stopped` reaches the facilitator and the audit log; `voice.opted_in` and `voice.opted_out` are audited.
 - Mutation checks on the guard, the path join, the lock skip and the consent-refusal rule.
 - Threat model: new entries for the audio directory, the lock, the sweep, the audit log (and its retention) and the identity hand-off. Rollback: `VOICE_ENABLED=0`; an older build ignores the audio directory and the audit file. `CONTROL_GRACE_MS` (default 30 s) can cut a flush short; the orphan cleanup covers it and a test shows it.
-- Out of scope (A2b): replay route, manual delete, `audio.played`, `deleted` index lines (for A2b, reword contract 5 as "one writer at a time, under the store lock"), console panel.
+- Out of scope (A2b): replay route, manual delete, `audio.played`, `deleted` index lines (contract 5 is reworded "one writer at a time, under the store lock": the worker writes segment and seq lines, and A2b-1b's delete writes `deleted` lines, each only while holding the store lock), console panel.
 
 ## 9. Review log
 

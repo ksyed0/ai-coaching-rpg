@@ -59,6 +59,41 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
+describe("sweepAudio deleted-aware orphan pass (US-0075, A2b-1b Task 5)", () => {
+  const del = (segment: string, extra: Record<string, unknown> = {}) => ({ v: 1, kind: "deleted", segment, op: "0123456789abcdef", ts: T0, ...extra });
+  const segOf = (segment: string) => ({ ...seg(T0, T0 + 1000), segment });
+  const wav = (sid: string, n: string) => path.join(audioDir, sid, "r", `${n}.wav`);
+  const now = T0 + DAY;
+
+  it("unlinks a WAV whose id has a segment line and a valid deleted line, and keeps a segment-only WAV", async () => {
+    mkSession(A, { ended: T0, wavs: { r: 2 }, index: { r: [segOf("seg0"), segOf("seg1"), del("seg0")] } });
+    expect(await run({ now })).toEqual({ deleted: 0, skipped: 0, orphans: 1 });
+    expect(existsSync(wav(A, "seg0"))).toBe(false);
+    expect(existsSync(wav(A, "seg1"))).toBe(true);
+  });
+
+  it.each([
+    ["no op", { op: undefined }],
+    ["a malformed op", { op: "XYZ" }],
+    ["no ts", { ts: undefined }],
+    ["a negative ts", { ts: -1 }],
+  ])("a deleted line with %s removes nothing", async (_n, extra) => {
+    mkSession(A, { ended: T0, wavs: { r: 1 }, index: { r: [segOf("seg0"), del("seg0", extra)] } });
+    expect(await run({ now })).toEqual({ deleted: 0, skipped: 0, orphans: 0 });
+    expect(existsSync(wav(A, "seg0"))).toBe(true);
+  });
+
+  it("an untrusted (linked) index still removes nothing", async () => {
+    mkSession(A, { ended: T0, wavs: { r: 1 }, index: { r: [segOf("seg0"), del("seg0")] } });
+    const idx = path.join(audioDir, A, "r", "index.jsonl");
+    const real = path.join(root, "real-index.jsonl");
+    renameSync(idx, real);
+    symlinkSync(real, idx);
+    expect(await run({ now })).toEqual({ deleted: 0, skipped: 0, orphans: 0 });
+    expect(existsSync(wav(A, "seg0"))).toBe(true);
+  });
+});
+
 describe("sweepAudio (US-0073, A2a Task 9a)", () => {
   it.each([30, 1])("deletes at exactly %i days and after, keeps one ms before (boundary inclusive)", async (days) => {
     const now = T0 + 100 * DAY;
@@ -334,7 +369,7 @@ describe("orphan WAV cleanup in a kept folder (US-0073, A2a Task 9b)", () => {
   });
 
   it("ignores garbled and non-segment index lines (they never keep a WAV, never break the pass)", async () => {
-    keptSession({ r: ["{torn", "not json", JSON.stringify({ v: 1, kind: "segment", segment: "seg0" }), JSON.stringify({ v: 1, kind: "deleted", segment: "seg1" }), "[1,2]", "null", JSON.stringify({ v: 1, kind: "segment", segment: 5 }), '{"v":1,"kind":"segm'] }, { r: 3 });
+    keptSession({ r: ["{torn", "not json", JSON.stringify({ v: 1, kind: "segment", segment: "seg0" }), JSON.stringify({ v: 1, kind: "deleted", segment: "seg1", op: "0123456789abcdef", ts: 1 }), "[1,2]", "null", JSON.stringify({ v: 1, kind: "segment", segment: 5 }), '{"v":1,"kind":"segm'] }, { r: 3 });
     expect(await run({ now: KEPT })).toEqual({ deleted: 0, skipped: 0, orphans: 2 });
     expect(wavsIn("r")).toEqual(["seg0.wav"]);
   });

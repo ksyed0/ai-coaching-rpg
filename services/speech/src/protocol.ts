@@ -1,10 +1,11 @@
+import { closeSync, constants as fc, fstatSync, fsyncSync, openSync, readSync, writeSync } from "node:fs";
 import { z } from "zod";
 import { CLIENT_ID_MAX_CHARS, isFileSafeId, isReservedRoleId, isScenarioId } from "@acr/events";
 
 /**
  * US-0070 (EPIC-0003 voice A1a): the speech worker's fork() IPC messages to and from the control service. The ONE source of these
  * schemas: control imports this module as `@acr/speech/protocol` and nothing else of `@acr/speech` (a control import test pins it), so no
- * native audio code ever loads into control. This module imports only zod and @acr/events. Every schema is strict (unknown keys refused).
+ * native audio code ever loads into control. This module imports only zod, @acr/events and node:fs (US-0075: the one index-line writer, below). Every schema is strict (unknown keys refused).
  *
  * The worker never talks to the runtime: control relays a `voice_line` to the runtime over the parent channel and gives the answer back
  * as `voice_line_result`. See docs/superpowers/plans/2026-11-08-voice-part-a-overview.md, "Cross-slice interfaces", section 1.
@@ -148,3 +149,59 @@ const LiveKitJoinRefused = z.strictObject({ type: z.literal("livekit_join_refuse
 const SttSlotGrant = z.strictObject({ type: z.literal("stt_slot_grant"), slot: SlotIdSchema });
 export const ControlToWorkerSchema = z.discriminatedUnion("type", [VoiceState, VoiceLineResult, LiveKitJoin, LiveKitJoinRefused, SttSlotGrant]);
 export type ControlToWorker = z.infer<typeof ControlToWorkerSchema>;
+
+/**
+ * US-0075 (EPIC-0003 voice A2b-1b): the `deleted` line of a role's `index.jsonl`. Control writes it (under the store lock) when the
+ * facilitator deletes a segment's audio; speech's index reader skips it and the sweep treats the segment as no longer playable. The ONE
+ * definition of the format, so no second parser exists. `op` is the 16-hex id of the delete request that wrote it.
+ */
+export type DeletedIndexLine = { v: 1; kind: "deleted"; segment: string; op: string; ts: number };
+
+/** True when `x` is a well-formed `deleted` line: `v` 1, a file-safe segment, a 16 lower-case hex op, a finite non-negative `ts`. */
+export const isDeletedLine = (x: unknown): x is DeletedIndexLine => {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  return o.v === 1 && o.kind === "deleted" && typeof o.segment === "string" && isFileSafeId(o.segment) && isLowerHex(o.op, 16)
+    && typeof o.ts === "number" && Number.isFinite(o.ts) && o.ts >= 0;
+};
+
+/**
+ * Appends `lines` to an EXISTING role index in ONE write and one fsync (O_APPEND, never through a link, no O_CREAT: a segment to delete
+ * implies its index exists, and creating one could plant an index in the wrong folder). One descriptor throughout (never a second open by
+ * path): it is judged on its `fstat` (a regular file of this user), a torn last line (no final newline) is terminated first, and a short
+ * write is continued (`write` is a test seam; `writeFully` lives in speech's store, which this module must not import, so the loop is
+ * inlined). Errors carry the errno code only, never the path.
+ */
+export function appendDeletedLines(file: string, lines: DeletedIndexLine[], write: (fd: number, buf: Buffer, off: number, len: number) => number = writeSync): void {
+  let fd: number;
+  try { fd = openSync(file, fc.O_RDWR | fc.O_APPEND | fc.O_NOFOLLOW); }
+  catch (err) { throw codeError(`could not open the audio index (${(err as NodeJS.ErrnoException).code ?? "error"})`, (err as NodeJS.ErrnoException).code); }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw codeError("the audio index is not a regular file", "not_regular");
+    if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw codeError("the audio index is not owned by this user", "not_owned");
+    if (lines.length === 0) return;
+    let prefix = "";
+    if (st.size > 0) {
+      const last = Buffer.alloc(1);
+      readSync(fd, last, 0, 1, st.size - 1);
+      if (last[0] !== 0x0a) prefix = "\n";
+    }
+    const buf = Buffer.from(prefix + lines.map((l) => `${JSON.stringify(l)}\n`).join(""), "utf8");
+    let off = 0;
+    while (off < buf.length) {
+      const n = write(fd, buf, off, buf.length - off);
+      if (!Number.isInteger(n) || n <= 0) throw codeError("could not write the audio index (short_write)", "short_write");
+      off += n;
+    }
+    fsyncSync(fd);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (err instanceof Error && typeof code === "string" && err.message.includes(`(${code})`)) throw err;
+    if (err instanceof Error && ["not_regular", "not_owned"].includes(code ?? "")) throw err;
+    throw codeError(`could not write the audio index (${code ?? "error"})`, code);
+  } finally { closeSync(fd); }
+}
+
+/** An error whose message names no path; `code` is the errno code or a fixed word. */
+const codeError = (message: string, code: string | undefined): Error => Object.assign(new Error(message), { code });
