@@ -10,7 +10,7 @@ import { setEnvelopeClock } from "../envelope";
 import { consoleRecheck, FacilitatorHub } from "../facilitator-hub";
 import type { Deps } from "../handlers";
 import { handleConsoleReportLinks } from "../report-handlers";
-import { CONSOLE_PASSWORD_PATH, consolePageRedirect, consoleView } from "../routes";
+import { CONSOLE_PASSWORD_PATH, adminPageRedirect, consolePageRedirect, consoleView } from "../routes";
 import { HEARTBEAT_MS } from "../sse";
 import {
   ADMIN, FACILITATOR, FIXTURE_ORIGIN as ORIGIN, FIXTURE_T0 as T0, accountCookie, accountCookieValue, consoleAuth, consoleConfig, fakeDeps,
@@ -194,15 +194,15 @@ describe("console re-check (US-0083)", () => {
     const deps = fakeDeps({ auth });
     const view = consoleView(accountCookieValue(ADMIN), () => deps);
     expect(view).toBeInstanceOf(Promise);
-    expect(await view).toEqual({ kind: "signed_in", name: "Ann Lee", role: "admin", mustChange: false });
+    expect(await view).toEqual({ kind: "signed_in", name: "Ann Lee", role: "admin", mustChange: false, legacy: false });
     expect(consolePageRedirect(await view)).toBeNull();
 
     const must = await consoleView(accountCookieValue(FACILITATOR), () => deps);
-    expect(must).toEqual({ kind: "signed_in", name: "Dana Cook", role: "facilitator", mustChange: true });
+    expect(must).toEqual({ kind: "signed_in", name: "Dana Cook", role: "facilitator", mustChange: true, legacy: false });
     expect(consolePageRedirect(must)).toBe(CONSOLE_PASSWORD_PATH);
     expect(CONSOLE_PASSWORD_PATH).toBe("/console/password");
 
-    expect(await consoleView(legacyCookieValue("Bo"), () => deps)).toEqual({ kind: "signed_in", name: "Bo", role: "admin", mustChange: false });
+    expect(await consoleView(legacyCookieValue("Bo"), () => deps)).toEqual({ kind: "signed_in", name: "Bo", role: "admin", mustChange: false, legacy: true });
     auth.revoke(ADMIN.id);
     expect(await consoleView(accountCookieValue(ADMIN), () => deps)).toEqual({ kind: "signed_out" });
     auth.down();
@@ -316,5 +316,17 @@ describe("console re-check (US-0083)", () => {
     await settle();
     expect(throwing.size()).toBe(1);
     expect(rejecting.size()).toBe(1);
+  });
+
+  it("non_admin_never_sees_the_admin_link_or_page: the admin page sends everyone but an admin account away", () => {
+    const signedIn = (role: "admin" | "facilitator", mustChange = false, legacy = false) =>
+      ({ kind: "signed_in", name: "N", role, mustChange, legacy }) as const;
+    expect(adminPageRedirect({ kind: "signed_out" })).toBe("/console");
+    expect(adminPageRedirect(signedIn("admin", true))).toBe(CONSOLE_PASSWORD_PATH);
+    expect(adminPageRedirect(signedIn("facilitator"))).toBe("/console");
+    expect(adminPageRedirect(signedIn("admin", false, true))).toBe("/console");
+    expect(adminPageRedirect(signedIn("admin"))).toBeNull();
+    expect(adminPageRedirect({ kind: "disabled" })).toBeNull();
+    expect(adminPageRedirect({ kind: "unavailable" })).toBeNull();
   });
 });

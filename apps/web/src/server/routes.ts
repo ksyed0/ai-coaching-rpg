@@ -135,7 +135,7 @@ export type ConsoleView =
   | { kind: "disabled" }
   | { kind: "signed_out" }
   | { kind: "unavailable" }
-  | { kind: "signed_in"; name: string; role: "admin" | "facilitator"; mustChange: boolean };
+  | { kind: "signed_in"; name: string; role: "admin" | "facilitator"; mustChange: boolean; legacy: boolean };
 export async function consoleView(token: string | undefined, getDeps: () => Deps = sharedDeps): Promise<ConsoleView> {
   let d: Deps;
   try {
@@ -149,12 +149,24 @@ export async function consoleView(token: string | undefined, getDeps: () => Deps
   const who = await resolveConsoleCaller(cookie, d);
   if (who === "refused") return { kind: "signed_out" };
   if (who === "unavailable") return { kind: "unavailable" };
-  return { kind: "signed_in", name: who.name, role: who.role, mustChange: who.mustChange };
+  return { kind: "signed_in", name: who.name, role: who.role, mustChange: who.mustChange, legacy: who.legacy };
 }
 
 /** Where a console page must send this view instead of rendering, or null: an account that must change its password goes there first. */
 export function consolePageRedirect(view: ConsoleView): string | null {
   return view.kind === "signed_in" && view.mustChange ? CONSOLE_PASSWORD_PATH : null;
+}
+
+/**
+ * Where /console/admin must send this view instead of rendering, or null. Signed out goes to the sign-in, an account that must change
+ * its password goes there first, and anyone who is not an admin ACCOUNT (a facilitator, or a legacy shared-secret sign-in, which the
+ * admin routes refuse) goes back to /console. The disabled and unavailable views render their own message.
+ */
+export function adminPageRedirect(view: ConsoleView): string | null {
+  if (view.kind === "disabled" || view.kind === "unavailable") return null;
+  if (view.kind === "signed_out") return "/console";
+  if (view.mustChange) return CONSOLE_PASSWORD_PATH;
+  return view.role === "admin" && !view.legacy ? null : "/console";
 }
 
 type Handler = (req: Request, deps: Deps) => Promise<Response>;

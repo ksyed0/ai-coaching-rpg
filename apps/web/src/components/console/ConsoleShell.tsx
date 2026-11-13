@@ -8,6 +8,9 @@ import { SessionList } from "./SessionList";
 
 export type ConsoleShellProps = {
   name: string;
+  /** US-0083: an admin sees the owners of sessions; only an admin ACCOUNT (not `legacy`) gets the Admin page link. */
+  role?: "admin" | "facilitator";
+  legacy?: boolean;
   fetch?: typeof fetch;
   refresh?: () => void;
 };
@@ -16,6 +19,8 @@ const reload = () => window.location.reload();
 
 export function ConsoleShell({
   name,
+  role = "facilitator",
+  legacy = false,
   fetch: fetchImpl,
   refresh = reload,
 }: ConsoleShellProps) {
@@ -29,7 +34,8 @@ export function ConsoleShell({
     <div className="stack">
       <div className="card stack">
         <p>Signed in as {name}</p>
-        <div>
+        <div className="rowactions">
+          {role === "admin" && !legacy ? <a href="/console/admin">Admin</a> : null}
           <button
             className="btn"
             type="button"
@@ -41,7 +47,7 @@ export function ConsoleShell({
         </div>
       </div>
       <div className="card soft">
-        <SessionList fetch={fetchImpl} />
+        <SessionList fetch={fetchImpl} role={role} />
       </div>
     </div>
   );

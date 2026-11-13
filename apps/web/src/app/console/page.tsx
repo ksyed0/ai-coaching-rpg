@@ -30,7 +30,7 @@ export default async function ConsolePage() {
           <>
             <TitleBlock title="Facilitator console" lede="Your sessions." />
             <div className="body">
-              <ConsoleShell name={view.name} />
+              <ConsoleShell name={view.name} role={view.role} legacy={view.legacy} />
             </div>
           </>
         ) : (

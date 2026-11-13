@@ -36,6 +36,18 @@ export type ListedSession = {
   scenarioId: string;
   status: "running" | "stopped" | "ended";
   modelLabel?: string;
+  /** US-0083: the owning account's id; sent to admins only, and absent for a session nobody owns. */
+  owner?: string;
+};
+
+/** US-0083: an account as the admin screen lists it (never a password). */
+export type AdminAccount = {
+  id: string;
+  login: string;
+  name: string;
+  role: "admin" | "facilitator";
+  status: "invited" | "active" | "revoked";
+  mustChange: boolean;
 };
 
 const obj = (v: unknown): Record<string, unknown> | null =>
@@ -74,9 +86,38 @@ export function parseSessions(v: unknown): ListedSession[] {
       scenarioId: o.scenarioId,
       status,
       ...(typeof o.modelLabel === "string" ? { modelLabel: o.modelLabel } : {}),
+      ...(typeof o.owner === "string" && o.owner.length > 0 ? { owner: o.owner } : {}),
     });
   }
   return out;
+}
+
+const roleOf = (v: unknown) => (v === "admin" || v === "facilitator" ? v : null);
+const statusOf = (v: unknown) => (v === "invited" || v === "active" || v === "revoked" ? v : null);
+
+/** One account, field by field (null for anything that does not fit). */
+export function parseAccount(v: unknown): AdminAccount | null {
+  const o = obj(v);
+  if (!o || typeof o.id !== "string" || typeof o.login !== "string" || typeof o.name !== "string") return null;
+  const role = roleOf(o.role);
+  const status = statusOf(o.status);
+  if (!role || !status) return null;
+  return { id: o.id, login: o.login, name: o.name, role, status, mustChange: o.mustChange === true };
+}
+
+/** The answer of GET /api/v1/console/admin/accounts: `{ accounts: [...] }`. */
+export function parseAccounts(v: unknown): AdminAccount[] {
+  const list = obj(v)?.accounts;
+  if (!Array.isArray(list)) return [];
+  return list.map(parseAccount).filter((a): a is AdminAccount => a !== null);
+}
+
+/** The answer of create, resend, reset and reinstate: the account and its one-time temporary password (null when it does not fit). */
+export function parseIssued(v: unknown): { account: AdminAccount; temporaryPassword: string } | null {
+  const o = obj(v);
+  const account = parseAccount(o?.account);
+  if (!o || !account || typeof o.temporaryPassword !== "string" || o.temporaryPassword.length === 0) return null;
+  return { account, temporaryPassword: o.temporaryPassword };
 }
 
 export function parseScenarios(v: unknown): { id: string; title: string }[] {
