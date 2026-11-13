@@ -59,11 +59,14 @@ export class AccountService {
   }
 
   async ensureDefaultAdmin(): Promise<void> {
+    if (this.o.reset) this.log("ADMIN_RESET is set: unset it after use");
     const existing = this.o.store.read();
     if (existing && !this.o.reset) return;
     const password = await hashPassword(this.o.bootstrapPassword);
     const f = this.o.store.read() ?? { legacyClosed: false, accounts: [] };
     const found = f.accounts.find((a) => a.login === DEFAULT_ADMIN_LOGIN);
+    // A concurrent call may have created the admin while we hashed: that is not a reset.
+    if (found && !this.o.reset) return;
     if (found) {
       Object.assign(found, { role: "admin" as Role, status: "active" as const, password, mustChange: true, tempExpiresAt: null, epoch: found.epoch + 1 });
       this.log("accounts: the default admin was reset (ADMIN_RESET)");

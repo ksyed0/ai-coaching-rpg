@@ -1,4 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const calls = vi.hoisted(() => ({ verify: 0, hash: 0 }));
+vi.mock("../accounts/passwords.js", async (orig) => {
+  const m = await orig<typeof import("../accounts/passwords.js")>();
+  return {
+    ...m,
+    verifyPassword: (...a: Parameters<typeof m.verifyPassword>) => { calls.verify++; return m.verifyPassword(...a); },
+    hashPassword: (...a: Parameters<typeof m.hashPassword>) => { calls.hash++; return m.hashPassword(...a); },
+  };
+});
 import { AccountError, AccountService } from "../accounts/service.js";
 import type { AccountStore } from "../accounts/store.js";
 import type { AccountsFile } from "../accounts/types.js";
@@ -41,6 +51,24 @@ describe("AccountService", () => {
     expect(s.store.file!.legacyClosed).toBe(false);
   });
 
+  it("concurrent_ensure_default_admin_creates_one_admin_without_a_reset", async () => {
+    const s = setup();
+    await Promise.all([s.svc.ensureDefaultAdmin(), s.svc.ensureDefaultAdmin()]);
+    expect(s.store.file!.accounts).toHaveLength(1);
+    expect(admin(s).epoch).toBe(0);
+    expect(s.logs.join("\n")).not.toMatch(/reset/i);
+  });
+
+  it("admin_reset_logs_the_loud_line_each_start_and_never_a_password", async () => {
+    const s = setup({ reset: true });
+    await s.svc.ensureDefaultAdmin(); // file missing
+    await s.svc.ensureDefaultAdmin(); // file present
+    expect(s.logs.filter((l) => l === "ADMIN_RESET is set: unset it after use")).toHaveLength(2);
+    expect(s.logs.some((l) => l.includes("the default admin was reset (ADMIN_RESET)"))).toBe(true);
+    expect(s.logs.join("\n")).not.toContain("ChangeMe-Admin-1");
+    expect(setup().logs).toEqual([]);
+  });
+
   it("missing_file_is_first_start_but_corrupt_file_is_refused", async () => {
     const s = setup();
     expect(s.store.file).toBeNull();
@@ -81,8 +109,12 @@ describe("AccountService", () => {
     await s.svc.ensureDefaultAdmin();
     const iss = await s.svc.create({ login: "Bob", name: "Bob", role: "facilitator" }, null);
     s.svc.revoke(iss.account.id);
+    await s.svc.login("warmup", "x"); // creates the dummy hash
     for (const [l, p] of [["nobody", "x"], ["admin", "wrong"], ["bob", iss.temporaryPassword]] as const) {
+      calls.verify = 0; calls.hash = 0;
       expect(await s.svc.login(l, p)).toEqual({ ok: false, reason: "refused" });
+      expect(calls.verify, l).toBe(1);
+      expect(calls.hash, l).toBe(0);
     }
     const ok = await s.svc.login(" ADMIN ", "ChangeMe-Admin-1");
     expect(ok.ok).toBe(true);
