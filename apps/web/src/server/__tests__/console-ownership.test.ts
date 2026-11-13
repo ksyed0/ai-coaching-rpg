@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountSlug } from "../console-report-handlers";
 import { setEnvelopeClock } from "../envelope";
 import type { Deps } from "../handlers";
+import { FacilitatorHub } from "../facilitator-hub";
 import { LauncherClient, LauncherError, type AccountInfo, type SessionInfo } from "../launcher-client";
 import {
   ADMIN, FACILITATOR, FIXTURE_ORIGIN as ORIGIN, FIXTURE_T0 as T0, accountCookie, consoleAuth, fakeDeps, legacyCookie,
 } from "../test-support/console-fixtures";
+import { FakeConn, manualTimers, sseReader, until } from "./fakes";
 
 // US-0083 Task 6: session ownership on every console route that takes a session id. The route table is read from the real Next route
 // files under app/api/v1/console/sessions/[id], and each file's exported handlers are called through routes.ts's shared deps, so a new
@@ -460,5 +462,147 @@ describe("launcher client", () => {
     for (const bad of [{ accounts: [{ ...ACC, role: "root" }] }, { accounts: "x" }, [ACC]]) {
       await expect(client(() => envelope(bad)).c.accountsList()).rejects.toMatchObject({ reason: "failed" });
     }
+  });
+});
+
+describe("a change of owner ends the session's open streams", () => {
+  /** A facilitator connection whose join answers like the runtime's. */
+  class FacConn extends FakeConn {
+    async joinFacilitator() {
+      return {
+        frame: { type: "joined" as const, roleId: "facilitator", scenes: [], replay: { afterSeq: 0, toSeq: 0, events: 0, complete: true }, state: { status: "running", lastSeq: 0 } as never },
+        roster: [], status: "running" as const,
+      };
+    }
+    override close() { super.close(); queueMicrotask(() => this.drop(1000)); }
+  }
+
+  let readers: ReturnType<typeof sseReader>[] = [];
+  afterEach(async () => {
+    for (const r of readers) await r.cancel().catch(() => {});
+    readers = [];
+  });
+
+  /** Live sessions S (owned by FACILITATOR) and T (owned by OTHER_FAC); setOwner records into the same table the stream reads. */
+  function liveDeps(o: { setOwnerFails?: boolean } = {}) {
+    const owners = new Map<string, string | undefined>([[SID_MINE, FACILITATOR.id], [SID_OTHER, OTHER_FAC.id]]);
+    const timers = manualTimers();
+    const auth = consoleAuth([ADMIN, FACILITATOR, OTHER_FAC, REVOKED]);
+    const setOwner = vi.fn(async (id: string, owner: string | null) => {
+      if (o.setOwnerFails) throw new LauncherError("unavailable");
+      if (!owners.has(id)) throw new LauncherError("not_found");
+      owners.set(id, owner ?? undefined);
+      const ow = owners.get(id);
+      return { sessionId: id, scenarioId: "friday-escalation", status: "running" as const, ...(ow !== undefined && { owner: ow }) };
+    });
+    const deps = fakeDeps({
+      auth,
+      connect: (async () => new FacConn()) as unknown as Deps["connect"],
+      facilitatorHub: new FacilitatorHub({ setTimer: timers.setTimer, now: () => T0 }),
+      setTimer: timers.setTimer,
+      launcher: {
+        session: vi.fn(async (id: string) => {
+          if (!owners.has(id)) throw new LauncherError("not_found");
+          const ow = owners.get(id);
+          return { sessionId: id, scenarioId: "friday-escalation", status: "running", port: 1, ...(ow !== undefined && { owner: ow }) };
+        }),
+        facilitator: vi.fn(async () => ({ port: 43_211, token: "facilitator-token-" + "f".repeat(20) })),
+        accountsList: vi.fn(async () => [ADMIN, FACILITATOR, OTHER_FAC, REVOKED].map((a) => ({ ...a }))),
+        setOwner,
+      },
+    });
+    install(deps);
+    return { deps, setOwner };
+  }
+  const streamReq = (sid: string, cookie: string) =>
+    new Request(`${ORIGIN}/api/v1/console/sessions/${sid}/stream`, { headers: { Accept: "text/event-stream", "Sec-Fetch-Site": "same-origin", Cookie: cookie } });
+  async function openStream(sid: string, cookie: string) {
+    const { consoleStreamGET } = await import("../routes");
+    const res = await consoleStreamGET(streamReq(sid, cookie));
+    expect(res.status).toBe(200);
+    const r = sseReader(res);
+    readers.push(r);
+    await until(() => r.frames().some((f) => f.event === "roster"), { what: "the roster frame" });
+    return r;
+  }
+  const reconnect = async (sid: string, cookie: string) => {
+    const { consoleStreamGET } = await import("../routes");
+    return consoleStreamGET(streamReq(sid, cookie));
+  };
+  const assign = async (sid: string, owner: string | null) => {
+    const { consoleSessionOwnerPOST } = await import("../routes");
+    return consoleSessionOwnerPOST(new Request(`${ORIGIN}/api/v1/console/sessions/${sid}/owner`, { method: "POST", headers: { ...SAME, Cookie: accountCookie(ADMIN) }, body: JSON.stringify({ owner }) }));
+  };
+  const finalOf = (r: ReturnType<typeof sseReader>) => r.frames().map((f) => f.event).filter((e) => e === "reconnecting" || e === "expired" || e === "ended");
+
+  it("test_console_ownership_reassigning_a_session_ends_its_open_streams", async () => {
+    const { deps } = liveDeps();
+    const a = await openStream(SID_MINE, accountCookie(FACILITATOR));
+    const admin = await openStream(SID_MINE, accountCookie(ADMIN));
+    const elsewhere = await openStream(SID_OTHER, accountCookie(OTHER_FAC));
+    expect(deps.facilitatorHub.size()).toBe(3);
+    expect((await assign(SID_MINE, OTHER_FAC.id)).status).toBe(200);
+    // Every stream on that session ends at once and is told to reconnect; the reconnect's ownership check decides.
+    await until(() => a.done() && admin.done(), { what: "the session's streams to end" });
+    expect(finalOf(a)).toEqual(["reconnecting"]);
+    expect(finalOf(admin)).toEqual(["reconnecting"]);
+    // A stream on another session is untouched.
+    expect(elsewhere.done()).toBe(false);
+    expect(deps.facilitatorHub.size()).toBe(1);
+    // The previous owner's reconnect is the neutral 404; the new owner's and the admin's reconnect open.
+    const old = await reconnect(SID_MINE, accountCookie(FACILITATOR));
+    expect(old.status).toBe(404);
+    expect(await old.text()).toBe(NEUTRAL_BODY);
+    await openStream(SID_MINE, accountCookie(OTHER_FAC));
+    await openStream(SID_MINE, accountCookie(ADMIN));
+  });
+
+  it("test_console_ownership_clearing_the_owner_ends_its_open_streams", async () => {
+    const { deps } = liveDeps();
+    const a = await openStream(SID_MINE, accountCookie(FACILITATOR));
+    const elsewhere = await openStream(SID_OTHER, accountCookie(OTHER_FAC));
+    expect((await assign(SID_MINE, null)).status).toBe(200);
+    await until(() => a.done(), { what: "the owner's stream to end" });
+    expect(finalOf(a)).toEqual(["reconnecting"]);
+    expect(elsewhere.done()).toBe(false);
+    expect(deps.facilitatorHub.size()).toBe(1);
+    expect((await reconnect(SID_MINE, accountCookie(FACILITATOR))).status).toBe(404);
+  });
+
+  it("test_console_ownership_a_failed_assignment_leaves_streams_open", async () => {
+    // An unknown account is refused before control is asked; a control failure is refused after. Neither closes anything.
+    for (const [fails, owner, status] of [[false, "acc-nobody-0000", 400], [false, REVOKED.id, 400], [true, OTHER_FAC.id, 502]] as const) {
+      const { deps } = liveDeps({ setOwnerFails: fails });
+      const close = vi.spyOn(deps.facilitatorHub, "closeSession");
+      const a = await openStream(SID_MINE, accountCookie(FACILITATOR));
+      expect((await assign(SID_MINE, owner)).status).toBe(status);
+      expect(close).not.toHaveBeenCalled();
+      expect(a.done()).toBe(false);
+      expect(deps.facilitatorHub.size()).toBe(1);
+      for (const r of readers) await r.cancel().catch(() => {});
+      readers = [];
+    }
+  });
+
+  it("test_console_ownership_a_throw_while_closing_streams_does_not_fail_the_assignment", async () => {
+    const { deps, setOwner } = liveDeps();
+    vi.spyOn(deps.facilitatorHub, "closeSession").mockImplementation(() => { throw new Error("boom"); });
+    const res = await assign(SID_MINE, OTHER_FAC.id);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: unknown }).data).toEqual({ sessionId: SID_MINE, owner: OTHER_FAC.id });
+    expect(setOwner).toHaveBeenCalledTimes(1);
+  });
+
+  it("test_console_ownership_hub_close_session_ends_only_that_sessions_streams", async () => {
+    const { deps } = liveDeps();
+    const a1 = await openStream(SID_MINE, accountCookie(FACILITATOR));
+    const a2 = await openStream(SID_MINE, accountCookie(ADMIN));
+    const b = await openStream(SID_OTHER, accountCookie(OTHER_FAC));
+    expect(deps.facilitatorHub.closeSession(SID_MINE)).toBe(2);
+    await until(() => a1.done() && a2.done(), { what: "both streams to end" });
+    expect(b.done()).toBe(false);
+    expect(deps.facilitatorHub.closeSession(SID_MINE)).toBe(0);
+    expect(deps.facilitatorHub.closeSession(SID_UNKNOWN)).toBe(0);
+    expect(deps.facilitatorHub.size()).toBe(1);
   });
 });

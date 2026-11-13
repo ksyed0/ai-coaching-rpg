@@ -21,7 +21,8 @@ const isOwner = (v: unknown): v is string | null =>
  * POST /api/v1/console/sessions/:id/owner { owner: string | null }: assigns the session to an account, or with null leaves it to admins.
  * A facilitator is refused 403 for every session (before its id is looked at, so the answer says nothing about the session). The owner
  * must be a known account that is not revoked (checked against control's account list: control records any id it is given); anything
- * else is `invalid`. Control keeps the owner through stop, restart, resume and end.
+ * else is `invalid`. Control keeps the owner through stop, restart, resume and end. After a recorded change every open console stream of
+ * the session is ended (they reconnect through the stream route's ownership check).
  */
 export async function handleConsoleSetOwner(req: Request, deps: Deps): Promise<Response> {
   const g = await guard(req, deps, true, { adminOnly: true });
@@ -38,6 +39,14 @@ export async function handleConsoleSetOwner(req: Request, deps: Deps): Promise<R
       if (!known) return invalid();
     }
     const info = await deps.launcher.setOwner(id, owner);
+    // The heartbeat re-checks only the account, never ownership: end the session's open streams now, so a previous owner stops
+    // receiving the live view; their reconnect meets the stream route's ownership check. The owner is already recorded, so a throw
+    // here must not turn the answer into an error.
+    try {
+      deps.facilitatorHub.closeSession(id);
+    } catch {
+      console.error("web: console: the session's open streams could not be ended after an owner change");
+    }
     return ok({ sessionId: info.sessionId, owner: info.owner ?? null });
   } catch (err) {
     if (err instanceof LauncherError && err.reason === "not_found") return notFound();

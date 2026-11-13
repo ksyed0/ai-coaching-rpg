@@ -147,6 +147,19 @@ export class FacilitatorHub {
     return n;
   }
 
+  /**
+   * US-0083: ends every open stream of this session at once, through the same finish path as closeAccount, with `reconnecting`: the
+   * browser reconnects and the stream route's ownership check decides again (an admin and the new owner get a stream, a previous owner
+   * the neutral 404). The owner route calls it after control recorded a change of owner. Returns how many streams it ended.
+   */
+  closeSession(sessionId: string): number {
+    let n = 0;
+    for (const s of [...this.streams.values()]) {
+      if (s.sessionId === sessionId) { this.finish(s, "reconnecting"); n++; }
+    }
+    return n;
+  }
+
   /** One re-check at a time per stream; a refusal ends it, anything else (control unreachable included) leaves it open. */
   private recheck(s: Stream): void {
     const check = this.o.recheck;
