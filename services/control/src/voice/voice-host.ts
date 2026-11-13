@@ -501,6 +501,17 @@ export class VoiceHost {
     try { this.o.tokens?.roleReissued(sessionId, roleId); } catch (err) { this.failed(sessionId, err); }
   }
 
+  /**
+   * US-0075 (A2b-1b Task 6, the delete route's live check): true while the host holds an entry for the session that is neither `ended`
+   * nor `voiceOff`: a running worker, a restart backoff, `mediaLost` or a probe in flight (the store lock is free in those, hence the
+   * host is asked). Read-only: it reads the map and never creates an entry (the private `session()` does). A session that crashed
+   * without ending stays live by design (owner decision: delete answers 409 until it is ended or restarted).
+   */
+  isLive(sessionId: string): boolean {
+    const s = this.sessions.get(sessionId);
+    return s !== undefined && !s.ended && !s.voiceOff;
+  }
+
   /** Whether the session's runtime last reported an open voice turn (for the demo's V-07 and tests). */
   voiceTurnOpen(sessionId: string): boolean { return this.sessions.get(sessionId)?.turnOpen ?? false; }
 

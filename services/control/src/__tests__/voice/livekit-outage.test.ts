@@ -558,3 +558,18 @@ describe("review C fix wave (US-0072, A1c Task 11)", () => {
     expect(alerts().filter((c) => c === "voice_off")).toHaveLength(1);
   });
 });
+
+describe("VoiceHost.isLive during a LiveKit outage (US-0075, A2b-1b Task 6)", () => {
+  it("is true while the probe is in flight and during mediaLost (no worker, the store lock is free), and false once voice goes off", async () => {
+    const { v } = make();
+    attach(v);
+    ready(last());
+    last().exit(LOST); // the probe is in flight
+    expect(v.isLive(ID)).toBe(true);
+    await answer(false); // mediaLost: waiting for LiveKit
+    expect(alerts().at(-1)).toBe("livekit_lost");
+    expect(v.isLive(ID)).toBe(true);
+    v.end(ID);
+    expect(v.isLive(ID)).toBe(false);
+  });
+});

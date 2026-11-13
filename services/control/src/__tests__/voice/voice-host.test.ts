@@ -995,3 +995,54 @@ describe("VoiceHost audit log and store alerts (US-0073, A2a Task 8)", () => {
     expect(relayed().map((x) => x.m)).toEqual([{ type: "voice_alert", code: "disk_low" }]);
   });
 });
+
+describe("VoiceHost.isLive (US-0075, A2b-1b Task 6: the delete route's live check)", () => {
+  it("no entry is not live (an unknown id, an end for an unknown session)", () => {
+    const v = make();
+    expect(v.isLive(ID)).toBe(false);
+    expect(v.isLive("not-a-session")).toBe(false);
+    v.end(ID); // an end for an unknown session creates no entry
+    expect(v.isLive(ID)).toBe(false);
+  });
+
+  it("an attached voice session with seats is live", () => {
+    const v = make();
+    const w = live(v);
+    v.fromRuntime(ID, seats());
+    expect(v.isLive(ID)).toBe(true);
+    expect(w.killed).toBe(0);
+  });
+
+  it("stays live while a restart waits for its backoff (the worker is gone, the session is not)", () => {
+    const v = make();
+    const w = live(v);
+    w.exit(1);
+    expect(v.workerPid(ID)).toBeUndefined();
+    expect(v.isLive(ID)).toBe(true);
+  });
+
+  it("is false after end (before and after the worker stops) and after voice goes off", () => {
+    const v = make();
+    live(v);
+    v.fromRuntime(ID, seats());
+    expect(v.isLive(ID)).toBe(true);
+    v.end(ID);
+    expect(v.isLive(ID)).toBe(false);
+    fire(700);
+    expect(v.isLive(ID)).toBe(false);
+    const v2 = make();
+    live(v2);
+    for (let i = 0; i < 6; i++) {
+      workers.at(-1)!.exit(1);
+      const restart = timers.find((t) => [500, 1000, 2000, 4000, 8000].includes(t.ms) && !t.cancelled);
+      if (restart) { restart.cancelled = true; restart.fn(); }
+    }
+    expect(v2.isLive(ID)).toBe(false);
+  });
+
+  it("never throws, whatever the id", () => {
+    const v = make();
+    expect(() => { v.isLive(""); v.isLive("__proto__"); v.isLive("x".repeat(10_000)); }).not.toThrow();
+    expect(v.isLive("__proto__")).toBe(false);
+  });
+});
