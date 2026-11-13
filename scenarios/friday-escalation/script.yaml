@@ -4,6 +4,7 @@ scenes:
     goal: Agree the team's position before replying to the client
     participants: [delivery_lead, tech_lead, account_manager]
     time_box_minutes: 10
+    ends_when: the team agrees one position on Priya's request
     opening_inject: email_from_priya
     injects:
       - id: email_from_priya
@@ -22,7 +23,15 @@ scenes:
     goal: Respond to the request and agree next steps
     participants: [delivery_lead, account_manager, client_sponsor]
     time_box_minutes: 15
+    ends_when: you and Priya agree a concrete next step
+    opening_inject: call_opens
     injects:
+      - id: call_opens
+        to: [delivery_lead, account_manager]
+        content: >
+          The call with Priya Raman has started. She wants a clear answer on
+          the reconciliation module and to leave the call knowing what happens
+          next.
       - id: cfo_pressure
         at_minute: 7
         to: [client_sponsor]
@@ -38,6 +47,14 @@ scenes:
     goal: Capture decisions, owners and the message to the wider team
     participants: [delivery_lead, tech_lead, account_manager]
     time_box_minutes: 8
+    ends_when: every follow-up has an owner and a next action
+    opening_inject: wrap_opens
+    injects:
+      - id: wrap_opens
+        to: [delivery_lead, tech_lead, account_manager]
+        content: >
+          The call with Priya has ended. Agree who owns each follow-up and
+          what you will tell the wider team.
     exit_when:
       any_of:
         - time_box_elapsed

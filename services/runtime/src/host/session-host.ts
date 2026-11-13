@@ -1,6 +1,6 @@
 import type { FacilitatorScene, PlayerScene, PlayerSnapshot, SessionEvent, SessionState } from "@acr/events";
 import { commandForPlayer, endedForPlayer, snapshotForPlayer, startedForPlayer } from "./player-copies.js";
-import type { NpcRole, Scenario } from "@acr/script";
+import { sceneEndsWhen, type NpcRole, type Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
 import { EngineError, type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
@@ -999,8 +999,10 @@ export class SessionHost {
     }));
   }
 
+  /** Picked field by field (never a spread of the scene): `endsWhen` (US-0080) is the resolved rule text, and absent when there is none. */
   private plainScene(sc: Scenario["script"]["scenes"][number]): PlayerScene {
-    return { id: sc.id, title: sc.title, goal: sc.goal, timeBoxMinutes: sc.time_box_minutes };
+    const endsWhen = sceneEndsWhen(sc);
+    return { id: sc.id, title: sc.title, goal: sc.goal, timeBoxMinutes: sc.time_box_minutes, ...(endsWhen !== undefined ? { endsWhen } : {}) };
   }
 
   /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */
