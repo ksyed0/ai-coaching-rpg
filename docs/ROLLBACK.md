@@ -605,3 +605,29 @@ Rollback trigger: a speech worker that no longer starts after the upgrade, a rep
 ### Rolling forward again
 
 Redeploy control and the speech worker together. Folders recorded before the upgrade have no marker and are found through the session log; a session that also has a newer marked folder lists only the marked one (`docs/VOICE_RUNBOOK.md` section 8).
+
+## US-0075: facilitator audio delete (EPIC-0003 voice slice A2b-1b)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0075-voice-audio-delete)
+Date: not deployed
+Rollback trigger: a delete that behaves unexpectedly, a replay answering `store_unsafe` for audio that should play, a retention sweep that no longer removes a folder, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log format, any event, the consent file, the voice record or the `session.json` marker. No new setting.**
+- **`deleted` lines** appended to a role's `index.jsonl` (`{ "v": 1, "kind": "deleted", "segment", "op", "ts" }`) by a delete. The speech worker never reads the index and its reader skips the line.
+- **`audio.deleted` lines with `reason` `facilitator` or `participant_request`** (and `scope` role or participant, and an `op`) appended to `<logIdentity>.audio-audit.jsonl`. The sweep's own `audio.deleted` shape (`expired`, `system`) is unchanged.
+- **One new control route:** `DELETE /sessions/:id/audio`, available whatever `VOICE_ENABLED` is. Replay now answers 503 `store_unsafe` (instead of trying the next folder) when an index cannot be trusted (the listing still omits that role's segments), and the sweep also removes a WAV whose segment is marked deleted.
+- **Speech:** the only change is the `@acr/speech/protocol` export of the `deleted` line (its type, guard and writer); no speech behaviour changes, so no speech restart is needed for the sake of this slice.
+
+### Rolling back
+
+- **Rolling back the code is safe, control only.** An earlier control build has no delete route (404). A `deleted` line already written stays in `index.jsonl`. An older speech build ignores it (its reader skips unknown index kinds). A2b-1a control reads the line too (replay `410`, listing `deleted`), but it falls through to another folder's copy on an untrusted index and its sweep does not unlink a marked WAV, so a delete that was interrupted after the marks is only finished by expiry. A build that ignored the line would replay a deleted-marked segment, but only if its WAV still exists. WAVs already deleted stay deleted; nothing can bring them back. `audio.deleted` lines stay in the audit file (the sweep never reads it).
+- **No deploy ordering is needed for this slice:** control and the speech worker may be rolled back separately (the A2b-1a rule, deploy them together, still applies to the `SPEECH_SESSION_ID` change).
+- **Turning voice off does not disable the route.** To stop deletes, roll control back, or leave the session live (a live session refuses a delete with 409).
+
+### Rolling forward again
+
+Redeploy control. A delete interrupted by a rollback is finished by the next sweep run once the new build is back. Nothing to migrate.

@@ -136,7 +136,7 @@ Voice state per seat (what `joined.voice` and, in A1b, the roster show): `none` 
 
 ### 5. Audio index entry (A2; spec §8)
 
-`<AUDIO_ROOT>/<logIdentity>/<roleId>/index.jsonl` (append-only, 0600, directory 0700, one writer: the worker under the A2 lock). Lines:
+`<AUDIO_ROOT>/<logIdentity>/<roleId>/index.jsonl` (append-only, 0600, directory 0700, one writer at a time, under the store lock: the worker, or the control service's delete holding that same lock). Lines:
 
 ```json
 { "v": 1, "kind": "segment", "segment": "<id>", "participantId": "<id>", "startMs": 0, "endMs": 0,
