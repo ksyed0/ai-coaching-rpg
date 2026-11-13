@@ -125,6 +125,8 @@ describe("SceneEndedDialog on the session page", () => {
   it("test_dialog_never_opens_for_End_session", () => {
     const m = mount();
     m.emit("event", exited(6, "s1", "facilitator_end"));
+    expect(dialog()).toBeNull(); // not even for the moment before session.ended arrives
+    expect(screen.getAllByRole("status").some((s) => /has ended/.test(s.textContent ?? ""))).toBe(false);
     m.emit("event", ev(7, "session.ended", { reason: "facilitator_end", message: "Thanks all" }, T + 7_000));
     expect(dialog()).toBeNull();
     expect(screen.getByText(MESSAGES.sessionEnded)).toBeTruthy();
