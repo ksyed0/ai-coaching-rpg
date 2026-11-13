@@ -3333,6 +3333,65 @@
       "dependencies": [
         "US-0073"
       ]
+    },
+    {
+      "id": "US-0075",
+      "epicId": "EPIC-0003",
+      "title": "As the facilitator running a voice pilot, I want to delete what a participant said (the whole session, one role or one participant) through the control API, with every deletion audited before anything is removed, so that a participant's request to have their audio erased can be honoured with proof.",
+      "priority": "Medium",
+      "estimate": "L",
+      "status": "Complete",
+      "branch": "feature/EPIC-0003-US-0075-voice-audio-delete",
+      "acs": [
+        {
+          "id": "AC-0442",
+          "text": "the `deleted` index line has one definition: `@acr/speech/protocol` exports `DeletedIndexLine`, `isDeletedLine` (`v` 1, `kind` `deleted`, file-safe `segment`, 16 lower-case hex `op`, finite non-negative `ts`) and `appendDeletedLines` (O_APPEND, O_NOFOLLOW, no O_CREAT, one descriptor judged on its `fstat` as a regular file of this user, a torn last line terminated first, all lines in one write and one fsync, a short write continued, errors carry the errno code only); speech's `readIndex` skips the line; `protocol.ts` may import only zod, `@acr/events` and `node:fs` (TC-0233) ; ticked 2026-11-13: speech protocol-deleted-line.test.ts (the guard, `appendDeletedLines`: one write, torn line, link, non-regular, foreign owner, no create, short write, no path in a message), imports.test.ts (only zod, `@acr/events`, `node:fs`) and store/index-file.test.ts (`readIndex` skips the line); the one-fsync count is not asserted (no seam), the one-write count is",
+          "done": true
+        },
+        {
+          "id": "AC-0443",
+          "text": "route: `DELETE /sessions/:id/audio` behind the service token (401 before any file call, 404 on a bad session id or no audio) takes a strict body `{ scope, reason, by }` (scope session, role or participant; reason `facilitator` or `participant_request`; `by` required in the `<name>-console` form, `X-Acr-By` when present must equal it; unknown keys 400) and covers every role and identity the scope names; at most 4 deletes in flight (503 `busy`) (TC-0234) ; ticked 2026-11-13: control audio-routes.test.ts (`DELETE /sessions/:id/audio: refusals before any file call`: 401, 404, the strict body table, `X-Acr-By` differing; `outcomes`: the session and participant scopes over HTTP; the cap of 4 and its own counter) and audio-delete.test.ts (`deleteAudio: scopes`: session, role and participant); an oversize body is 413 `payload_too_large` like every other body route (the controller's fix wave, tested there)",
+          "done": true
+        },
+        {
+          "id": "AC-0444",
+          "text": "live refusal: delete answers 409 `session_live` with nothing written when VoiceHost holds a live entry for the session (worker, restart backoff, `mediaLost`, probe) or the store lock is held by another process, checked before any file call and again per identity (TC-0235) ; ticked 2026-11-13: control audio-delete.test.ts (`deleteAudio: live`), audio-routes.test.ts (409 before the catalog, a throwing predicate), voice-host.test.ts and livekit-outage.test.ts (`isLive`: worker, backoff, `mediaLost`, probe) and audio-delete.e2e.test.ts (live with no audio folder, live between identities, a real second process holding the store lock)",
+          "done": true
+        },
+        {
+          "id": "AC-0445",
+          "text": "audit first: per identity, under the in-process mutex and the store lock (re-checking the marker under the lock), `audio.deleted { scope, reason, by, segments, op }` is appended BEFORE any index line or unlink and fails closed (that identity is `pending` with `audit_unavailable`, nothing marked or unlinked); then the `deleted` lines go in one write with one fsync, then each WAV is unlinked through a checked descriptor; a `participant_request` with no audio still writes one `segments: 0` line (TC-0236) ; ticked 2026-11-13: control audio-delete.test.ts (`the audit comes first`: the audit sees every index and WAV untouched; a false audit; `segments: 0`; `store_unsafe`; `a lock lost between the marks and the unlinks`; the files cases: torn line, link, `nlink` 2, one write) and audio-delete.e2e.test.ts (an audit that cannot be written; the crash after the audit leaves the audio playable, a retry writes a new op)",
+          "done": true
+        },
+        {
+          "id": "AC-0446",
+          "text": "partial results: identities are processed one at a time in sorted order and never under several locks; 200 `{ deleted, identities, pending: [] }` when all are done, otherwise 503 with the same body and the worst reason as the code (`store_unsafe` over `audit_unavailable` over `busy`), `Retry-After: 1` only with `busy`; a retry only does the rest (TC-0237) ; ticked 2026-11-13: control audio-delete.test.ts (`busy and retry`, catalog order) and audio-routes.test.ts (the 200 body, 503 with `busy` and `Retry-After: 1`, `store_unsafe` and `audit_unavailable` without it, the retry; an all-`gone` outcome is a normal 200 `deleted: 0` with a `gone` list) and audio-delete.e2e.test.ts (two identities, one held; delete racing the sweep is 503 `busy`, never 409). An identity whose root or folder cannot be re-checked under the lock is `pending store_unsafe`, not `gone` (the controller's fix wave)",
+          "done": true
+        },
+        {
+          "id": "AC-0447",
+          "text": "fail-closed index: a role index that is a link, another user's file, over the cap or unreadable is untrusted (a missing index or folder is a trusted empty one); replay and delete answer 503 `store_unsafe` for it, touch nothing and never fall through to another identity's copy (TC-0238) ; ticked 2026-11-13: control audio-catalog.test.ts (`readSegmentIndex`: trusted-empty for a missing file or folder, untrusted for a link, ENOTDIR, a foreign file, over the cap), audio-replay.test.ts (no fall-through, the second and third reads), audio-routes.test.ts and audio-delete.e2e.test.ts (a symlinked index is 503 `store_unsafe` for replay and delete, never the other identity's copy)",
+          "done": true
+        },
+        {
+          "id": "AC-0448",
+          "text": "deleted-aware sweep: the sweep and delete share one per-identity try-lock mutex and the typed `acquireStoreLock`; a segment with a `deleted` line is not indexed, so its WAV is an orphan and a half-finished delete is repaired by the next sweep; the sweep's own `audio.deleted` shape is unchanged (TC-0239) ; ticked 2026-11-13: control store-lock.test.ts (`IdentityMutex`, `acquireStoreLock` results, the source scan of every acquirer), sweep.test.ts (a segment with a `deleted` line is an orphan; malformed marks do not count; an untrusted index removes nothing) and audio-delete.e2e.test.ts (one shared mutex through `startControl`; the sweep finishing a crash after the index write)",
+          "done": true
+        },
+        {
+          "id": "AC-0449",
+          "text": "a deleted segment never plays again (replay and listing answer `audio_deleted` / `deleted`, 410 over HTTP) and nothing leaks: no audio byte, path, id or name in a response, log or audit line, and `audio.deleted` lines are rebuilt field by field (an extra key is never written) (TC-0240) ; ticked 2026-11-13: control audio-replay.test.ts and audio-routes.test.ts (410 `audio_deleted`, a replay racing a delete sends no byte), audio-catalog.test.ts (the listing says `deleted`), audit-log.test.ts (`lineOf` drops extra keys), audio-routes.test.ts (`nothing in any response, and nothing logged, contains a path`) and audio-delete.e2e.test.ts (the audit file holds one line with no text, path or audio field)",
+          "done": true
+        },
+        {
+          "id": "AC-0450",
+          "text": "a real store, worker files and control API work end to end (list, delete by each scope, replay 410, the sweep finishing a crash after the audit and after the index write, two identities with one busy) and the mutation checks (audit before marks, the live check, the mutex, the deleted mark, the fail-closed reader, path containment) each fail a named test and are reverted (TC-0241) ; ticked 2026-11-13: control audio-delete.e2e.test.ts (13 tests, real worker store, real API, real audit and sweep; crashes injected through file permissions) and the nine mutation checks of the Task 9 report (audit before marks, the live check at three places, the mutex and a second mutex in `main.ts`, the deleted mark, the fail-closed reader, path containment), each failing named tests and reverted; prior evidence, not re-run here; the path-containment mutation is killed by unit tests only (the swap needs in-process timing)",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0074"
+      ]
     }
   ],
   "tasks": [
@@ -4385,6 +4444,16 @@
       "status": "Done",
       "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
       "notes": "Plan: docs/superpowers/plans/2026-11-12-voice-a2b1a-audio-replay.md (Tasks 1 to 9: the marker writer in the speech store, control hands over the session id, the audit boolean and `audio.played`, the audio catalog, listing and the pre-marker fallback, the safe whole-file read, the HTTP routes with `X-Acr-By`, wiring and end to end with mutation checks, documents and close-out). Covers AC-0434 to AC-0441 (TC-0219 to TC-0226). Filed 2026-11-12; Tasks 1 to 8 built the same day and Task 9 (the documents) closed it. Done 2026-11-12 on feature/EPIC-0003-US-0074-voice-audio-replay; the PR into `develop` is not yet opened. Test cases TC-0219 to TC-0226 Pass (TC-0226's mutation checks are prior evidence); TC-0227 to TC-0231 are the edge cases (Pass); the owner-run real check TC-0232 is Not Run."
+    },
+    {
+      "id": "TASK-0111",
+      "storyId": "US-0075",
+      "title": "Build the facilitator audio delete route (slice A2b-1b)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0003-US-0075-voice-audio-delete",
+      "notes": "Plan: docs/superpowers/plans/2026-11-13-voice-a2b1b-audio-delete.md (Task 1: the `deleted` index line in the speech protocol and the filing; then the typed lock acquirer and shared mutex, the fail-closed index reader, the deleted-aware sweep, the delete core and route, wiring, end to end with mutation checks, documents). Covers AC-0442 to AC-0450 (TC-0233 to TC-0241). Filed 2026-11-13; Tasks 1 to 9 built the same day and Task 10 (the documents) closed it. Done 2026-11-13 on feature/EPIC-0003-US-0075-voice-audio-delete; the PR into `develop` is not yet opened. Test cases TC-0233 to TC-0241 Pass (TC-0241's mutation checks are prior evidence); TC-0242 (the owner-run real delete) is Not Run."
     }
   ],
   "testCases": [
@@ -6697,6 +6766,106 @@
       "type": "Manual",
       "status": "Not Run",
       "defect": "None"
+    },
+    {
+      "id": "TC-0233",
+      "title": "The `deleted` index line, its guard and its one-write append",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0442",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0234",
+      "title": "The delete route: auth, body and scopes",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0443",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0235",
+      "title": "Delete is refused while the session is live",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0444",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0236",
+      "title": "Audit first, then the index lines, then the unlink",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0445",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0237",
+      "title": "Partial results and the worst reason",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0446",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0238",
+      "title": "An untrusted index fails closed",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0447",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0239",
+      "title": "The sweep honours the deleted mark and the shared mutex",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0448",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0240",
+      "title": "A deleted segment never plays and nothing leaks",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0449",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0241",
+      "title": "End to end and the mutation checks",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0450",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0242",
+      "title": "Delete on a real recorded session (owner-run)",
+      "relatedStory": "US-0075",
+      "relatedTask": "TASK-0111",
+      "relatedAC": "AC-0443, AC-0444, AC-0445, AC-0449",
+      "type": "Manual",
+      "status": "Not Run",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -7112,445 +7281,451 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0070": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0071": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0072": {
       "projectedUsd": 1600,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0073": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0074": {
       "projectedUsd": 0.9,
-      "costUsd": 10.803868,
+      "costUsd": 10.659816,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0075": {
+      "projectedUsd": 0.9,
+      "costUsd": 10.659816,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -8357,6 +8532,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": false
+    },
+    "US-0075": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -8745,10 +8927,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-12T21:50:41.062Z",
-  "commitSha": "e8fcce7",
-  "buildNumber": "576",
-  "branch": "feature/EPIC-0003-US-0074-voice-audio-replay",
+  "generatedAt": "2026-11-13T17:31:46.841Z",
+  "commitSha": "17777c18",
+  "buildNumber": "574",
+  "branch": "feature/EPIC-0003-US-0075-voice-audio-delete",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -8892,7 +9074,7 @@
   "budget": {
     "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 13656.699999999999,
+    "totalProjected": 13657.599999999999,
     "percentUsed": 99,
     "burnRate": 0,
     "daysRemaining": null,
@@ -8912,64 +9094,64 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 151.25415199999995,
-        "spent": 151.25415199999995,
+        "budget": 149.23742400000003,
+        "spent": 149.23742400000003,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 195.36962399999993,
-        "spent": 194.46962399999992,
+        "budget": 192.77668800000006,
+        "spent": 191.87668800000006,
         "remaining": 0.9000000000000057,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0003",
         "title": "Slice 3 — voice over LiveKit",
-        "budget": 54.01934,
-        "spent": 54.01934,
+        "budget": 63.958895999999996,
+        "spent": 63.958895999999996,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 151.25415199999995,
-        "spent": 151.25415199999995,
+        "budget": 149.23742400000003,
+        "spent": 149.23742400000003,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 162.05801999999994,
-        "spent": 162.05801999999994,
+        "budget": 159.89724000000004,
+        "spent": 159.89724000000004,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 46.815472,
-        "spent": 43.215472,
+        "budget": 46.239264,
+        "spent": 42.639264,
         "remaining": 3.6000000000000014,
         "percentUsed": 92
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 35.111604,
-        "spent": 32.411604,
+        "budget": 34.679448,
+        "spent": 31.979447999999998,
         "remaining": 2.700000000000003,
         "percentUsed": 92
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 11.703868,
-        "spent": 10.803868,
+        "budget": 11.559816,
+        "spent": 10.659816,
         "remaining": 0.9000000000000004,
         "percentUsed": 92
       },
@@ -8985,12 +9167,12 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Oct 10",
-    "rangeStart": "Aug 5",
-    "rangeEnd": "Dec 16",
+    "likelyDate": "Oct 25",
+    "rangeStart": "Aug 17",
+    "rangeEnd": "Jan 2",
     "velocityWeeks": 6,
     "storiesPerWeek": 1,
-    "pointsPerWeek": 5
+    "pointsPerWeek": 4.9
   },
   "trends": {
     "dates": [
@@ -8998,10 +9180,12 @@
       "2026-11-11T18:08:18.602Z",
       "2026-11-11T19:47:52.607Z",
       "2026-11-12T20:37:55.878Z",
-      "2026-11-12T21:50:41.141Z"
+      "2026-11-12T21:50:41.141Z",
+      "2026-11-13T17:31:46.934Z"
     ],
     "doneCounts": [
       0,
+      6,
       6,
       6,
       6,
@@ -9012,16 +9196,19 @@
       73,
       73,
       74,
-      74
+      74,
+      75
     ],
     "aiCosts": [
       54.2322,
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -9033,6 +9220,7 @@
       29,
       29,
       29,
+      29,
       29
     ],
     "openBugs": [
@@ -9040,9 +9228,11 @@
       1,
       1,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -9054,10 +9244,12 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -9068,7 +9260,8 @@
       1.135820895522388,
       1.135820895522388,
       1.1352941176470586,
-      1.1352941176470586
+      1.1352941176470586,
+      1.1347826086956518
     ],
     "velocityByWeek": {
       "labels": [
