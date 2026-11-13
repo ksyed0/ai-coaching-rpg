@@ -122,6 +122,17 @@ describe("SceneEndedDialog on the session page", () => {
     expect(screen.getByText(MESSAGES.sessionEnded)).toBeTruthy(); // the end banner stays underneath
   });
 
+  it("test_dialog_a_closed_dialog_stays_closed_through_the_end_of_the_session", () => {
+    const m = mount();
+    m.emit("event", exited(6, "s1", "gm_detects")); // this player is not in the scenes that follow
+    fireEvent.click(within(dialog()!).getByRole("button", { name: "Continue" }));
+    m.emit("event", ev(7, "session.ended", { reason: "script_complete" }, T + 7_000));
+    expect(dialog()).toBeNull();
+    m.emit("ended", {}); // the stream's final frame: the page swaps to its end layout
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("The session has ended");
+    expect(dialog()).toBeNull();
+  });
+
   it("test_dialog_never_opens_for_End_session", () => {
     const m = mount();
     m.emit("event", exited(6, "s1", "facilitator_end"));

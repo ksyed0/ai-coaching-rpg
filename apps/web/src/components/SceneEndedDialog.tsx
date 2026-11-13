@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { PlayerScene, PlayerView } from "@acr/events";
 import { endsWhenText, exitWhy, SCENE_COPY } from "../lib/scene-copy";
 
@@ -17,14 +17,16 @@ export type SceneEndedDialogProps = {
   scenes: PlayerScene[];
   /** The session ended (the view says so, or the stream's final event did). */
   ended: boolean;
+  /** The seq of the exit the person closed. Held by the page, not here: the end of the session remounts the scene view. */
+  dismissed: number | null;
+  onDismiss: (seq: number) => void;
 };
 
 const canFocus = (el: Element | null): el is HTMLElement =>
   el instanceof HTMLElement && el.isConnected && el !== document.body && !(el as HTMLInputElement).disabled;
 
-export function SceneEndedDialog({ view, scenes, ended }: SceneEndedDialogProps) {
+export function SceneEndedDialog({ view, scenes, ended, dismissed, onDismiss }: SceneEndedDialogProps) {
   const id = useId();
-  const [dismissed, setDismissed] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const continueBtn = useRef<HTMLButtonElement>(null);
   const returnTo = useRef<Element | null>(null);
@@ -47,7 +49,7 @@ export function SceneEndedDialog({ view, scenes, ended }: SceneEndedDialogProps)
   }, [seq]);
 
   function close() {
-    if (exit) setDismissed(exit.seq);
+    if (exit) onDismiss(exit.seq);
     const at = document.activeElement;
     // Only when the focus is in the dialog or on the page: a person who moved on keeps their place.
     if (at !== null && at !== document.body && !box.current?.contains(at)) return;

@@ -65,6 +65,9 @@ export function SessionScreen({ sessionId, voiceTransport = false, deps = {} }: 
   const { conn, final, joined, view, roster, notice } = s.state;
   const voice = useVoice(sessionId, s, resolved);
   const voiceUi: VoiceUi = { ui: s.state, voiceTransport, deps: resolved.voice, ...voice };
+  // US-0080: the scene-ended dialog the person closed, kept here because the end of the session remounts the scene view.
+  const [dismissedExit, setDismissedExit] = useState<number | null>(null);
+  const exitDialog: ExitDialog = { dismissed: dismissedExit, onDismiss: setDismissedExit };
 
   const status: StatusKind = conn === "reconnecting" ? "reconnecting"
     : !view ? "connecting"
@@ -80,7 +83,7 @@ export function SessionScreen({ sessionId, voiceTransport = false, deps = {} }: 
         {s.state.voice ? <VoiceNotices notice={s.state.voiceNotice} /> : null}
         {/* The end keeps what was said readable (Scene shows the end notice above the transcript); other finals replace the page. */}
         {final && (final.kind === "ended" && joined && view) ? (
-          <Scene state={s.state} clock={resolved.clock} onSay={s.say} voice={voiceUi} />
+          <Scene state={s.state} clock={resolved.clock} onSay={s.say} voice={voiceUi} exitDialog={exitDialog} />
         ) : final ? (
           <FinalScreen kind={final.kind} message={final.message} />
         ) : (
@@ -95,7 +98,7 @@ export function SessionScreen({ sessionId, voiceTransport = false, deps = {} }: 
             ) : view.status === "idle" ? (
               <Lobby joined={joined} roster={roster} onConsent={s.consent} onWithdraw={s.withdraw} onLeave={s.leave} voice={voiceUi} />
             ) : (
-              <Scene state={s.state} clock={resolved.clock} onSay={s.say} voice={voiceUi} />
+              <Scene state={s.state} clock={resolved.clock} onSay={s.say} voice={voiceUi} exitDialog={exitDialog} />
             )}
           </>
         )}
@@ -245,7 +248,9 @@ function LeaveButton({ onLeave }: { onLeave: Action }) {
   );
 }
 
-function Scene({ state, clock, onSay, voice }: { state: ReturnType<typeof useSession>["state"]; clock: Clock; onSay: (text: string) => Promise<ActionResult>; voice: VoiceUi }) {
+type ExitDialog = { dismissed: number | null; onDismiss: (seq: number) => void };
+
+function Scene({ state, clock, onSay, voice, exitDialog }: { state: ReturnType<typeof useSession>["state"]; clock: Clock; onSay: (text: string) => Promise<ActionResult>; voice: VoiceUi; exitDialog: ExitDialog }) {
   const joined = state.joined!;
   const view = state.view!;
   const ended = view.status === "ended" || state.final?.kind === "ended";
@@ -261,7 +266,7 @@ function Scene({ state, clock, onSay, voice }: { state: ReturnType<typeof useSes
       {ended ? <p className="banner warn" role="status">{MESSAGES.sessionEnded}</p> : <SceneStatus scene={index >= 0 ? joined.scenes[index] : undefined} index={index} count={joined.scenes.length} view={view} clock={clock} />}
       {ended && view.ended?.message ? <p className="body">Message from the facilitator: {view.ended.message}</p> : null}
       {/* US-0080: inform-only, not modal: the next scene runs underneath and the say box keeps its draft. */}
-      <SceneEndedDialog view={view} scenes={joined.scenes} ended={ended} />
+      <SceneEndedDialog view={view} scenes={joined.scenes} ended={ended} {...exitDialog} />
       <div className="body row">
         <section className="col col-main" aria-labelledby="transcript-h">
           <h2 className="s" id="transcript-h">Transcript</h2>
