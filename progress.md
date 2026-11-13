@@ -722,7 +722,7 @@ Re-run in this pass: control `accounts.*`, `api.accounts`, `supervisor.owner`, `
 
 ### Known gaps (deferred minors for the final review to triage)
 
-- A stream still joining when a revoke lands ends at the next 15 s heartbeat; a stream that passed its ownership check just before a reassignment survives until its next heartbeat (the recheck checks the account, not the ownership).
+- A stream still joining when a revoke lands ends at the next 15 s heartbeat; a stream that passed its ownership check just before a reassignment now ends at its next heartbeat (the recheck covers the account and the ownership since the final review fix wave).
 - The admin panel keeps the plaintext temporary password in the parent's state until dismissed; the account list is fetched once per mount; a console id literally `accounts` mis-parses the admin route (ids are server-minted hex); control's startup catch drops the cause of an unusable accounts file; `routes_require_service_token` omits four routes; the dummy hash is created lazily.
 - Accessibility follow-ups: no focus move or `aria-invalid` on form errors; the voluntary password change still says "Current (temporary) password"; dark-mode contrast of muted details was not measured (the Axe e2e passed).
 - Not built, filed as backlog: US-0084 email, US-0085 database, US-0086 SSO or OIDC, US-0087 separate auth service, US-0088 password rules, US-0089 per-client admins.
