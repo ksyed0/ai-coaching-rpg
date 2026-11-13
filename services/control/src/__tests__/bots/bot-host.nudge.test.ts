@@ -28,13 +28,16 @@ if (!parsed.ok) throw new Error("defaults must parse");
 const settings: AiPlayerSettings = parsed.settings;
 const NUDGE = settings.turn.nudgeMs;
 
-/** Answers every call with a fresh line and records the request. */
+/** Answers every call with a fresh line and records the request. While `gate` is set, every reply waits for it (a slow model). */
 class Recorder implements ModelProvider {
   readonly name = "recorder";
   readonly calls: ChatRequest[] = [];
+  gate: Promise<void> | null = null;
   async *stream(req: ChatRequest): AsyncIterable<string> {
     this.calls.push(req);
-    yield `Line number ${this.calls.length} from an AI player.`;
+    const n = this.calls.length;
+    if (this.gate) await this.gate;
+    yield `Line number ${n} from an AI player.`;
   }
 }
 
@@ -111,6 +114,20 @@ describe("AI players prompt the quiet human (US-0081)", () => {
     expect(spoken).toHaveLength(1); // ... and nobody spoke again, not the other AI player either
     expect(provider.calls).toHaveLength(1);
     expect(AI).toContain(spoken[0]!.roleId);
+  });
+
+  it("test_bot_host_a_slow_nudge_in_flight_keeps_the_other_ai_player_from_nudging_too", async () => {
+    const { provider } = await room();
+    let open!: () => void;
+    provider.gate = new Promise<void>((r) => { open = r; });
+    await adv(NUDGE); // both AI players are due at the same instant; the first one's model call is still running
+    await adv(5_000);
+    expect(provider.calls).toHaveLength(1);
+    open();
+    await flush();
+    await adv(20 * NUDGE);
+    expect(provider.calls).toHaveLength(1);
+    expect(spoken).toHaveLength(1);
   });
 
   it("test_bot_host_the_nudge_addresses_the_human_by_role_title_and_forbids_names", async () => {
