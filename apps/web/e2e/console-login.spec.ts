@@ -67,9 +67,10 @@ async function signIn(
   name = NAME,
 ) {
   await page.goto(`${s.baseUrl}/console`);
+  await page.getByText("Use the shared secret instead").click();
   await page.getByLabel("Facilitator secret").fill(secret);
   await page.getByLabel("Your name").fill(name);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in with the secret" }).click();
 }
 const newPage = async (browser: Browser, width = 1280) =>
   (await playerContext(browser, { width })).newPage();
@@ -101,9 +102,10 @@ test("right secret reaches the shell and /console sends noindex", async ({
   const page = await newPage(browser);
   const response = await page.goto(`${stack.baseUrl}/console`);
   expect(response!.headers()["x-robots-tag"]).toBe("noindex, nofollow");
+  await page.getByText("Use the shared secret instead").click();
   await page.getByLabel("Facilitator secret").fill(stack.facilitatorSecret);
   await page.getByLabel("Your name").fill(NAME);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in with the secret" }).click();
   await expect(page.getByText(`Signed in as ${NAME}`)).toBeVisible();
   await expect(page.getByText("No sessions yet")).toBeVisible();
   const again = await page.reload();
@@ -112,7 +114,7 @@ test("right secret reaches the shell and /console sends noindex", async ({
   // The cookie is HttpOnly: the page's script cannot read it.
   expect(await page.evaluate(() => document.cookie)).toBe("");
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByLabel("Facilitator secret")).toBeVisible();
+  await expect(page.getByLabel("Login")).toBeVisible();
   await expect(page.getByText(/Signed in as/)).toHaveCount(0);
 });
 
@@ -144,15 +146,19 @@ for (const width of WIDTHS) {
     stack = await startLauncherStack();
     const page = await newPage(browser, width);
     await page.goto(`${stack.baseUrl}/console`);
-    await expect(page.getByLabel("Facilitator secret")).toBeVisible();
+    await expect(page.getByLabel("Login")).toBeVisible();
     await checkBothSchemes(page, `the console sign-in at ${width} px`);
     await noHorizontalScroll(page, width);
+    // The shared-secret disclosure open (the latch is still open on this stack), then the refused state.
+    await page.getByText("Use the shared secret instead").click();
+    await expect(page.getByLabel("Facilitator secret")).toBeVisible();
+    await checkBothSchemes(page, `the console sign-in, secret form open, at ${width} px`);
     // The refused state (the error text and the field states).
     await page
       .getByLabel("Facilitator secret")
       .fill("this-is-not-the-secret-at-all");
     await page.getByLabel("Your name").fill(NAME);
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.getByRole("button", { name: "Sign in with the secret" }).click();
     await expect(page.getByText(/That did not work/)).toBeVisible();
     await checkBothSchemes(
       page,
@@ -160,7 +166,7 @@ for (const width of WIDTHS) {
     );
 
     await page.getByLabel("Facilitator secret").fill(stack.facilitatorSecret);
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.getByRole("button", { name: "Sign in with the secret" }).click();
     await expect(page.getByText(`Signed in as ${NAME}`)).toBeVisible();
     await checkBothSchemes(page, `the console shell at ${width} px`);
     await noHorizontalScroll(page, width);

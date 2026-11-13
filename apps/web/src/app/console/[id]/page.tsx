@@ -9,7 +9,7 @@ import { SessionConsole } from "../../../components/console/SessionConsole";
 import { MESSAGES } from "../../../lib/messages";
 import { TitleBlock } from "../../../components/TitleBlock";
 import { CONSOLE_COOKIE } from "../../../server/console-session";
-import { consolePageRedirect, consoleView } from "../../../server/routes";
+import { consoleLegacyAllowed, consolePageRedirect, consoleView } from "../../../server/routes";
 
 // /console/<id>: one session's readiness, Start and live view. The id is checked here; the BFF checks it again on every call.
 
@@ -29,6 +29,7 @@ export default async function ConsoleSessionPage({
   const view = await consoleView((await cookies()).get(CONSOLE_COOKIE)?.value);
   const to = consolePageRedirect(view);
   if (to !== null) redirect(to);
+  const legacyAllowed = view.kind === "signed_out" && (await consoleLegacyAllowed());
   return (
     <>
       <AppHeader />
@@ -40,7 +41,7 @@ export default async function ConsoleSessionPage({
               ? MESSAGES.consoleLede
               : view.kind === "disabled" || view.kind === "unavailable"
                 ? "The console is not available."
-                : "Sign in with the facilitator secret and your name."
+                : "Sign in with your login and password."
           }
         />
         <div className={view.kind === "signed_in" ? "body" : "body narrow"}>
@@ -51,7 +52,7 @@ export default async function ConsoleSessionPage({
           ) : view.kind === "unavailable" ? (
             <ConsoleUnavailable />
           ) : (
-            <ConsoleLogin />
+            <ConsoleLogin legacyAllowed={legacyAllowed} />
           )}
         </div>
       </main>

@@ -23,9 +23,10 @@ export async function signIn(
   name = FAC_NAME,
 ): Promise<void> {
   await page.goto(`${baseUrl}/console`);
+  await page.getByText("Use the shared secret instead").click();
   await page.getByLabel("Facilitator secret").fill(secret);
   await page.getByLabel("Your name").fill(name);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in with the secret" }).click();
   await expect(page.getByText(`Signed in as ${name}`)).toBeVisible();
 }
 

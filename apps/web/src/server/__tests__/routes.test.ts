@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LauncherClient } from "../launcher-client";
-import { consoleCommandPOST, consoleFactsPOST, consoleView, createDeps, route } from "../routes";
+import { consoleCommandPOST, consoleFactsPOST, consoleLegacyAllowed, consoleView, createDeps, route } from "../routes";
 import { RuntimeConnection } from "../runtime-connection";
 import { StreamHub } from "../stream-hub";
 import { JoinThrottle } from "../throttle";
@@ -176,6 +176,21 @@ describe("consoleView", () => {
     // US-0083: FACILITATOR_SECRET is not needed for the console (accounts); a cookie that does not open never reaches control.
     expect(await consoleView(undefined, () => createDeps(FULL))).toEqual({ kind: "signed_out" });
     expect(await consoleView("not-a-cookie", () => createDeps(FULL))).toEqual({ kind: "signed_out" });
+  });
+});
+
+describe("consoleLegacyAllowed", () => {
+  const FULL = { ...ENV, LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
+  afterEach(() => vi.restoreAllMocks());
+  it("is control's latch, and false when control cannot say or the console is not configured", async () => {
+    const spy = vi.spyOn(LauncherClient.prototype, "legacyAllowed").mockResolvedValue(true);
+    expect(await consoleLegacyAllowed(() => createDeps(FULL))).toBe(true);
+    spy.mockResolvedValue(false);
+    expect(await consoleLegacyAllowed(() => createDeps(FULL))).toBe(false);
+    spy.mockRejectedValue(new Error("down"));
+    expect(await consoleLegacyAllowed(() => createDeps(FULL))).toBe(false);
+    expect(await consoleLegacyAllowed(() => createDeps(ENV))).toBe(false);
+    expect(await consoleLegacyAllowed(() => { throw new Error("config"); })).toBe(false);
   });
 });
 

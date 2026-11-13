@@ -109,7 +109,21 @@ export function voiceTransport(getDeps: () => Deps = sharedDeps): boolean {
   catch { return false; }
 }
 
-/** Where a signed-in account that must change its password is sent (the page itself is US-0083 Task 8). */
+/**
+ * For the sign-in form (server side only): whether the shared-secret sign-in is still offered. Control's latch, read fresh; false when
+ * the latch cannot be read or the console is not configured (the disclosure is simply hidden, and the login route still decides).
+ */
+export async function consoleLegacyAllowed(getDeps: () => Deps = sharedDeps): Promise<boolean> {
+  try {
+    const d = getDeps();
+    if (missingConsoleVars(d.config).length > 0 || !d.launcher) return false;
+    return await d.launcher.legacyAllowed();
+  } catch {
+    return false;
+  }
+}
+
+/** Where a signed-in account that must change its password is sent (`app/console/password/page.tsx`). */
 export const CONSOLE_PASSWORD_PATH = "/console/password";
 
 /**
