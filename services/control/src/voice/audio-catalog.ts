@@ -340,23 +340,43 @@ export async function readSegmentIndex(audioDir: string, identity: string, role:
   } catch { return untrusted(); }
 }
 
+/** The recheck's answer: still this session's, provably not (gone), or cannot be judged (unsafe: the audio may still be on disk). */
+export type Recheck = "belongs" | "gone" | "unsafe";
+
 /**
- * US-0075: true when `find(sessionId)` would still return `identity`, judged afresh (Task 7 re-checks it under the store lock): the root
- * is a private directory of this user, and the identity folder's marker names the session, OR it is a pre-marker folder (a real
- * directory of this user with NO `session.json`, the only kind the fallback may map to a session). The fallback itself is not asked
- * again: the caller passes an identity `find` returned for this session, so a pre-marker folder still belongs while it stays marker-less.
- * Bad ids are false before any file call. Open-then-check only; never throws; logs nothing.
+ * US-0075: would `find(sessionId)` still return `identity`, judged afresh (the delete re-checks it under the store lock)?
+ * - `belongs`: the root is a private directory of this user, and the identity folder's marker names the session, OR it is a pre-marker
+ *   folder (a real directory of this user with NO `session.json`, the only kind the fallback may map to a session). The fallback itself
+ *   is not asked again: the caller passes an identity `find` returned for this session, so a pre-marker folder still belongs while it
+ *   stays marker-less.
+ * - `gone`: a bad id (before any file call); the identity folder is missing (ENOENT, with the root still the one judged); or it is a
+ *   real folder of this user whose marker names no session of ours (another session, torn, linked).
+ * - `unsafe`: the root is missing or not private, the identity path is a link, a file or another user's folder, any other failure, or
+ *   the root changed meanwhile. Nothing can be said of the audio, so the caller must not report it as gone.
+ * Open-then-check only; never throws; logs nothing.
  */
-export function stillBelongs(audioDir: string, identity: string, sessionId: string): boolean {
-  if (!isLowerHex(identity, 32) || !isValidSessionId(sessionId)) return false;
+export function recheckIdentity(audioDir: string, identity: string, sessionId: string): Recheck {
+  if (!isLowerHex(identity, 32) || !isValidSessionId(sessionId)) return "gone";
   try {
     const root = openPrivateRoot(audioDir);
-    if (root === null) return false;
+    if (root === null) return "unsafe";
     try {
-      const belongs = folderMatches(audioDir, identity, sessionId) || preMarkerFolder(path.join(audioDir, identity));
-      return belongs && stillOwnDir(audioDir, root.st);
+      const identityPath = path.join(audioDir, identity);
+      const d = openOwnDirErr(identityPath);
+      if (!d.ok) return d.code === "ENOENT" && stillOwnDir(audioDir, root.st) ? "gone" : "unsafe";
+      try {
+        const belongs = folderMatches(audioDir, identity, sessionId) || preMarkerFolder(identityPath);
+        // A `false` from the checks above must come from THIS folder, not from a link or file swapped in meanwhile.
+        if (!stillOwnDir(identityPath, d.st) || !stillOwnDir(audioDir, root.st)) return "unsafe";
+        return belongs ? "belongs" : "gone";
+      } finally { try { closeSync(d.fd); } catch { /* nothing more to do */ } }
     } finally { try { closeSync(root.fd); } catch { /* nothing more to do */ } }
-  } catch { return false; }
+  } catch { return "unsafe"; }
+}
+
+/** US-0075: true when `find(sessionId)` would still return `identity` (`recheckIdentity` answers `belongs`). Never throws. */
+export function stillBelongs(audioDir: string, identity: string, sessionId: string): boolean {
+  return recheckIdentity(audioDir, identity, sessionId) === "belongs";
 }
 
 const emptyListing = (): SegmentListing => ({ segments: [], recordingStopped: false });

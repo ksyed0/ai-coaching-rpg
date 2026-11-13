@@ -380,17 +380,6 @@ describe("deleteAudio: store_unsafe", () => {
     expect(audit.append).not.toHaveBeenCalled();
   });
 
-  it.skipIf(isRoot)("an index write that throws gives pending store_unsafe and leaves every WAV in place", async () => {
-    mkIdentity(A, S);
-    const dir = mkRole(A, "r", [segLine("c1"), segLine("c2")]);
-    chmodSync(path.join(dir, "index.jsonl"), 0o400); // readable (the plan reads it), not writable (the mark's O_RDWR open fails)
-    const r = await run();
-    expect(r).toStrictEqual({ live: false, deleted: 0, gone: [], identities: [], pending: [{ identity: A, reason: "store_unsafe" }] });
-    expect(existsSync(wav(A, "r", "c1"))).toBe(true);
-    expect(existsSync(wav(A, "r", "c2"))).toBe(true);
-    expect(audit.append).toHaveBeenCalledTimes(1); // the audit line is already out (documented residual)
-  });
-
   it("a lock whose assertHeld is false before the index write gives store_unsafe and writes no index line", async () => {
     mkIdentity(A, S);
     mkRole(A, "coach", [segLine("c1")]);
@@ -549,22 +538,6 @@ describe("deleteAudio: the files themselves", () => {
     expect(await deletedIn(A, "coach")).toEqual(["c1"]);
   });
 
-  it.skipIf(isRoot)("a failed unlink still counts as done: the mark makes it unplayable", async () => {
-    mkIdentity(A, S);
-    mkRole(A, "r", [segLine("c1")]);
-    let n = 0;
-    const acquireLock: DeleteOptions["acquireLock"] = (dir, ident, m) => {
-      const r = acquireStoreLock(dir, ident, m);
-      if (r.kind !== "held") return r;
-      return { ...r, assertHeld: async () => { if (++n === 2) chmodSync(path.join(audioDir, A, "r"), 0o500); return r.assertHeld(); } };
-    };
-    const r = await run(undefined, undefined, { acquireLock });
-    chmodSync(path.join(audioDir, A, "r"), 0o700);
-    expect(r).toStrictEqual({ live: false, deleted: 1, gone: [], identities: [done(A, 1)], pending: [] });
-    expect(existsSync(wav(A, "r", "c1"))).toBe(true);
-    expect(await deletedIn(A, "r")).toEqual(["c1"]);
-  });
-
   it("a segment whose WAV is already gone is still marked and counted", async () => {
     mkIdentity(A, S);
     mkRole(A, "coach", [segLine("c1")]);
@@ -610,6 +583,44 @@ describe("deleteAudio: which folders", () => {
     expect(audit.append).not.toHaveBeenCalled();
   });
 
+  describe("a recheck that cannot tell is pending store_unsafe, never gone (the audio may still be on disk)", () => {
+    const unsafeOutcome = { live: false, deleted: 0, gone: [], identities: [], pending: [{ identity: A, reason: "store_unsafe" }] };
+
+    it("the root made group-writable after find: pending store_unsafe, nothing audited, marked or removed", async () => {
+      mkIdentity(A, S); mkRole(A, "coach", [segLine("a1")]);
+      const before = indexText(A, "coach");
+      const catalog = { find: async () => { chmodSync(audioDir, 0o770); return [A]; } };
+      try {
+        expect(await run(undefined, undefined, { catalog })).toStrictEqual(unsafeOutcome);
+      } finally { chmodSync(audioDir, 0o700); }
+      expect(audit.append).not.toHaveBeenCalled();
+      expect(indexText(A, "coach")).toBe(before);
+      expect(existsSync(wav(A, "coach", "a1"))).toBe(true);
+    });
+
+    it("the identity folder replaced by a link to a copy with a valid marker: pending store_unsafe, the link target untouched", async () => {
+      mkIdentity(A, S); mkRole(A, "coach", [segLine("a1")]);
+      const copy = path.join(outside, "copy");
+      const catalog = { find: async () => { renameSync(path.join(audioDir, A), copy); symlinkSync(copy, path.join(audioDir, A)); return [A]; } };
+      expect(await run(undefined, undefined, { catalog })).toStrictEqual(unsafeOutcome);
+      expect(audit.append).not.toHaveBeenCalled();
+      expect(readFileSync(path.join(copy, "coach", "index.jsonl"), "utf8")).toBe(jsonl([segLine("a1")]));
+      expect(existsSync(path.join(copy, "coach", "a1.wav"))).toBe(true);
+      expect(lstatSync(path.join(audioDir, A)).isSymbolicLink()).toBe(true);
+    });
+
+    it("the identity path replaced by a regular file: pending store_unsafe, nothing audited", async () => {
+      mkIdentity(A, S); mkRole(A, "coach", [segLine("a1")]);
+      const aside = path.join(outside, "aside");
+      const catalog = { find: async () => { renameSync(path.join(audioDir, A), aside); writeFileSync(path.join(audioDir, A), "x"); return [A]; } };
+      expect(await run(undefined, undefined, { catalog })).toStrictEqual(unsafeOutcome);
+      expect(audit.append).not.toHaveBeenCalled();
+      expect(readFileSync(path.join(aside, "coach", "index.jsonl"), "utf8")).toBe(jsonl([segLine("a1")]));
+      expect(existsSync(path.join(aside, "coach", "a1.wav"))).toBe(true);
+      expect(readFileSync(path.join(audioDir, A), "utf8")).toBe("x");
+    });
+  });
+
   it("everything gone is still a normal outcome (not null)", async () => {
     const catalog = { find: async () => [A] };
     expect(await run(undefined, undefined, { catalog })).toStrictEqual({ live: false, deleted: 0, gone: [A], identities: [], pending: [] });
@@ -638,5 +649,34 @@ describe("deleteAudio: which folders", () => {
     await run(undefined, undefined, { randomOp: () => "00112233445566ff" });
     expect(auditCalls[0]!.event).toMatchObject({ op: "00112233445566ff" });
     expect(indexText(A, "coach")).toContain(`"op":"00112233445566ff"`);
+  });
+});
+
+describe.skipIf(isRoot)("deleteAudio: failures made with chmod (root ignores chmod; runs as a normal user, as CI does)", () => {
+  it("an index write that throws gives pending store_unsafe and leaves every WAV in place", async () => {
+    mkIdentity(A, S);
+    const dir = mkRole(A, "r", [segLine("c1"), segLine("c2")]);
+    chmodSync(path.join(dir, "index.jsonl"), 0o400); // readable (the plan reads it), not writable (the mark's O_RDWR open fails)
+    const r = await run();
+    expect(r).toStrictEqual({ live: false, deleted: 0, gone: [], identities: [], pending: [{ identity: A, reason: "store_unsafe" }] });
+    expect(existsSync(wav(A, "r", "c1"))).toBe(true);
+    expect(existsSync(wav(A, "r", "c2"))).toBe(true);
+    expect(audit.append).toHaveBeenCalledTimes(1); // the audit line is already out (documented residual)
+  });
+
+  it("a failed unlink still counts as done: the mark makes it unplayable", async () => {
+    mkIdentity(A, S);
+    mkRole(A, "r", [segLine("c1")]);
+    let n = 0;
+    const acquireLock: DeleteOptions["acquireLock"] = (dir, ident, m) => {
+      const r = acquireStoreLock(dir, ident, m);
+      if (r.kind !== "held") return r;
+      return { ...r, assertHeld: async () => { if (++n === 2) chmodSync(path.join(audioDir, A, "r"), 0o500); return r.assertHeld(); } };
+    };
+    const r = await run(undefined, undefined, { acquireLock });
+    chmodSync(path.join(audioDir, A, "r"), 0o700);
+    expect(r).toStrictEqual({ live: false, deleted: 1, gone: [], identities: [done(A, 1)], pending: [] });
+    expect(existsSync(wav(A, "r", "c1"))).toBe(true);
+    expect(await deletedIn(A, "r")).toEqual(["c1"]);
   });
 });

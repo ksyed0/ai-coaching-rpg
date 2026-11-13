@@ -126,50 +126,52 @@ describe("audio delete end to end: real worker store, real control API, real aud
     for (const banned of ["words somebody said", h.ctx.root, h.ctx.audioDir, ".wav", "RIFF", "raw", "audio\":", "path"]) expect(text).not.toContain(banned);
   });
 
-  it.skipIf(isRoot)("a crash after the audit line and before the index write (the index refuses the write) leaves the audio playable; a retry writes a NEW line with a NEW op", async () => {
-    record({ identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg1", seed: 1 }] });
-    const { get, del: remove } = await boot();
-    const index = path.join(h.ctx.audioDir, A, "coach", "index.jsonl");
-    chmodSync(index, 0o400); // the real appendDeletedLines now throws (EACCES) right after the audit line
-    let first: DeleteReply;
-    try { first = await remove(S); } finally { chmodSync(index, 0o600); }
-    expect(first).toStrictEqual({ status: 503, retryAfter: null, code: "store_unsafe", data: { deleted: 0, gone: [], identities: [], pending: [{ identity: A, reason: "store_unsafe" }] } });
-    expect(deletedLines(A).length).toBe(1); // the audit says deleted (the documented residual) ...
-    expect(marks(A, "coach")).toEqual([]); // ... but nothing was marked
-    const playable = await get(`/sessions/${S}/audio/coach/seg1`);
-    expect(playable.status).toBe(200);
-    expect(playable.body.equals(wavOnDisk(A, "coach", "seg1"))).toBe(true);
+  describe.skipIf(isRoot)("crash windows made with chmod (root ignores chmod; runs as a normal user, as CI does)", () => {
+    it("a crash after the audit line and before the index write (the index refuses the write) leaves the audio playable; a retry writes a NEW line with a NEW op", async () => {
+      record({ identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg1", seed: 1 }] });
+      const { get, del: remove } = await boot();
+      const index = path.join(h.ctx.audioDir, A, "coach", "index.jsonl");
+      chmodSync(index, 0o400); // the real appendDeletedLines now throws (EACCES) right after the audit line
+      let first: DeleteReply;
+      try { first = await remove(S); } finally { chmodSync(index, 0o600); }
+      expect(first).toStrictEqual({ status: 503, retryAfter: null, code: "store_unsafe", data: { deleted: 0, gone: [], identities: [], pending: [{ identity: A, reason: "store_unsafe" }] } });
+      expect(deletedLines(A).length).toBe(1); // the audit says deleted (the documented residual) ...
+      expect(marks(A, "coach")).toEqual([]); // ... but nothing was marked
+      const playable = await get(`/sessions/${S}/audio/coach/seg1`);
+      expect(playable.status).toBe(200);
+      expect(playable.body.equals(wavOnDisk(A, "coach", "seg1"))).toBe(true);
 
-    const retry = await remove(S);
-    expect(retry).toStrictEqual({ status: 200, retryAfter: null, code: undefined, data: { deleted: 1, gone: [], identities: [done(A, 1)], pending: [] } });
-    const lines = deletedLines(A);
-    expect(lines.length).toBe(2);
-    expect(lines[1]!.op).not.toBe(lines[0]!.op);
-    expect(marks(A, "coach").map((m) => m.op)).toEqual([lines[1]!.op]);
-    expect((await get(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410);
-  });
+      const retry = await remove(S);
+      expect(retry).toStrictEqual({ status: 200, retryAfter: null, code: undefined, data: { deleted: 1, gone: [], identities: [done(A, 1)], pending: [] } });
+      const lines = deletedLines(A);
+      expect(lines.length).toBe(2);
+      expect(lines[1]!.op).not.toBe(lines[0]!.op);
+      expect(marks(A, "coach").map((m) => m.op)).toEqual([lines[1]!.op]);
+      expect((await get(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410);
+    });
 
-  it.skipIf(isRoot)("a crash after the index write and before the unlink (the role folder refuses it): marked, 410, the WAV left; the real sweep removes it as an orphan", async () => {
-    // ended at T0, so the sweep at NOW keeps the folder and runs its orphan pass (the segment times are session-relative, not a clock)
-    record({ identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg1", seed: 1 }, { role: "coach", segment: "seg2", seed: 2 }], ended: true });
-    const { get, del: remove } = await boot();
-    const role = path.join(h.ctx.audioDir, A, "coach");
-    chmods.push(role);
-    chmodSync(role, 0o500); // the marks still go in (the index file is writable); every unlink fails (EACCES)
-    let r: DeleteReply;
-    try { r = await remove(S, { kind: "role", role: "coach" }); } finally { chmodSync(role, 0o700); }
-    expect(r).toStrictEqual({ status: 200, retryAfter: null, code: undefined, data: { deleted: 2, gone: [], identities: [done(A, 2)], pending: [] } });
-    expect(existsSync(wavPath(A, "coach", "seg1"))).toBe(true);
-    expect(existsSync(wavPath(A, "coach", "seg2"))).toBe(true);
-    expect((await get(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410); // unplayable at once: the mark wins over the file
-    expect(listing((await get(`/sessions/${S}/audio`)).body).segments.map((s) => s.audio)).toEqual(["deleted", "deleted"]);
+    it("a crash after the index write and before the unlink (the role folder refuses it): marked, 410, the WAV left; the real sweep removes it as an orphan", async () => {
+      // ended at T0, so the sweep at NOW keeps the folder and runs its orphan pass (the segment times are session-relative, not a clock)
+      record({ identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg1", seed: 1 }, { role: "coach", segment: "seg2", seed: 2 }], ended: true });
+      const { get, del: remove } = await boot();
+      const role = path.join(h.ctx.audioDir, A, "coach");
+      chmods.push(role);
+      chmodSync(role, 0o500); // the marks still go in (the index file is writable); every unlink fails (EACCES)
+      let r: DeleteReply;
+      try { r = await remove(S, { kind: "role", role: "coach" }); } finally { chmodSync(role, 0o700); }
+      expect(r).toStrictEqual({ status: 200, retryAfter: null, code: undefined, data: { deleted: 2, gone: [], identities: [done(A, 2)], pending: [] } });
+      expect(existsSync(wavPath(A, "coach", "seg1"))).toBe(true);
+      expect(existsSync(wavPath(A, "coach", "seg2"))).toBe(true);
+      expect((await get(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410); // unplayable at once: the mark wins over the file
+      expect(listing((await get(`/sessions/${S}/audio`)).body).segments.map((s) => s.audio)).toEqual(["deleted", "deleted"]);
 
-    expect(await h.sweep(NOW)).toStrictEqual({ deleted: 0, skipped: 0, orphans: 2 }); // a kept folder: the marked WAVs are orphans
-    expect(existsSync(wavPath(A, "coach", "seg1"))).toBe(false);
-    expect(existsSync(wavPath(A, "coach", "seg2"))).toBe(false);
-    expect(existsSync(path.join(role, "index.jsonl"))).toBe(true);
-    expect((await get(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410);
-    expect(await h.sweep(NOW)).toStrictEqual({ deleted: 0, skipped: 0, orphans: 0 });
+      expect(await h.sweep(NOW)).toStrictEqual({ deleted: 0, skipped: 0, orphans: 2 }); // a kept folder: the marked WAVs are orphans
+      expect(existsSync(wavPath(A, "coach", "seg1"))).toBe(false);
+      expect(existsSync(wavPath(A, "coach", "seg2"))).toBe(false);
+      expect(existsSync(path.join(role, "index.jsonl"))).toBe(true);
+      expect((await get(`/sessions/${S}/audio/coach/seg1`)).status).toBe(410);
+      expect(await h.sweep(NOW)).toStrictEqual({ deleted: 0, skipped: 0, orphans: 0 });
+    });
   });
 
   it("an audit line that cannot be written (the real audit lock held by another writer) is 503 audit_unavailable: no mark, no unlink, still playable", async () => {
@@ -197,7 +199,7 @@ describe("audio delete end to end: real worker store, real control API, real aud
     const lock = holdAuditLock(dir, A);
     const port = await h.startWhole();
     const aside = () => readdirSync(dir).filter((n) => n.startsWith(`${A}.deleting-`));
-    expect(aside().length).toBe(1); // the start-up sweep has renamed the expired folder and is awaiting its audit line
+    await vi.waitFor(() => expect(aside().length).toBe(1)); // the start-up sweep has renamed the expired folder and is awaiting its audit line
     record({ dir, identity: A, sessionId: S, segments: [{ role: "coach", segment: "seg2", seed: 2 }], at: Date.now() });
 
     const r = await del(port, S);

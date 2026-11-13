@@ -3,7 +3,7 @@ import { closeSync, fstatSync, openSync, readdirSync, unlinkSync, type Stats } f
 import path from "node:path";
 import { isFileSafeId } from "@acr/events";
 import { appendDeletedLines, isLowerHex, type DeletedIndexLine } from "@acr/speech/protocol";
-import { FILE_FLAGS, isOwn, openOwnDir, openOwnDirErr, readSegmentIndex, stillBelongs, stillOwnDir, type AudioCatalog } from "./audio-catalog.js";
+import { FILE_FLAGS, isOwn, openOwnDir, openOwnDirErr, readSegmentIndex, recheckIdentity, stillOwnDir, type AudioCatalog } from "./audio-catalog.js";
 import type { AuditLog, DeleteScope } from "./audit-log.js";
 import { acquireStoreLock, type IdentityMutex, type StoreLock, type StoreLockResult } from "./store-lock.js";
 
@@ -14,7 +14,9 @@ import { acquireStoreLock, type IdentityMutex, type StoreLock, type StoreLockRes
  * Per identity folder, in the catalog's sorted order, ONE AT A TIME (never two locks at once):
  *   1-2. the identity mutex and the store lock through `acquireStoreLock` (a held mutex or `error`: `pending busy`; `unsafe`: `pending
  *        store_unsafe`; `locked_other`: a live worker, the WHOLE request stops as live with the work done so far). Under the lock the
- *        folder is re-checked with `stillBelongs` (the sweep may have moved it away): no longer ours is listed in `gone`.
+ *        folder is re-checked with `recheckIdentity` (the sweep may have moved it away): provably no longer ours (missing, or its marker
+ *        names another session) is listed in `gone`; a recheck that cannot judge (an unsafe root, the folder swapped for a link, a file
+ *        or another user's folder) is `pending store_unsafe` with nothing else done, never `gone` (the audio may still be on disk).
  *   3.   the role folders are enumerated through the verified identity folder; a role entry that is a link, a non-directory or another
  *        user's makes the identity `pending store_unsafe` when it is in scope (every role for the session and participant scopes, that
  *        role for a role scope). Each in-scope index is read through the fail-closed reader: untrusted is `pending store_unsafe`.
@@ -42,7 +44,10 @@ export type PendingReason = "busy" | "store_unsafe" | "audit_unavailable";
 export type DeleteOutcome = {
   live: boolean;
   deleted: number;
-  /** Identities `find` returned that no longer belong to the session under the lock (moved away by the sweep, or removed). */
+  /**
+   * Identities `find` returned that provably no longer belong to the session under the lock (moved away by the sweep, removed, or the
+   * marker names another session). An identity the recheck cannot judge is `pending store_unsafe`, never listed here.
+   */
   gone: string[];
   identities: Array<{ identity: string; deleted: number; state: "done" }>;
   pending: Array<{ identity: string; reason: PendingReason }>;
@@ -73,6 +78,10 @@ type IdentityResult =
 
 type RoleDir = { role: string; st: Stats };
 type RolePlan = { role: string; st: Stats; segments: string[] };
+/**
+ * `holdsAudio`: the identity holds audio at all (a WAV or a segment line in any role). Lines already marked deleted count too, so a
+ * `participant_request` retry after a finished delete writes another `segments: 0` audit line (the spec accepts the duplicate).
+ */
 type Plan = { kind: "unsafe" } | { kind: "ok"; roles: RolePlan[]; holdsAudio: boolean };
 
 const sameIdent = (a: Stats, b: Stats): boolean => a.dev === b.dev && a.ino === b.ino;
@@ -214,7 +223,9 @@ async function deleteOne(o: DeleteOptions, sessionId: string, identity: string, 
   }
   const lock: StoreLock = lockR;
   try {
-    if (!stillBelongs(o.audioDir, identity, sessionId)) return { kind: "gone" };
+    const recheck = recheckIdentity(o.audioDir, identity, sessionId);
+    if (recheck === "unsafe") return { kind: "pending", reason: "store_unsafe" }; // cannot tell: the audio may still be there
+    if (recheck === "gone") return { kind: "gone" };
     let plan: Plan;
     try { plan = await planIdentity(o.audioDir, identity, scope); } catch { plan = { kind: "unsafe" }; }
     if (plan.kind === "unsafe") return { kind: "pending", reason: "store_unsafe" };
@@ -230,6 +241,9 @@ async function deleteOne(o: DeleteOptions, sessionId: string, identity: string, 
     if (!(await lock.assertHeld())) return { kind: "pending", reason: "store_unsafe" };
     const identityPath = path.join(o.audioDir, identity);
     const ts = tsOf(o);
+    // `deleted` under-reports here: when a later role's mark throws, or the second `assertHeld` below fails, after earlier roles were
+    // marked, the identity is `pending` and those earlier segments are not counted. They are already unplayable and the sweep unlinks
+    // them; a retry skips them as already marked, so they are never counted afterwards either.
     try {
       for (const r of plan.roles) markRole(identityPath, r, op, ts);
     } catch { return { kind: "pending", reason: "store_unsafe" }; }

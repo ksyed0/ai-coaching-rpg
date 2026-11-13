@@ -1,9 +1,8 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
-import { CLIENT_ID_MAX_CHARS, isFileSafeId, isSafeId, isValidSessionId, REPORT_SENTENCES } from "@acr/events";
+import { isFileSafeId, isSafeId, isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { z } from "zod";
 import { ParticipantIdSchema, RoleIdSchema } from "./protocol.js";
-import { REBIND_PENDING_PARTICIPANT } from "@acr/speech/protocol";
 import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse, send, sendBytes } from "./http-util.js";
 import { parseBy, type AudioService } from "./voice/audio-routes.js";
 import type { DeleteOutcome, PendingReason } from "./voice/audio-delete.js";
@@ -73,7 +72,7 @@ const DeleteAudioBody = z.strictObject({
   scope: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("session") }),
     z.strictObject({ kind: z.literal("role"), role: z.string().refine(isFileSafeId) }),
-    z.strictObject({ kind: z.literal("participant"), participant: z.string().min(1).max(CLIENT_ID_MAX_CHARS).refine((v) => v !== REBIND_PENDING_PARTICIPANT) }),
+    z.strictObject({ kind: z.literal("participant"), participant: ParticipantIdSchema }),
   ]),
   reason: z.enum(["facilitator", "participant_request"]),
   by: z.string(),
@@ -155,13 +154,14 @@ export function createApi(deps: {
     const id = sessionId(seg[1]!);
     if (seg[2] === "audio" && seg.length === 3 && method === "DELETE") {
       // US-0075 (voice A2b-1b): the facilitator's audited delete. Every refusal before the service is one 400 (the GET route's bad-by
-      // answer), with no file call and no audit line: a bad, missing, oversize or non-JSON body, a bad `by`, or an X-Acr-By that differs.
+      // answer), with no file call and no audit line: a bad, missing or non-JSON body, a bad `by`, or an X-Acr-By that differs. A body
+      // over the cap is the global 413 payload_too_large (with the connection closed), exactly like every other body route.
       if (!audio) return notFound();
       const invalid = (closeConnection = false): void => fail(res, 400, "invalid", BAD_REQUEST, closeConnection);
       let raw: unknown;
       try { raw = await jsonBody(req); } catch (err) {
-        if (err instanceof HttpError) return invalid(err.closeConnection); // an oversize body was not read to its end: close
-        throw err;
+        if (err instanceof HttpError && err.status !== 413) return invalid(err.closeConnection);
+        throw err; // a 413 (and anything unexpected) goes to the global handler
       }
       const parsed = DeleteAudioBody.safeParse(raw);
       if (!parsed.success || parseBy(parsed.data.by) === null) return invalid();

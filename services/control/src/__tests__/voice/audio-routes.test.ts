@@ -672,7 +672,6 @@ describe("DELETE /sessions/:id/audio: refusals before any file call", () => {
     ["a non-string by", { ...SESSION_BODY, by: 5 }],
     ["an X-Acr-By header that differs from body.by", SESSION_BODY, by("other-console")],
     ["a repeated X-Acr-By header", SESSION_BODY, by([BY, BY])],
-    ["an oversize body (over 4 KiB)", { ...SESSION_BODY, scope: { kind: "participant", participant: "p" }, pad: "x".repeat(5000) }],
   ];
   it.each(badBodies)("%s is 400 invalid (the GET route's bad-by answer) with no file call and no audit line", async (_label, body, headers = {}, o2 = {}) => {
     twoIdentities();
@@ -685,6 +684,48 @@ describe("DELETE /sessions/:id/audio: refusals before any file call", () => {
     expect(hooks.calls).toEqual([]);
     expect(append).not.toHaveBeenCalled();
     expect(wavExists(A, "alpha", "s1")).toBe(true);
+  });
+
+  const OVERSIZE = { ...SESSION_BODY, scope: { kind: "participant", participant: "p" }, pad: "x".repeat(5000) };
+  /** The 413 every other body route gives: payload_too_large, the connection closed, no file call, no audit line, nothing removed. */
+  function expectTooLarge(r: { status: number; headers: http.IncomingHttpHeaders; body: Buffer }, append: unknown): void {
+    expect(r.status).toBe(413);
+    expectJsonEnvelope(r);
+    expect(json(r.body).error?.code).toBe("payload_too_large");
+    expect(r.headers.connection).toBe("close");
+    expect(hooks.calls).toEqual([]);
+    expect(append).not.toHaveBeenCalled();
+    expect(wavExists(A, "alpha", "s1")).toBe(true);
+  }
+
+  it("a body over 4096 bytes with a declared Content-Length is 413 payload_too_large (like every other body route), not 400", async () => {
+    twoIdentities();
+    const { del, append } = await boot();
+    hooks.calls = [];
+    expectTooLarge(await del(`/sessions/${S}/audio`, OVERSIZE), append);
+  });
+
+  it("a streamed (chunked, undeclared) body over 4096 bytes is 413 payload_too_large", async () => {
+    twoIdentities();
+    const { append, port } = await boot();
+    hooks.calls = [];
+    const r = await new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }>((resolve, reject) => {
+      let answered = false;
+      const req = http.request({
+        host: "127.0.0.1", port, path: `/sessions/${S}/audio`, method: "DELETE", agent: false,
+        headers: { "x-service-token": TOKEN, "content-type": "application/json", "transfer-encoding": "chunked" },
+      }, (res) => {
+        answered = true;
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+        res.on("error", reject);
+      });
+      req.on("error", (e) => { if (!answered) reject(e); }); // the server may close while the rest is still being written
+      req.end(JSON.stringify(OVERSIZE));
+    });
+    expect(r.headers["content-length"]).toBeDefined();
+    expectTooLarge(r, append);
   });
 
   it("live (VoiceHost.isLive) is 409 session_live with the empty outcome body and NO file call: checked before the catalog", async () => {
@@ -852,6 +893,27 @@ describe("DELETE /sessions/:id/audio: outcomes", () => {
     expect(again.status).toBe(200);
     expect((json(again.body).data as Outcome).deleted).toBe(1);
     expect(wavExists(B, "beta", "s2")).toBe(false);
+  });
+
+  it("an identity whose folder can no longer be judged under the lock (a file in its place) is 503 store_unsafe, not gone", async () => {
+    twoIdentities();
+    const catalog = new AudioCatalog({ audioDir });
+    const aside = path.join(root, "aside-A");
+    vi.spyOn(catalog, "find").mockImplementation(async () => {
+      renameSync(path.join(audioDir, A), aside);
+      writeFileSync(path.join(audioDir, A), "x");
+      return [A];
+    });
+    const { del, append } = await boot({ catalog });
+    const r = await del(`/sessions/${S}/audio`, SESSION_BODY);
+    expect(r.status).toBe(503);
+    expectJsonEnvelope(r);
+    expect(r.headers["retry-after"]).toBeUndefined();
+    expect(json(r.body)).toStrictEqual({
+      success: false, data: { deleted: 0, gone: [], identities: [], pending: [{ identity: A, reason: "store_unsafe" }] }, error: { code: "store_unsafe" },
+    });
+    expect(append).not.toHaveBeenCalled();
+    expect(existsSync(path.join(aside, "alpha", "s1.wav"))).toBe(true);
   });
 
   it("an untrusted index is 503 store_unsafe with NO Retry-After and the partial body", async () => {

@@ -26,7 +26,7 @@ vi.mock("node:fs", async (orig) => {
 });
 const fs = await import("node:fs");
 const { appendFileSync, chownSync, linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync } = fs;
-const { AudioCatalog, MAX_SEGMENT_INDEX_BYTES, openOwnDirErr, readSegmentIndex, stillBelongs } = await import("../../voice/audio-catalog.js");
+const { AudioCatalog, MAX_SEGMENT_INDEX_BYTES, openOwnDirErr, readSegmentIndex, recheckIdentity, stillBelongs } = await import("../../voice/audio-catalog.js");
 
 const id = (n: number): string => n.toString(16).padStart(32, "0");
 const A = id(0xa), B = id(0xb), C = id(0xc);
@@ -845,5 +845,59 @@ describe("stillBelongs (US-0075): would find still return this identity for the 
     hooks.calls = [];
     expect(stillBelongs(audioDir, identity, sessionId)).toBe(false);
     expect(hooks.calls).toEqual([]);
+  });
+});
+
+describe("recheckIdentity (US-0075): belongs, gone, or cannot tell (unsafe)", () => {
+  it("a folder whose marker names the session, and the fallback's pre-marker folder: belongs", () => {
+    mkIdentity(A);
+    mkIdentity(B, null);
+    expect(recheckIdentity(audioDir, A, S)).toBe("belongs");
+    expect(recheckIdentity(audioDir, B, S)).toBe("belongs");
+  });
+
+  it("a missing folder, a marker for another session or a torn marker: gone", () => {
+    expect(recheckIdentity(audioDir, A, S)).toBe("gone");
+    mkIdentity(B, { v: 1, sessionId: OTHER });
+    expect(recheckIdentity(audioDir, B, S)).toBe("gone");
+    mkIdentity(C, "{torn");
+    expect(recheckIdentity(audioDir, C, S)).toBe("gone");
+  });
+
+  it.each([["identity upper case", A.toUpperCase(), S], ["identity a path", `../${A}`, S], ["session invalid", A, "../x"]])(
+    "a bad id (%s): gone without a single file call", (_l, identity, sessionId) => {
+      mkIdentity(A);
+      hooks.calls = [];
+      expect(recheckIdentity(audioDir, identity, sessionId)).toBe("gone");
+      expect(hooks.calls).toEqual([]);
+    });
+
+  it("a group-writable root: unsafe, even for a folder that would belong or is missing", () => {
+    mkIdentity(A);
+    fs.chmodSync(audioDir, 0o770);
+    try {
+      expect(recheckIdentity(audioDir, A, S)).toBe("unsafe");
+      expect(recheckIdentity(audioDir, B, S)).toBe("unsafe");
+    } finally { fs.chmodSync(audioDir, 0o700); }
+  });
+
+  it("a missing root: unsafe (nothing can be judged)", () => {
+    expect(recheckIdentity(path.join(root, "nope"), A, S)).toBe("unsafe");
+  });
+
+  it("an identity folder replaced by a link to a valid copy, or by a regular file: unsafe", () => {
+    const real = path.join(root, "real-id");
+    mkdirSync(real, { mode: 0o700 });
+    writeFileSync(path.join(real, "session.json"), JSON.stringify({ v: 1, sessionId: S }), { mode: 0o600 });
+    symlinkSync(real, path.join(audioDir, A));
+    expect(recheckIdentity(audioDir, A, S)).toBe("unsafe");
+    writeFileSync(path.join(audioDir, B), "x");
+    expect(recheckIdentity(audioDir, B, S)).toBe("unsafe");
+  });
+
+  it.skipIf(!hasUid)("an identity folder of another user: unsafe", () => {
+    const dir = mkIdentity(A);
+    hooks.foreignIno.add(Number(fs.lstatSync(dir).ino));
+    expect(recheckIdentity(audioDir, A, S)).toBe("unsafe");
   });
 });
