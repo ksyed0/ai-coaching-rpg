@@ -9,6 +9,7 @@ import { EngineError } from "../engine/session-engine.js";
 import { JoinCodes } from "../engine/join-codes.js";
 import { normalizeDisplayName } from "./display-name.js";
 import { buildRoster } from "./roster.js";
+import { activityForPlayer, type ActivityFrame } from "./activity.js";
 import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
 
 /** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
@@ -171,8 +172,23 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const holders = new Map<string, { ws: WebSocket; token: string; kick: () => void; kickWith: (code: number) => void }>();
 
   /** US-0055: every joined connection that is still open, so a change can be told to the whole room. */
-  type Live = { sessionId: string; h: SessionHost; facilitator: boolean; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
+  type Live = { sessionId: string; h: SessionHost; facilitator: boolean; /** The joined role ("facilitator" for the facilitator). */ viewer: string; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
   const live = new Set<Live>();
+  /**
+   * US-0082: the copy of an activity frame `viewer` may see, or null. The facilitator gets it whole; a player gets the allowlisted copy
+   * (roleId and state) only while both share the current scene (default deny). Not an event: never logged, never replayed.
+   */
+  const activityFor = (h: SessionHost, viewer: string, f: ActivityFrame): ActivityFrame | null => {
+    if (viewer === "facilitator") return f;
+    return h.activityVisibleTo(viewer, f.roleId) ? activityForPlayer(f) : null;
+  };
+  const unsubscribeActivity = [...opts.hosts.values()].map((h) => (h as Partial<SessionHost>).onActivity?.((f) => {
+    for (const c of live) {
+      if (c.h !== h || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
+      const copy = activityFor(h, c.viewer, f);
+      if (copy) c.send(copy);
+    }
+  }) ?? (() => undefined));
   // US-0070 (AC-0399): a speaker's voice notice goes to the socket that holds that role now, and to nobody else (never logged).
   const unsubscribeNotice = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).onVoiceNotice?.((roleId, code) => {
     const held = holders.get(`${sessionId}:${roleId}`);
@@ -393,6 +409,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               // US-0070: only this seat's own voice state, only while voice is on (a text-only session's joined is unchanged). US-0071
               // (F5): with its mute state (kept when the same holder rebinds without a release, e.g. a superseded socket).
               ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId), muted: h.voiceMutedOf(m.roleId) } } : {}),
+              // US-0082: tells an AI player's bot that this runtime takes its `activity` reports (an older runtime sends no flag).
+              ...((h as Partial<SessionHost>).isAiRole?.(m.roleId) === true ? { activity: true as const } : {}), // (a stand-in host in a test may not offer it)
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -410,8 +428,10 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           unsubscribe = h.subscribe((e) => { const view = h.viewFor(viewer, e); if (view) send({ type: "event", event: view }); });
           // US-0055: only now, after `joined`, the replay and the subscription (all synchronous above), so the roster can never fall between
           // `joined` and its replayed events. The newcomer gets the current roster; everyone else hears the change.
-          liveEntry = { sessionId: m.sessionId, h, facilitator: isFacilitator, ws, send, closing: () => closing };
+          liveEntry = { sessionId: m.sessionId, h, facilitator: isFacilitator, viewer, ws, send, closing: () => closing };
           live.add(liveEntry);
+          // US-0082: who is composing a reply right now, as this viewer may see it (after joined and the replay, never logged).
+          for (const roleId of (h as Partial<SessionHost>).activityNow?.() ?? []) { const f = activityFor(h, viewer, { type: "activity", roleId, state: "thinking" }); if (f) send(f); }
           if (!isFacilitator) {
             rosterChanged(viewer, "joined"); rosterChanged(viewer, "connected"); broadcastRoster(m.sessionId, h);
             // US-0071 (K7): a voice holder who binds while voice is unavailable is told, after `joined` (never logged).
@@ -464,12 +484,18 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           send({ type: "voice", state: host.voiceStateOf(who), muted: host.voiceMutedOf(who) }); // to this socket only
           return;
         }
+        if (m.type === "activity") {
+          // US-0082: only an AI player seat's bot reports its turns; a human or the facilitator cannot fake one.
+          if (isFacilitator || !participantId || !host.isAiRole(who)) return fail("forbidden", "only an AI player reports its turns");
+          host.botActivity(who, m.state, m.outcome);
+          return;
+        }
         if (m.type === "start") {
           if (!isFacilitator) return fail("forbidden", "only the facilitator may start the session");
           await host.start();
         } else if (m.type === "say") {
           if (isFacilitator) return fail("forbidden", "the facilitator cannot speak as a role");
-          await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId });
+          await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId, ...(m.to !== undefined ? { to: m.to } : {}) });
         } else if (m.type === "end_now") {
           // US-0059: a separate facilitator message; it never starts the session (the host refuses before the start).
           if (!isFacilitator) return fail("forbidden", "only the facilitator may end the session", ref);
@@ -516,6 +542,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       if (holderKey && holders.get(holderKey)?.ws === ws) {
         holders.delete(holderKey);
         if (host && who && !isFacilitator && participantId) {
+          (host as Partial<SessionHost>).botActivity?.(who, "idle"); // US-0082: a gone bot is thinking no more (a no-op for anyone else)
           host.release(who, participantId); log(`released ${who}`);
           rosterChanged(who, "left");
           if (liveEntry) broadcastRoster(liveEntry.sessionId, host);
@@ -549,6 +576,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       for (const u of unsubscribeEnd) u();
       for (const u of unsubscribeNotice) u();
       for (const u of unsubscribeSpeaking) u();
+      for (const u of unsubscribeActivity) u();
       clearInterval(heartbeat);
       for (const c of wss.clients) c.terminate();
       wss.close();

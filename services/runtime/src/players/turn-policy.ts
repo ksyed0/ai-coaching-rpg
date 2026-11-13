@@ -12,7 +12,9 @@ export type Trigger = "reply" | "nudge" | "prompt";
 export type PolicyEvent =
   | { kind: "started" }
   | { kind: "scene"; sceneId: string; participants: string[] }
-  | { kind: "line"; roleId: string; ai: boolean; human?: true; replayed?: true }
+  /** `to` (US-0082): the role the line was addressed to. Addressed to this AI player: it replies without the settle wait (gap and caps
+   *  still apply). Addressed to anyone else: it is theirs to answer, so it sets no pending reply here (the quiet clock still moves). */
+  | { kind: "line"; roleId: string; ai: boolean; human?: true; replayed?: true; to?: string }
   | { kind: "nudged" }
   | { kind: "paused" }
   | { kind: "resumed" }
@@ -51,6 +53,8 @@ export class TurnPolicy {
   private sceneId: string | null = null;
   private inScene = false;
   private pending = false;
+  /** US-0082: the pending reply answers a line addressed to this role (no settle wait). Meaningful only while `pending`. */
+  private addressed = false;
   private humans = false;
   private held = false;
   private flying = false;
@@ -103,7 +107,13 @@ export class TurnPolicy {
         }
         this.lastActivityAt = this.now();
         if (e.human) this.nudgeSpent = false;
-        if (this.active && !e.ai && e.roleId !== this.roleId) this.pending = true;
+        if (this.active && !e.ai && e.roleId !== this.roleId) {
+          // US-0082: a line addressed to someone else is theirs to answer; one addressed to this role is answered at once.
+          const to = typeof e.to === "string" ? e.to : undefined;
+          if (to === undefined) { this.pending = true; this.addressed = false; }
+          else if (to === this.roleId) { this.pending = true; this.addressed = true; }
+          else { this.pending = false; this.addressed = false; }
+        }
         return;
       case "nudged":
         this.nudgeSpent = true;
@@ -136,7 +146,7 @@ export class TurnPolicy {
   private deadline(): { trigger: "reply" | "nudge"; at: number } | null {
     if (!this.active || this.lines >= this.settings.linesPerScene) return null;
     const gap = this.lastSpokeAt === null ? -Infinity : this.lastSpokeAt + this.settings.minGapMs;
-    if (this.pending) return { trigger: "reply", at: Math.max(this.lastActivityAt + this.settings.settleMs, gap) };
+    if (this.pending) return { trigger: "reply", at: Math.max(this.lastActivityAt + (this.addressed ? 0 : this.settings.settleMs), gap) };
     if (this.humans && !this.nudgeSpent) return { trigger: "nudge", at: Math.max(this.lastActivityAt + this.settings.nudgeMs, gap) };
     return null;
   }

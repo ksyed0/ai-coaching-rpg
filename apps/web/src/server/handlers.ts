@@ -436,14 +436,16 @@ async function emptyBody(req: Request): Promise<boolean> {
 }
 const MAX_EMPTY_BODY_BYTES = 16;
 
-/** POST /api/v1/say { text, expectSceneId? } */
+/** POST /api/v1/say { text, expectSceneId?, to? }. US-0082: `to` is the role the line is directed at (the runtime validates it). */
 export function handleSay(req: Request, deps: Deps): Promise<Response> {
   return relay(req, deps, async (r) => {
     const b = await readJson(r);
     if (b === null || typeof b.text !== "string" || b.text.length < 1 || b.text.length > MAX_SAY_CHARS) return null;
     const scene = b.expectSceneId;
     if (scene !== undefined && (typeof scene !== "string" || scene.length < 1 || scene.length > CLIENT_ID_MAX_CHARS)) return null;
-    return scene === undefined ? { type: "say", text: b.text } : { type: "say", text: b.text, expectSceneId: scene };
+    const to = b.to;
+    if (to !== undefined && (typeof to !== "string" || to.length < 1 || to.length > CLIENT_ID_MAX_CHARS)) return null;
+    return { type: "say", text: b.text, ...(scene !== undefined ? { expectSceneId: scene } : {}), ...(to !== undefined ? { to } : {}) };
   });
 }
 

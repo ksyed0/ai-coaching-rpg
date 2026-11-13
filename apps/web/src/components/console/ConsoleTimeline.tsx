@@ -18,6 +18,10 @@ const FOLLOW_SLACK_PX = 40;
 function Entry({ e, names, playerRoles, aiPlayers }: { e: TimelineEntry; names: Record<string, string>; playerRoles: ReadonlySet<string>; aiPlayers: ReadonlySet<string> }) {
   if (e.kind === "line") {
     const roleId = e.roleId ?? "";
+    // US-0082: the role the line was addressed to (the line itself was public); named like a speaker.
+    const to = e.to === undefined ? null : (
+      <span className="muted to">to <b><bdi>{aiPlayers.has(e.to) ? `AI player (${roleLabel(e.to)})` : Object.hasOwn(names, e.to) ? names[e.to] : roleLabel(e.to)}</bdi></b></span>
+    );
     if (aiPlayers.has(roleId)) {
       return (
         <li className="msg">
@@ -25,6 +29,7 @@ function Entry({ e, names, playerRoles, aiPlayers }: { e: TimelineEntry; names: 
             <b>AI player</b>
             <span className="pill ai">AI</span>
             <span className="muted"><bdi>{roleLabel(roleId)}</bdi></span>
+            {to}
           </div>
           <p className="line">{e.text}</p>
         </li>
@@ -38,6 +43,7 @@ function Entry({ e, names, playerRoles, aiPlayers }: { e: TimelineEntry; names: 
           <b><bdi>{named ? names[roleId] : roleLabel(roleId)}</bdi></b>
           {ai ? <span className="pill ai">AI</span> : null}
           {ai || named ? <span className="muted"><bdi>{roleLabel(roleId)}</bdi></span> : null}
+          {to}
         </div>
         <p className="line">{e.text}</p>
       </li>

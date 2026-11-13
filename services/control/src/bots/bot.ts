@@ -80,7 +80,11 @@ export class AiPlayerBot {
   private retry: (() => void) | null = null;
   private current: Turn | null = null;
   private awaiting: { turn: Turn; cancel: () => void } | null = null;
-  private lines: { roleId: string; text: string }[] = [];
+  private lines: { roleId: string; text: string; to?: string }[] = [];
+  /** US-0082: the runtime said (joined.activity) that it takes `activity` reports; an older runtime gets none. */
+  private activityOk = false;
+  /** US-0082: the turn whose "thinking" was reported and whose end is still owed. */
+  private thinkingFor: Turn | null = null;
   private seen = new Set<number>();
   private lastSeq = -1;
   private brief = "";
@@ -103,6 +107,8 @@ export class AiPlayerBot {
   private readyHumans = new Set<string>();
   private readonly floor: NudgeFloor;
   private readonly leaveFloor: () => void;
+  /** US-0082: the addressee of that deferred line, if any. */
+  private deferredTo: string | null = null;
 
   constructor(private readonly d: BotDeps) {
     this.policy = new TurnPolicy({ roleId: d.roleId, settings: d.settings.turn, now: d.now });
@@ -184,8 +190,9 @@ export class AiPlayerBot {
     this.voiceOpen = open;
     if (open) { this.wake?.(); this.wake = null; return; }
     const roleId = this.deferred;
-    this.deferred = null;
-    if (roleId !== null) this.observe({ kind: "line", roleId, ai: false, ...(this.isHuman(roleId) ? { human: true as const } : {}) });
+    const to = this.deferredTo;
+    this.deferred = null; this.deferredTo = null;
+    if (roleId !== null) this.observe({ kind: "line", roleId, ai: false, ...(this.isHuman(roleId) ? { human: true as const } : {}), ...(to !== null ? { to } : {}) });
     this.arm();
   }
 
@@ -232,6 +239,7 @@ export class AiPlayerBot {
     this.retry?.(); this.retry = null;
     this.joinWait?.(); this.joinWait = null;
     this.joinedSeen = false;
+    this.thinkingFor = null; // the runtime ends a closed seat's activity itself
     this.openAbort?.abort(); this.openAbort = null;
     const a = this.awaiting;
     this.awaiting = null;
@@ -286,12 +294,14 @@ export class AiPlayerBot {
     this.scenes = new Map(j.scenes.map((s) => [s.id, { title: s.title, goal: s.goal }]));
     this.aiRoles = new Set(j.state.aiRoles);
     this.lastSeq = j.state.lastSeq;
-    this.lines = j.state.transcript.slice(-BOT_MAX_VIEW_LINES).map((t) => ({ roleId: t.roleId, text: t.text }));
+    this.lines = j.state.transcript.slice(-BOT_MAX_VIEW_LINES).map((t) => ({ roleId: t.roleId, text: t.text, ...(typeof t.to === "string" ? { to: t.to } : {}) }));
     this.seen = new Set(j.state.transcript.map((t) => t.seq));
     const cs = j.state.currentScene;
     this.sceneId = cs?.id ?? null;
-    this.participants = cs?.participants ?? [];
+    this.participants = cs ? [...cs.participants] : [];
     this.sceneSpeakers = cs ? j.state.transcript.filter((t) => t.sceneId === cs.id).map((t) => t.roleId) : [];
+    this.activityOk = j.activity === true;
+    this.thinkingFor = null;
     // Host contract: `scene` first, then the current scene's lines as replayed history.
     if (j.state.status === "running") this.observe({ kind: "started" });
     if (j.state.status === "ended") this.observe({ kind: "ended" });
@@ -329,7 +339,7 @@ export class AiPlayerBot {
       case "scene.entered":
         if (e.sceneId === this.sceneId) return;
         this.sceneId = e.sceneId;
-        this.participants = e.participants;
+        this.participants = [...e.participants];
         this.sceneSpeakers = [];
         this.observe({ kind: "scene", sceneId: e.sceneId, participants: e.participants });
         break;
@@ -345,13 +355,15 @@ export class AiPlayerBot {
 
   private onUtterance(e: Extract<BotEvent, { type: "utterance" }>, replayed: boolean): void {
     if (replayed && this.seen.has(e.seq)) return; // a duplicate of a line the snapshot already carried
-    this.lines.push({ roleId: e.roleId, text: e.text });
+    const to = typeof e.to === "string" ? { to: e.to } : {};
+    this.lines.push({ roleId: e.roleId, text: e.text, ...to });
     if (this.lines.length > BOT_MAX_VIEW_LINES) this.lines.shift();
     if (this.sceneId !== null) this.sceneSpeakers.push(e.roleId);
-    const ev = this.lineEvent(e.roleId, replayed);
+    const ev: PolicyEvent = { ...this.lineEvent(e.roleId, replayed), ...to };
     // US-0070: during an open voice turn a human line is kept for the close (only the last one), not observed now.
     if (!replayed && !ev.ai && this.voiceOpen) {
       this.deferred = e.roleId;
+      this.deferredTo = typeof e.to === "string" ? e.to : null;
       if (this.d.scenario.roles[e.roleId]?.type === "player") this.nudgeFails = 0;
       return;
     }
@@ -417,7 +429,22 @@ export class AiPlayerBot {
   private buildView(sceneId: string): PlayerView {
     const scene = this.scenes.get(sceneId) ?? { title: sceneId, goal: "" };
     const roster = liveRoster({ scenario: this.d.scenario, participants: this.participants, aiRoles: this.aiRoles, self: this.d.roleId });
-    return { roleId: this.d.roleId, brief: this.brief, privateFacts: this.privateFacts, scene, injects: [], lines: this.lines.map((l) => ({ roleId: l.roleId, text: l.text })), roster };
+    const names = Object.fromEntries(Object.values(this.d.scenario.roles).filter((r) => r.type === "npc").map((r) => [r.id, (r as { name: string }).name]));
+    return { roleId: this.d.roleId, brief: this.brief, privateFacts: this.privateFacts, scene, injects: [], lines: this.lines.map((l) => ({ roleId: l.roleId, text: l.text, ...(l.to !== undefined ? { to: l.to } : {}) })), roster, names };
+  }
+
+  /** US-0082: tells the runtime this bot's turn began (only a runtime that said it takes these; never for a turn that took no budget). */
+  private reportThinking(turn: Turn): void {
+    if (!this.activityOk || this.sock === null) return;
+    this.thinkingFor = turn;
+    this.sock.activity("thinking");
+  }
+
+  /** US-0082: the end of a reported turn, once (`outcome` when no line came). The runtime also ends it on the bot's own line or its socket's close. */
+  private reportIdle(turn: Turn, outcome?: "timed_out" | "failed"): void {
+    if (this.thinkingFor !== turn) return;
+    this.thinkingFor = null;
+    this.sock?.activity("idle", outcome);
   }
 
   private async runTurn(turn: Turn, gen: number): Promise<void> {
@@ -429,11 +456,14 @@ export class AiPlayerBot {
       this.endTurn(turn, false);
       return;
     }
+    this.reportThinking(turn);
     const line = await generateLiveLine({
       signal: turn.ac.signal, provider: this.d.provider, scenario: this.d.scenario, view: this.buildView(ticket.sceneId), trigger: ticket.trigger, hint: turn.hint, target: turn.target, settings: this.d.settings,
+      participants: this.participants,
     });
     if (gen !== this.gen || !this.policy.isCurrent(ticket)) {
       if (this.dead) return;
+      if (gen === this.gen) this.reportIdle(turn);
       this.record(turn, "dropped");
       if (this.current === turn) this.current = null;
       this.policy.finish(ticket, false);
@@ -442,14 +472,15 @@ export class AiPlayerBot {
       return;
     }
     if (!line.ok) {
+      this.reportIdle(turn, line.reason === "timeout" ? "timed_out" : "failed");
       this.record(turn, "skipped", line.reason);
       if (!this.skipStreak) { this.skipStreak = true; this.d.alert(SKIP_ALERT[line.reason]); }
       this.endTurn(turn, false);
       return;
     }
     const sock = this.sock;
-    if (sock === null) { this.record(turn, "dropped"); this.endTurn(turn, false, false); return; }
-    sock.say(line.text, ticket.sceneId);
+    if (sock === null) { this.thinkingFor = null; this.record(turn, "dropped"); this.endTurn(turn, false, false); return; }
+    sock.say(line.text, ticket.sceneId, line.to);
     this.awaiting = { turn, cancel: this.d.setTimer(() => this.settleSay("dropped"), BOT_SAY_CONFIRM_MS) };
   }
 
@@ -469,6 +500,7 @@ export class AiPlayerBot {
     if (!a) return;
     this.awaiting = null;
     a.cancel();
+    this.reportIdle(a.turn); // after a spoken line the runtime has already ended it (a no-op there); after a dropped one this ends it
     this.record(a.turn, outcome);
     if (outcome === "spoken") { this.skipStreak = false; this.nudgeFails = 0; }
     this.endTurn(a.turn, outcome === "spoken", outcome === "dropped");

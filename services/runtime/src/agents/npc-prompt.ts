@@ -2,6 +2,7 @@ import { visibleTranscript, type SessionState } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
 import type { ChatMessage, ChatRequest } from "@acr/adapters";
 import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
+import { ADDRESS_RULE, addressSection, labelFrom } from "./address-prompt.js";
 
 const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (none)");
 
@@ -59,13 +60,14 @@ export function releasedSection(released: string[]): string[] {
   return ["", SHARE_SECTION, "The rules above about hidden information no longer apply to the facts in this section: you have been cleared to share them. Share them when they are relevant or when you are asked:", bullets(released)];
 }
 
-export type SpokenLine = { roleId: string; text: string };
+/** `to` (US-0082): the role the line was addressed to, when it was. */
+export type SpokenLine = { roleId: string; text: string; to?: string };
 
 /**
- * US-0081 (AC-0472): the one addressing sentence every AI character and every live AI player prompt carries. Participants' names never
+ * US-0081 (AC-0472): the one naming sentence every AI character and every live AI player prompt carries. Participants' names never
  * reach a model, so a model that addresses a player "by first name" can only invent one.
  */
-export const ADDRESS_RULE = "Address the other participants only by the role title or the name this prompt lists for them; never use a first name or any other name you were not given.";
+export const NAMING_RULE = "Address the other participants only by the role title or the name this prompt lists for them; never use a first name or any other name you were not given.";
 
 /** "account_manager" reads as "Account manager". */
 const titleOf = (roleId: string): string => { const l = roleId.replace(/[_-]+/g, " ").trim(); return l.charAt(0).toUpperCase() + l.slice(1); };
@@ -132,7 +134,7 @@ export function stableNpcPrefix(role: NpcRole): string {
     `You ARE ${role.name}${role.title ? `, ${role.title}` : ""}: a real person on this call, not a narrator. Speak in the first person ("I", "my team"). Never refer to yourself in the third person, neither by name nor by your own role or title${role.title ? ` (not "the ${role.title.split(",")[0]!.trim()}")` : ""}. Every other speaker is another person you are talking to.`,
     `Stay in character at all times. Speak only as ${role.name}. Reply in one to four sentences of natural spoken dialogue, no stage directions, no lists.`,
     `Other speakers are shown as [role_id]: text. Never mention role ids; address people the way ${role.name} would.`,
-    ADDRESS_RULE,
+    NAMING_RULE,
     `Reply with only ${role.name}'s own words. Never write a line for anyone else, never continue the conversation for the other speakers, and never begin a reply with a [...] speaker tag or with ${role.name}'s own name.`,
     NO_REPEAT_RULE,
     "", "## Persona", role.persona,
@@ -171,6 +173,9 @@ export function buildNpcRequest(opts: {
     ...playersSection(scene, state),
     ...roomSection(role, peers),
     ...respondSection(role, peers, allowSilence),
+    // US-0082: who the latest line was directed at, and how to direct a reply.
+    ...addressSection(allLines, role.id, labelFrom(Object.fromEntries(peers.map((p) => [p.id, p.name])))),
+    "", ADDRESS_RULE,
     ...lastLinesSection(allLines, role.id),
     ...releasedSection(npc.released),
   ].join("\n");

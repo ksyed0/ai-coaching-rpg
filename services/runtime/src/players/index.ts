@@ -3,7 +3,7 @@ export { PlayerBotGenerator, type PlayerSpeech } from "./generator.js";
 export { buildPlayerRequest, roleLabel, viewFromEvents, type PlayerView } from "./prompt.js";
 export { startPlayerProvider } from "./provider.js";
 export { buildLiveRequest, LIVE_INTENTS, LIVE_SPEAKER_RULE, liveRoster, nudgeIntent, roleTitle, type RosterEntry } from "./prompt.js";
-export { ADDRESS_RULE } from "../agents/npc-prompt.js";
+export { NAMING_RULE } from "../agents/npc-prompt.js";
 export { pickNudgeTarget } from "./nudge.js";
 export { MAX_HINT_CHARS, cleanHint } from "./hint.js";
 export { parseAiPlayerSettings, startLivePlayerProvider, type AiPlayerSettings } from "./settings.js";

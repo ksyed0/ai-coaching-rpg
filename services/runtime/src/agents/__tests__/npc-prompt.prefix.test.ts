@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initialState, reduce, type SessionEvent, type SessionState } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
-import { ADDRESS_RULE, NO_REPEAT_RULE, SHARE_SECTION, buildNpcRequest, npcIntro, stableNpcPrefix } from "../npc-prompt.js";
+import { NAMING_RULE, NO_REPEAT_RULE, SHARE_SECTION, buildNpcRequest, npcIntro, stableNpcPrefix } from "../npc-prompt.js";
 
 // US-0019, AC-0061 (TC-0022): the AI character prompt puts its stable content first, so the cached prefix survives an NPC update.
 const role: NpcRole = {
@@ -87,7 +87,7 @@ describe("test_npc_prompt_stable_prefix_survives_updates (AC-0061, TC-0022)", ()
 // US-0081 (AC-0472, TC-0252): an AI character addresses the players by role title only, never by a name it was not given.
 describe("test_npc_prompt_addresses_players_by_role_title (US-0081)", () => {
   it("the stable prefix holds the addressing rule (so the cache breakpoint is unchanged per turn)", () => {
-    expect(stableNpcPrefix(role)).toContain(ADDRESS_RULE);
+    expect(stableNpcPrefix(role)).toContain(NAMING_RULE);
   });
 
   it("the changing part lists the scene's players by role title and speaker tag, marks an AI player, and names no participant", () => {

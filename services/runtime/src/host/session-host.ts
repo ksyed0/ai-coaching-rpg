@@ -16,6 +16,8 @@ import { noticeNamesAiPlayers, noticeNamesVoice } from "./limits.js";
 import { VoiceChoices, type VoiceFileIO } from "../engine/voice-file.js";
 import { buildVoiceSeats, gmUnits, realSetTimer, SPEAKING_BROADCAST_MS, VOICE_ACTIVITY_STALE_MS, VOICE_ALERT_LEVELS, VOICE_ALERT_SENTENCES, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
 import type { VoiceConfig } from "./voice-config.js";
+import { ActivityBoard, type ActivityFrame, type ActivityOutcome } from "./activity.js";
+import { addressedOrder } from "./addressing.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
 export const MAX_REPLAY_EVENTS = 1000;
@@ -56,6 +58,8 @@ export class SessionHost {
   readonly engine: SessionEngine;
   private readonly scenario: Scenario;
   private readonly npcs = new Map<string, NpcAgent>();
+  /** US-0082: who is composing a reply now. Memory only, never logged (see activity.ts). */
+  private readonly activity = new ActivityBoard();
   private readonly gm: GameMaster;
   private readonly log: (msg: string) => void;
   private started = false;
@@ -131,8 +135,14 @@ export class SessionHost {
     // What each AI character may know about the others: name, title and seniority (what every participant sees), never goals or secrets.
     const peers = Object.values(opts.scenario.roles).filter((r): r is NpcRole => r.type === "npc").map((r) => ({ id: r.id, name: r.name, title: r.title, seniority: r.seniority }));
     for (const role of Object.values(opts.scenario.roles)) {
-      if (role.type === "npc") this.npcs.set(role.id, new NpcAgent({ role: role as NpcRole, engine: opts.engine, provider: opts.npcProvider, firstTokenTimeoutMs: opts.firstTokenTimeoutMs, replyTimeoutMs: opts.replyTimeoutMs, maxTokens: opts.npcMaxTokens, temperature: opts.npcTemperature, peers, onSilent: (t) => this.noteSilence(t) }));
+      if (role.type === "npc") this.npcs.set(role.id, new NpcAgent({ role: role as NpcRole, engine: opts.engine, provider: opts.npcProvider, firstTokenTimeoutMs: opts.firstTokenTimeoutMs, replyTimeoutMs: opts.replyTimeoutMs, maxTokens: opts.npcMaxTokens, temperature: opts.npcTemperature, peers, onSilent: (t) => this.noteSilence(t),
+        onActivity: (a) => (a.state === "thinking" ? this.activity.begin(role.id) : this.activity.end(role.id, a.outcome)) }));
     }
+    // US-0082: the thinking signal (memory only). A line from the role ends it; a scene change, the end and a log failure end everyone.
+    opts.engine.subscribe((e) => {
+      if (e.type === "utterance") this.activity.end(e.roleId);
+      else if (e.type === "scene.exited" || e.type === "scene.entered" || e.type === "session.ended" || (e.type === "facilitator.command" && e.command === "pause")) this.activity.clear();
+    });
     // Fail-stop (US-0018): when the log fails or the lock is lost the engine refuses everything; stop the clock and tell the server.
     opts.engine.onFailure((reason) => this.onEngineFailure(reason));
     this.seats = opts.seats;
@@ -186,9 +196,39 @@ export class SessionHost {
   /** Calls `fn` once if the session stops for good (see fatalReason). */
   onFatal(fn: (reason: string) => void): () => void { this.fatalListeners.add(fn); return () => { this.fatalListeners.delete(fn); }; }
 
+  /** US-0082: every thinking/idle change from now on (memory only; the WebSocket server decides who may see each one). */
+  onActivity(fn: (f: ActivityFrame) => void): () => void { return this.activity.onChange(fn); }
+
+  /** US-0082: the roles composing a reply now (not stale), for a viewer that joins mid-turn. */
+  activityNow(): string[] { return this.activity.current(); }
+
+  /**
+   * US-0082: whether `viewer` may see that `roleId` is composing a reply: the facilitator always; a player only when both take part in
+   * the CURRENT scene (default deny: no scene, another scene, an unknown role). Never reveals a scene the viewer is not in.
+   */
+  activityVisibleTo(viewer: string | "facilitator", roleId: string): boolean {
+    if (viewer === "facilitator") return true;
+    const sc = this.engine.state.currentScene;
+    return sc !== null && sc.participants.includes(viewer) && sc.participants.includes(roleId);
+  }
+
+  /**
+   * US-0082: a live AI player's bot reports that its turn began ("thinking") or ended ("idle", with why when no line came). Accepted only
+   * for an AI player role taking part in the current scene of a running, unpaused session (a stale or early report is ignored, never an
+   * error the bot must handle); an "idle" is always applied, so a lost scene can never leave a stuck indicator. Never logged.
+   */
+  botActivity(roleId: string, state: "thinking" | "idle", outcome?: ActivityOutcome): void {
+    if (state === "idle") { this.activity.end(roleId, outcome); return; }
+    if (!this.isAiRole(roleId) || this.engine.state.status !== "running" || this.engine.state.paused) return;
+    const sc = this.engine.state.currentScene;
+    if (!sc || !sc.participants.includes(roleId)) return;
+    this.activity.begin(roleId);
+  }
+
   private onEngineFailure(reason: string): void {
     if (this.fatal !== null) return;
     this.fatal = reason;
+    this.activity.clear();
     this.stopTicker();
     for (const fn of this.fatalListeners) { try { fn(reason); } catch (err) { this.report("fatal listener", err); } }
   }
@@ -725,13 +765,14 @@ export class SessionHost {
    * Records the line and returns. The NPC round and GM tick are scheduled in the background (one NPC turn at
    * a time via the queue), so a caller, and its connection's next message, never waits behind a model call.
    */
-  async onPlayerUtterance(roleId: string, text: string, opts: { expectSceneId?: string } = {}): Promise<void> {
+  async onPlayerUtterance(roleId: string, text: string, opts: { expectSceneId?: string; /** US-0082: the client's addressee; the engine drops it unless it is another role of the speaker's scene. */ to?: string } = {}): Promise<void> {
     // BUG-0009: each opening event (session.started, the AI characters, scene.entered, the opening inject) reaches the clients as
     // soon as it is on disk, but `started` turns true only once the last one is written. A line from a page that already shows the
     // scene waits for that start in flight (engine.say would queue behind its mutex anyway); only a failed start refuses it.
     if (!this.started && this.starting !== null) await this.starting.catch(() => undefined);
     if (!this.started) throw new HostError("not_started");
-    await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
+    // throws EngineError (paused, ended, ...) before any NPC turn can start
+    await this.engine.say(roleId, text, "text", { ...(opts.expectSceneId !== undefined ? { expectSceneId: opts.expectSceneId } : {}), ...(opts.to !== undefined ? { to: opts.to } : {}) });
     this.pendingAnswer = null; // a new line supersedes the one from before a restart: the round below answers the conversation as it now stands
     this.turns?.textLine(); // US-0070: a typed line ends a pending voice turn at once (its round is the one scheduled here)
     this.scheduleRound();
@@ -895,15 +936,18 @@ export class SessionHost {
       this.roundQueued = false;
       const scene = this.engine.currentScene();
       if (!scene) return;
-      const order = this.replyOrder(scene.participants);
+      const { order, addressee, elsewhere } = addressedOrder(this.replyOrder(scene.participants), this.engine.state.transcript.at(-1), scene.id);
       const before = this.engine.state.transcript.length;
       let spoke = false;
       for (const [i, id] of order.entries()) {
         const agent = this.npcs.get(id)!;
         // Nobody has answered yet: the last character of the round must speak, so a player line is never left entirely unanswered.
-        try { if (await agent.respond({ mustSpeak: i === order.length - 1 && !spoke })) spoke = true; } catch (err) { this.report(`NPC ${id}`, err); }
+        // US-0082: a character the line was addressed to answers first and must speak; a line addressed to a player (human or AI) is
+        // theirs to answer, so the characters may stay silent and nobody is made to speak.
+        const mustSpeak = id === addressee || (!elsewhere && i === order.length - 1 && !spoke);
+        try { if (await agent.respond({ mustSpeak, ...(elsewhere ? { addressedElsewhere: true } : {}) })) spoke = true; } catch (err) { this.report(`NPC ${id}`, err); }
       }
-      if (order.length > 0 && !spoke && this.engine.state.transcript.length === before && this.engine.currentScene()?.id === scene.id && !this.engine.state.paused && this.engine.state.status === "running") {
+      if (order.length > 0 && !spoke && !elsewhere && this.engine.state.transcript.length === before && this.engine.currentScene()?.id === scene.id && !this.engine.state.paused && this.engine.state.status === "running") {
         try { await this.engine.alert("every AI character stayed silent for this line", "warning", { expectSceneId: scene.id }); } catch (err) { this.report("silence alert", err); }
       }
       await this.gm.tick();

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatRequest, ModelProvider } from "@acr/adapters";
 import { loadScenario, type Scenario } from "@acr/script";
-import { ADDRESS_RULE, nudgeIntent, parseAiPlayerSettings, type AiPlayerSettings } from "@acr/runtime/players";
+import { NAMING_RULE, nudgeIntent, parseAiPlayerSettings, type AiPlayerSettings } from "@acr/runtime/players";
 import { BotHost } from "../../bots/bot-host.js";
 import { type BotSocket, type BotSocketOptions } from "../../bots/bot-socket.js";
 import { parseBotFrame } from "../../bots/bot-frames.js";
@@ -135,7 +135,7 @@ describe("AI players prompt the quiet human (US-0081)", () => {
     await adv(NUDGE);
     const sys = provider.calls[0]!.system;
     expect(sys).toContain(nudgeIntent("Account manager"));
-    expect(sys).toContain(ADDRESS_RULE);
+    expect(sys).toContain(NAMING_RULE);
     expect(sys).toContain("## Who is in this scene");
     expect(sys).toContain("- Account manager: their lines are shown as [account_manager]");
   });

@@ -721,6 +721,16 @@ describe("POST /api/v1/say, /consent and /leave", () => {
     expect(rt.sockets).toHaveLength(1);
   });
 
+  it("test_handle_say_relays_a_well_formed_to_and_refuses_a_bad_one", async () => {
+    // US-0082 (AC-0484): the BFF only checks the shape; the runtime decides whether the addressee is in the scene.
+    const { deps, timers } = makeDeps();
+    await openStream(deps);
+    const res = await sent(timers, handleSay(postReq("say", cookieValue(), { text: "@Tech lead size?", to: "tech_lead" }), deps));
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(rt.received.at(-1)).toEqual({ type: "say", text: "@Tech lead size?", to: "tech_lead" }));
+    for (const to of [5, "", "x".repeat(500)]) expect((await handleSay(postReq("say", cookieValue(), { text: "hi", to }), deps)).status).toBe(400);
+  });
+
   it("a runtime error maps to a fixed message and status, never the runtime's own text", async () => {
     let sock: WebSocket | null = null;
     script = (ws, m) => {

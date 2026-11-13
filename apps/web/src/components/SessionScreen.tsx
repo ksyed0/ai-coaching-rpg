@@ -14,8 +14,8 @@ import { AppHeader } from "./AppHeader";
 import { BriefPanel } from "./BriefPanel";
 import { ConsentPanel } from "./ConsentPanel";
 import { Roster } from "./Roster";
-import { SayBox } from "./SayBox";
 import { SceneEndedDialog } from "./SceneEndedDialog";
+import { SceneTalk } from "./SceneTalk";
 import { SceneStatus } from "./SceneStatus";
 import type { StatusKind } from "./StatusChip";
 import { TitleBlock } from "./TitleBlock";
@@ -250,7 +250,7 @@ function LeaveButton({ onLeave }: { onLeave: Action }) {
 
 type ExitDialog = { dismissed: number | null; onDismiss: (seq: number) => void };
 
-function Scene({ state, clock, onSay, voice, exitDialog }: { state: ReturnType<typeof useSession>["state"]; clock: Clock; onSay: (text: string) => Promise<ActionResult>; voice: VoiceUi; exitDialog: ExitDialog }) {
+function Scene({ state, clock, onSay, voice, exitDialog }: { state: ReturnType<typeof useSession>["state"]; clock: Clock; onSay: (text: string, to?: string) => Promise<ActionResult>; voice: VoiceUi; exitDialog: ExitDialog }) {
   const joined = state.joined!;
   const view = state.view!;
   const ended = view.status === "ended" || state.final?.kind === "ended";
@@ -271,7 +271,7 @@ function Scene({ state, clock, onSay, voice, exitDialog }: { state: ReturnType<t
         <section className="col col-main" aria-labelledby="transcript-h">
           <h2 className="s" id="transcript-h">Transcript</h2>
           <Transcript lines={view.transcript} selfRole={joined.roleId} names={names} playerRoles={playerRoles} aiRoles={new Set(view.aiRoles)} />
-          {ended ? null : <SayBox disabledReason={disabledReason} onSay={onSay} />}
+          {ended ? null : <SceneTalk selfRole={joined.roleId} view={view} activity={state.activity} names={names} playerRoles={playerRoles} disabledReason={disabledReason} onSay={onSay} />}
         </section>
         <div className="col">
           {joined.consent?.given ? (

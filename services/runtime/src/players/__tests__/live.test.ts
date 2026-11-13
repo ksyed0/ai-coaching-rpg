@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatRequest, ModelProvider } from "@acr/adapters";
 import { NO_REPEAT_RULE } from "../../agents/npc-prompt.js";
 import { loadScenario, type Scenario } from "@acr/script";
-import { ADDRESS_RULE, buildLiveRequest, buildPlayerRequest, generateLiveLine, liveRoster, nudgeIntent, parseAiPlayerSettings, LIVE_INTENTS, type AiPlayerSettings, type PlayerView } from "../index.js";
+import { NAMING_RULE, buildLiveRequest, buildPlayerRequest, generateLiveLine, liveRoster, nudgeIntent, parseAiPlayerSettings, LIVE_INTENTS, type AiPlayerSettings, type PlayerView } from "../index.js";
 
 let scenarioP: Promise<Scenario> | undefined;
 const scenario = () => (scenarioP ??= loadScenario(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..", "scenarios", "friday-escalation")));
@@ -202,7 +202,7 @@ describe("buildLiveRequest addressing (US-0081)", () => {
 
   it("test_live_prompt_forbids_invented_names_and_drops_the_first_name_advice", () => {
     const { system } = buildLiveRequest({ view: view({ roster }), trigger: "reply" });
-    expect(system).toContain(ADDRESS_RULE);
+    expect(system).toContain(NAMING_RULE);
     expect(system).not.toContain("by first name");
   });
 

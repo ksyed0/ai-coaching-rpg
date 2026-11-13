@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { consoleActivity } from "./activity-copy";
 import { consoleCharacters, isRecord, strings, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState, wellFormedHiddenFacts, type ConsoleFactText } from "./facilitator-copies";
 import type { FacilitatorJoin } from "./facilitator-socket";
 import type { RuntimeConnection, SetTimer } from "./runtime-connection";
@@ -186,6 +187,10 @@ export class FacilitatorHub {
       if (m.audience === "facilitator") this.write(s, sse("roster", { entries: consoleRoster(m.entries) }));
     } else if (m.type === "error") {
       this.write(s, sse("error", { code: CODE_SHAPE.test(m.code) ? m.code : "error", message: ERROR_MESSAGE }));
+    } else if (m.type === "activity") {
+      // US-0082: who is composing a reply (with why a turn ended without its line), picked field by field; a malformed one is dropped.
+      const a = consoleActivity(m);
+      if (a) this.write(s, sse("activity", a));
     }
     // Anything else (another joined, an unknown type) is not forwarded.
   }
