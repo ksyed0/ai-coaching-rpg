@@ -18,7 +18,7 @@ const idle = (): PlayerSnapshot => ({ ...initialState(), whispers: [] });
 describe("initPlayerView", () => {
   it("initPlayerView takes the redacted snapshot as is", () => {
     const v = initPlayerView(snapshot({ paused: true, pausedSince: 1_500 }));
-    expect(v).toEqual({ lastSeq: 5, status: "running", paused: true, pausedSince: 1_500, scene: { id: "s1", enteredAt: 1_002, pausedMs: 40 },
+    expect(v).toEqual({ lastSeq: 5, status: "running", paused: true, pausedSince: 1_500, scene: { id: "s1", enteredAt: 1_002, pausedMs: 40, participants: ["me"] },
       transcript: [{ seq: 3, ts: 1_003, roleId: "me", text: "earlier", sceneId: "s1" }], injects: [], ended: null, aiRoles: [] });
   });
   it("initPlayerView takes aiRoles from the snapshot and [] when absent", () => {
@@ -85,7 +85,7 @@ describe("applyPlayerEvent", () => {
   });
   it("scene.entered and scene.exited set and clear the scene", () => {
     let v = applyPlayerEvent(initPlayerView(snapshot({ currentScene: null })), entered(6, 2_000));
-    expect(v.scene).toEqual({ id: "s1", enteredAt: 2_000, pausedMs: 0 });
+    expect(v.scene).toEqual({ id: "s1", enteredAt: 2_000, pausedMs: 0, participants: ["me"] });
     v = applyPlayerEvent(v, { ...env(7), type: "scene.exited", sceneId: "s1", reason: "facilitator_advance" } as SessionEvent);
     expect(v.scene).toBeNull();
   });
@@ -174,7 +174,7 @@ function randomSequence(seed: number, length: number): SessionEvent[] {
   return out;
 }
 const projectState = (s: SessionState) => ({ paused: s.paused, pausedSince: s.pausedSince,
-  scene: s.currentScene && { id: s.currentScene.id, enteredAt: s.currentScene.enteredAt, pausedMs: s.currentScene.pausedMs },
+  scene: s.currentScene && { id: s.currentScene.id, enteredAt: s.currentScene.enteredAt, pausedMs: s.currentScene.pausedMs, participants: s.currentScene.participants },
   transcript: s.transcript.map((u) => ({ seq: u.seq, ts: u.ts, roleId: u.roleId, text: u.text, sceneId: u.sceneId })), status: s.status });
 const projectView = (v: PlayerView) => ({ paused: v.paused, pausedSince: v.pausedSince, scene: v.scene, transcript: v.transcript, status: v.status });
 

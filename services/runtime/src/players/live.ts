@@ -6,9 +6,11 @@ import { MAX_LINE_CHARS, cleanPlayerReply } from "./clean.js";
 import { buildLiveRequest, roleLabel, type PlayerView } from "./prompt.js";
 import type { AiPlayerSettings } from "./settings.js";
 import type { Trigger } from "./turn-policy.js";
+import { addressCandidates, addressOfReply } from "../agents/address-prompt.js";
 
 export type LiveSkipReason = "model_failed" | "timeout" | "unusable";
-export type LiveLine = { ok: true; text: string; cut: boolean } | { ok: false; reason: LiveSkipReason };
+/** `to` (US-0082): the role the line is directed at (one of `participants`), when the model began it with "@role". */
+export type LiveLine = { ok: true; text: string; cut: boolean; to?: string } | { ok: false; reason: LiveSkipReason };
 
 /**
  * Makes the live AI player speak one line. One model call, raced against `settings.hardTimeoutMs` (the provider is aborted when it
@@ -16,6 +18,8 @@ export type LiveLine = { ok: true; text: string; cut: boolean } | { ok: false; r
  */
 export async function generateLiveLine(o: {
   provider: ModelProvider; scenario: Scenario; view: PlayerView; trigger: Trigger; hint?: string | null; settings: AiPlayerSettings; signal?: AbortSignal;
+  /** US-0082: the current scene's roles: the only roles a reply may be addressed to. */
+  participants?: readonly string[];
 }): Promise<LiveLine> {
   const { settings, view } = o;
   const ac = new AbortController();
@@ -37,7 +41,10 @@ export async function generateLiveLine(o: {
       .map((r) => ({ id: r.id, name: r.type === "npc" ? (r as NpcRole).name : roleLabel(r.id) }));
     const cleaned = cleanPlayerReply(got.text, self, others);
     if (!/[\p{L}\p{N}]/u.test(cleaned.text) || cleaned.text.length > MAX_LINE_CHARS) return { ok: false, reason: "unusable" };
-    return { ok: true, text: cleaned.text, cut: cleaned.cut };
+    // US-0082: a leading "@role" naming another role of the current scene directs the line (stripped); the runtime validates it again.
+    const names = Object.fromEntries(Object.values(o.scenario.roles).filter((r) => r.type === "npc").map((r) => [r.id, (r as NpcRole).name]));
+    const addressed = addressOfReply(cleaned.text, addressCandidates(o.participants ?? [], view.roleId, names));
+    return { ok: true, text: addressed.text, cut: cleaned.cut, ...(addressed.to !== undefined ? { to: addressed.to } : {}) };
   } catch {
     return { ok: false, reason: "model_failed" };
   } finally {

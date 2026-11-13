@@ -2,6 +2,7 @@ import { visibleTranscript, type SessionState } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
 import type { ChatMessage, ChatRequest } from "@acr/adapters";
 import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
+import { ADDRESS_RULE, addressSection, labelFrom } from "./address-prompt.js";
 
 const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (none)");
 
@@ -59,7 +60,8 @@ export function releasedSection(released: string[]): string[] {
   return ["", SHARE_SECTION, "The rules above about hidden information no longer apply to the facts in this section: you have been cleared to share them. Share them when they are relevant or when you are asked:", bullets(released)];
 }
 
-export type SpokenLine = { roleId: string; text: string };
+/** `to` (US-0082): the role the line was addressed to, when it was. */
+export type SpokenLine = { roleId: string; text: string; to?: string };
 
 /** The rule against repeating, shared by the AI character and the generated player prompts. */
 export const NO_REPEAT_RULE = "Never repeat or reword anything that has already been said, by you or by anyone else. React to the LATEST line and move the conversation forward with something new: a question, a concrete number, a concession, a condition or a next step. Speak from your own priorities, which differ from the other participants'.";
@@ -149,6 +151,9 @@ export function buildNpcRequest(opts: {
     "", "## Current scene", `${scene.title}: ${scene.goal}`,
     ...roomSection(role, peers),
     ...respondSection(role, peers, allowSilence),
+    // US-0082: who the latest line was directed at, and how to direct a reply.
+    ...addressSection(allLines, role.id, labelFrom(Object.fromEntries(peers.map((p) => [p.id, p.name])))),
+    "", ADDRESS_RULE,
     ...lastLinesSection(allLines, role.id),
     ...releasedSection(npc.released),
   ].join("\n");
