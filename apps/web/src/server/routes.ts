@@ -1,5 +1,5 @@
 import { loadConfig, missingConsoleVars } from "./config";
-import { handleConsoleLogin, handleConsoleLogout, resolveConsoleCaller } from "./console-handlers";
+import { handleConsoleLogin, handleConsoleLogout, handleConsolePassword, resolveConsoleCaller } from "./console-handlers";
 import {
   handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRemove, handleConsoleRestart, handleConsoleScenarios,
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
@@ -63,6 +63,8 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // ignores the address: a wrong secret anywhere is charged here too. The price is that an attacker can lock the facilitator out
     // of LOGIN (never out of a signed-in console) for CONSOLE_GLOBAL_THROTTLE.blockMs at a time.
     consoleGlobalThrottle: new JoinThrottle({ ...CONSOLE_GLOBAL_THROTTLE, now }),
+    // US-0083: wrong account passwords per lower-cased login, so rotating addresses cannot dodge it (the join's limits, a table of its own).
+    consoleLoginThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     reportThrottle: new JoinThrottle({ ...REPORT_READ_THROTTLE, now }),
     reportWriteThrottle: new JoinThrottle({ ...REPORT_WRITE_THROTTLE, now }),
     consoleReportThrottle: new JoinThrottle({ ...CONSOLE_REPORT_THROTTLE, now }),
@@ -169,6 +171,7 @@ export const voicePOST = route(handleVoice);
 export const voiceTokenPOST = route(handleVoiceToken);
 export const consoleLoginPOST = route(handleConsoleLogin);
 export const consoleLogoutPOST = route(handleConsoleLogout);
+export const consolePasswordPOST = route(handleConsolePassword);
 export const consoleScenariosGET = route(handleConsoleScenarios);
 export const consoleSessionsGET = route(handleConsoleSessionsList);
 export const consoleSessionsPOST = route(handleConsoleSessionsCreate);

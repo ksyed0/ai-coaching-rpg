@@ -52,7 +52,7 @@ function makeDeps(o: { launcher?: false | ((c: TokenCall) => Promise<{ token: st
   const t = (max: number, windowMs = 60_000, blockMs = 60_000) => new JoinThrottle({ max, windowMs, blockMs, now: () => clock });
   const deps: Deps = {
     config, now: () => clock, connect: (() => { throw new Error("no connect in these tests"); }) as unknown as Deps["connect"],
-    joinThrottle: t(5), consoleThrottle: t(5), consoleGlobalThrottle: t(20, 600_000, 300_000), reportThrottle: t(60), reportWriteThrottle: t(30), consoleReportThrottle: t(60),
+    joinThrottle: t(5), consoleThrottle: t(5), consoleGlobalThrottle: t(20, 600_000, 300_000), consoleLoginThrottle: t(5), reportThrottle: t(60), reportWriteThrottle: t(30), consoleReportThrottle: t(60),
     reportEnterThrottle: t(5), reportReadFailThrottle: t(5), voiceTokenThrottle: new JoinThrottle({ ...VOICE_TOKEN_THROTTLE, now: () => clock }),
     hub, facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: () => clock }),
     ...(launcher ? { launcher } : {}),

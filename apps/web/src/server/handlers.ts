@@ -18,7 +18,9 @@ import type { ClientMessage, JoinedFrame } from "./wire";
 // from the sealed cookie, never from a body or a query. Nothing here logs a code, a credential, a cookie, a name or an address.
 
 export type Deps = {
-  config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; consoleGlobalThrottle: JoinThrottle; reportThrottle: JoinThrottle; reportWriteThrottle: JoinThrottle;
+  config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; consoleGlobalThrottle: JoinThrottle;
+  /** US-0083: wrong account passwords per lower-cased login (and wrong current passwords per account), in a table of their own. */
+  consoleLoginThrottle: JoinThrottle; reportThrottle: JoinThrottle; reportWriteThrottle: JoinThrottle;
   /** The facilitator's evaluate and review writes, keyed by a digest of the console cookie (60 per minute). */
   consoleReportThrottle: JoinThrottle; reportEnterThrottle: JoinThrottle; reportReadFailThrottle: JoinThrottle;
   /** US-0071: voice token requests, keyed by a digest of the cookie's session, role and participant (VOICE_TOKEN_THROTTLE). */

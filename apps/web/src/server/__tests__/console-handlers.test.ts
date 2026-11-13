@@ -271,9 +271,8 @@ describe("console login", () => {
     expect(openConsoleCookie(value, rotated.config, clock)).toBeNull();
   });
 
-  it("login is disabled with a generic message when FACILITATOR_SECRET, LAUNCHER_URL or LAUNCHER_TOKEN is unset", async () => {
+  it("login is disabled with a generic message when LAUNCHER_URL or LAUNCHER_TOKEN is unset", async () => {
     for (const o of [
-      { facilitatorSecret: undefined },
       { launcherUrl: undefined },
       { launcherToken: undefined },
     ]) {
@@ -289,10 +288,16 @@ describe("console login", () => {
       for (const name of ["FACILITATOR_SECRET", "LAUNCHER_URL", "LAUNCHER_TOKEN"])
         expect(msg).not.toContain(name);
       expect(msg).not.toContain(SECRET);
-      // US-0083: FACILITATOR_SECRET only serves the legacy sign-in; without it the console itself stays enabled (account cookies).
-      const req = await requireConsole(withCookie("x"), deps);
-      expect((req as Response).status).toBe(o.facilitatorSecret === undefined && "facilitatorSecret" in o ? 401 : 503);
+      expect(((await requireConsole(withCookie("x"), deps)) as Response).status).toBe(503);
     }
+  });
+
+  it("US-0083: without FACILITATOR_SECRET the console stays enabled and a legacy login gets the neutral refusal", async () => {
+    const { deps } = makeDeps({ facilitatorSecret: undefined });
+    const res = await handleConsoleLogin(login({ secret: SECRET, name: "Ann" }), deps);
+    expect(res.status).toBe(401);
+    expect((await res.json()).error.message).toBe(NEUTRAL);
+    expect(((await requireConsole(withCookie("x"), deps)) as Response).status).toBe(401);
   });
 
   it("a player cookie is rejected by requireConsole", async () => {
