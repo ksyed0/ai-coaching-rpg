@@ -53,7 +53,8 @@ export async function shownCodes(page: Page): Promise<Record<Player, string>> {
           hasText: new RegExp(`^${ROLE_LABEL[role]}$`),
         }),
       });
-    out[role] = (await row.locator("code").innerText()).trim();
+    // The code only: the row also holds the join link in its own <code class="code-url">.
+    out[role] = (await row.locator("code.code-value").innerText()).trim();
     expect(out[role]).not.toBe("");
   }
   return out;

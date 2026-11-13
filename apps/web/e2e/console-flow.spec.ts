@@ -114,7 +114,7 @@ test("reissue issues a new code and the old code is refused", async ({
     }),
   });
   await expect(row).toBeVisible();
-  const fresh = (await row.locator("code").innerText()).trim();
+  const fresh = (await row.locator("code.code-value").innerText()).trim();
   expect(fresh).not.toBe("");
   expect(fresh).not.toBe(codes.tech_lead);
 
@@ -194,7 +194,7 @@ test("reissue after the start rebinds consent: a player who lost their cookie re
     }),
   });
   await expect(row).toBeVisible();
-  const fresh = (await row.locator("code").innerText()).trim();
+  const fresh = (await row.locator("code.code-value").innerText()).trim();
   expect(fresh).not.toBe(codes.tech_lead);
 
   // The tech lead lost their cookie: a fresh context rejoins with the new code, straight into the running scene.
