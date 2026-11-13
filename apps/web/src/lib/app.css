@@ -100,6 +100,15 @@ input.t:disabled { background: var(--panel2); color: var(--muted); }
 .top .scene { min-width: 0; }
 .top .clock { display: flex; align-items: center; gap: 10px; }
 .timer { font-family: var(--mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+/* US-0080: the objective reads first, what ends the scene under it (both in the scene bar and the scene-ended dialog). */
+.objective { font-size: 16px; font-weight: 600; margin-top: 4px; }
+.ends { margin-top: 2px; }
+/* US-0080: the scene-ended dialog is not modal (no backdrop): it floats over the top of the page while the transcript keeps going. */
+.scene-ended {
+  position: fixed; z-index: 10; top: 12px; left: var(--gutter); right: var(--gutter); margin: 0 auto; max-width: 440px;
+  max-height: calc(100vh - 24px); overflow-y: auto; border: 2px solid var(--accent); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+.scene-ended .next-h { font-size: 15px; }
 
 /* Transcript */
 .tstream { list-style: none; max-height: 60vh; overflow-y: auto; }

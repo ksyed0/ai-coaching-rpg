@@ -15,6 +15,7 @@ import { BriefPanel } from "./BriefPanel";
 import { ConsentPanel } from "./ConsentPanel";
 import { Roster } from "./Roster";
 import { SayBox } from "./SayBox";
+import { SceneEndedDialog } from "./SceneEndedDialog";
 import { SceneStatus } from "./SceneStatus";
 import type { StatusKind } from "./StatusChip";
 import { TitleBlock } from "./TitleBlock";
@@ -259,6 +260,8 @@ function Scene({ state, clock, onSay, voice }: { state: ReturnType<typeof useSes
       <TitleBlock title={ended ? "The session has ended" : "Play the scene"} lede={ended ? "This page no longer updates. What was said stays below." : "Talk to the room. Your brief and any updates stay beside the transcript."} />
       {ended ? <p className="banner warn" role="status">{MESSAGES.sessionEnded}</p> : <SceneStatus scene={index >= 0 ? joined.scenes[index] : undefined} index={index} count={joined.scenes.length} view={view} clock={clock} />}
       {ended && view.ended?.message ? <p className="body">Message from the facilitator: {view.ended.message}</p> : null}
+      {/* US-0080: inform-only, not modal: the next scene runs underneath and the say box keeps its draft. */}
+      <SceneEndedDialog view={view} scenes={joined.scenes} ended={ended} />
       <div className="body row">
         <section className="col col-main" aria-labelledby="transcript-h">
           <h2 className="s" id="transcript-h">Transcript</h2>

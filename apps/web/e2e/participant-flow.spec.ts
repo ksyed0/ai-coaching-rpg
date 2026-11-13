@@ -49,7 +49,9 @@ test("three players join with names and consent, the terminal facilitator starts
     await expect(pages[role].getByRole("heading", { name: "Play the scene" })).toBeVisible();
     // Each player counts only the scenes they are in (the tech lead is not in the client call).
     await expect(pages[role].getByText(/^Scene 1 of [23]: Team huddle$/)).toBeVisible();
-    await expect(pages[role].getByText(/^Goal: Agree the team's position/)).toBeVisible();
+    await expect(pages[role].getByText(/^Objective: Agree the team's position/)).toBeVisible();
+    // US-0080: what ends the scene, in plain words, before it ends.
+    await expect(pages[role].getByText("Ends when: the team agrees one position on Priya's request, at 10 min, or when your facilitator moves on")).toBeVisible();
     // The opening inject reaches the brief panel.
     await expect(pages[role].getByText(/Email from Priya Raman/)).toBeVisible();
   }
@@ -118,11 +120,33 @@ test("three players join with names and consent, the terminal facilitator starts
   await say(second, "And the second tab still holds the seat.");
   await expect(pages.delivery_lead.getByRole("heading", { name: "Open in another tab" })).toBeVisible();
 
+  // US-0080: a scene ends; each page that watched it shows an inform-only dialog saying why and naming that player's next scene. A draft
+  // typed before the end stays in the say box, and Escape closes the dialog.
+  await sayBox(pages.tech_lead).fill("A draft I have not sent");
+  await stack.terminalFacilitator.command({ command: "advance" });
+  const ended1 = (page: Page, of: number) => page.getByRole("dialog", { name: `Scene 1 of ${of} has ended: Team huddle` });
+  await expect(ended1(second, 3).getByText("Your facilitator moved the session on.")).toBeVisible({ timeout: 30_000 });
+  await expect(ended1(second, 3).getByRole("heading", { name: "Next for you: Scene 2 of 3: Call with Priya" })).toBeVisible();
+  await expect(ended1(second, 3).getByText("Ends when: you and Priya agree a concrete next step, at 15 min, or when your facilitator moves on")).toBeVisible();
+  // The tech lead is not in the client call: the dialog names their next scene, which waits.
+  await expect(ended1(pages.tech_lead, 2).getByRole("heading", { name: "Next for you: Scene 2 of 2: Internal wrap-up" })).toBeVisible({ timeout: 30_000 });
+  await expect(ended1(pages.tech_lead, 2).getByText("It starts when the session reaches it.")).toBeVisible();
+  await expect(sayBox(pages.tech_lead)).toHaveValue("A draft I have not sent");
+  await pages.tech_lead.keyboard.press("Escape");
+  await expect(ended1(pages.tech_lead, 2)).toHaveCount(0);
+  await expect(sayBox(pages.tech_lead)).toHaveValue("A draft I have not sent");
+  // The next scene runs underneath the account manager's dialog: its opening message arrives.
+  await expect(pages.account_manager.getByText(/The call with Priya Raman has started/)).toBeVisible({ timeout: 30_000 });
+
   // The end: the facilitator advances through the remaining scenes; the transcript stays and the say box goes.
-  for (let i = 0; i < 3; i++) await stack.terminalFacilitator.command({ command: "advance" });
+  for (let i = 0; i < 2; i++) await stack.terminalFacilitator.command({ command: "advance" });
   for (const page of [second, pages.tech_lead, pages.account_manager]) {
     await expect(page.getByRole("heading", { name: "The session has ended" })).toBeVisible({ timeout: 30_000 });
     await expect(sayBox(page)).toHaveCount(0);
+    // The last scene's end is the "Session complete" variant of the dialog.
+    const last = page.getByRole("dialog", { name: /^Scene \d of \d has ended: Internal wrap-up$/ });
+    await expect(last.getByRole("heading", { name: "Session complete" })).toBeVisible();
+    await expect(last.getByText("All scenes are done. The facilitator can now run the evaluation.")).toBeVisible();
   }
   await expect(transcript(pages.tech_lead).getByText(lines.tech_lead, { exact: true })).toHaveCount(1);
 });

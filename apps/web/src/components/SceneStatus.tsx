@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import type { PlayerScene, PlayerView } from "@acr/events";
 import { formatRemaining, remainingMs, type Clock } from "../lib/clock";
+import { endsWhenText, SCENE_COPY } from "../lib/scene-copy";
 
-// The current scene's title, goal and time left. The time comes from the view (enteredAt, pausedMs, pausedSince) and the scene's
+// The current scene's title, objective, what ends it (US-0080) and time left. The time comes from the view (enteredAt, pausedMs, pausedSince) and the scene's
 // time box, read against an injected clock; it freezes while the scene is paused.
 
 const TICK_MS = 1_000;
@@ -30,7 +31,8 @@ export function SceneStatus({ scene, index, count, view, clock }: SceneStatusPro
     <div className="top">
       <div className="scene">
         <b>Scene {index + 1} of {count}: {scene.title}</b>
-        <p className="muted small">Goal: {scene.goal}</p>
+        <p className="objective">{SCENE_COPY.objective} {scene.goal}</p>
+        <p className="ends">{SCENE_COPY.endsWhen} {endsWhenText(scene)}</p>
       </div>
       <div className="clock">
         {view.paused ? <span className="pill warn">Paused</span> : null}

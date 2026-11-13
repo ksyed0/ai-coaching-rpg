@@ -56,7 +56,7 @@ export type JoinedFrame = {
   replay?: ReplaySummary;
   /** The durable credential, only on the join by code that asked for it. The one copy. */
   credential?: string;
-  /** Title, goal and time box of the scenes this role takes part in, in script order; the facilitator join lists every scene. */
+  /** Title, goal, time box and (US-0080, optional) the end rule of the scenes this role takes part in, in script order; the facilitator join lists every scene. */
   scenes?: (PlayerScene & { injects?: FacilitatorInject[] })[];
   /** Facilitator join only: each AI character's hidden facts, in the order `release_hidden` numbers them (1-based). */
   hiddenFacts?: Record<string, string[]>;
