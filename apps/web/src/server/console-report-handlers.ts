@@ -131,23 +131,23 @@ type Spec = {
 };
 
 /**
- * The write throttle's key (an in-memory key only: never logged or returned): a digest of the account's id, so signing in again (a new
+ * The write throttle's key (an in-memory key only: never logged or returned): the account's id (control's own id, at most 64 characters), so signing in again (a new
  * cookie) does not reset its budget; for a legacy sign-in, a digest of the console cookie as before.
  */
-const throttleKey = (req: Request, who: ConsoleCaller): string =>
-  createHash("sha256").update(who.accountId !== null ? `account\0${who.accountId}` : `cookie\0${readConsoleCookie(req) ?? ""}`).digest("hex").slice(0, 32);
+const cookieKey = (cookie: string | null): string => createHash("sha256").update(`cookie\0${cookie ?? ""}`).digest("hex").slice(0, 32);
+const throttleKey = (req: Request, who: ConsoleCaller): string => (who.accountId !== null ? `account\0${who.accountId}` : cookieKey(readConsoleCookie(req)));
 
 const SLUG_NAME_MAX = 40;
 const SLUG_ID_HEX = 6;
 /**
  * US-0083: an account's review author name: its display name lower-cased, every character that is not [a-z0-9] as `-`, at most 40
- * characters, then `-` and the first 6 hex characters of the account id (control's ids are hex; an id with fewer is hashed for them).
+ * characters, then `-` and the first 6 hex characters of the account id (control's ids are hex; an id with fewer gets its own bytes in hex, zero-padded).
  * Always matches NAME, so with control's `-console` it stays a safe id; two accounts with the same name differ by the id part.
  */
 export function accountSlug(name: string, accountId: string): string {
   const base = Array.from(name.toLowerCase(), (c) => (/^[a-z0-9]$/.test(c) ? c : "-")).slice(0, SLUG_NAME_MAX).join("");
   let hex = accountId.toLowerCase().replace(/[^0-9a-f]/g, "");
-  if (hex.length < SLUG_ID_HEX) hex = createHash("sha256").update(accountId).digest("hex");
+  if (hex.length < SLUG_ID_HEX) hex = Buffer.from(accountId, "utf8").toString("hex").padEnd(SLUG_ID_HEX, "0");
   return `${base}-${hex.slice(0, SLUG_ID_HEX)}`;
 }
 

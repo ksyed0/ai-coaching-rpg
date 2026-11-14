@@ -92,9 +92,9 @@ export type RunningControl = {
  */
 export function startupCause(err: unknown): string {
   if (err instanceof UnusableFileError || err instanceof AccountError) return `${err.name}: ${err.message}`;
-  const name = err instanceof Error && /^[A-Za-z0-9_]{1,40}$/.test(err.name) ? err.name : "Error";
+  const name = err instanceof Error && /^[A-Za-z]{1,40}$/.test(err.name) ? err.name : "Error";
   const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === "string" && /^[A-Z0-9_]{1,20}$/.test(code) ? `${name} (${code})` : name;
+  return typeof code === "string" && /^E[A-Z]{1,15}$/.test(code) ? `${name} (${code})` : name;
 }
 
 export async function startControl(

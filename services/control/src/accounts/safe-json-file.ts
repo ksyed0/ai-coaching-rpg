@@ -35,7 +35,7 @@ export class SafeJsonFile {
     catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "ENOENT") return null;
-      throw new UnusableFileError(code === "ELOOP" ? "it is a symbolic link" : `it cannot be opened (${typeof code === "string" && /^[A-Z0-9_]{1,20}$/.test(code) ? code : "error"})`);
+      throw new UnusableFileError(code === "ELOOP" ? "it is a symbolic link" : `it cannot be opened (${typeof code === "string" && /^E[A-Z]{1,15}$/.test(code) ? code : "error"})`);
     }
     try {
       const st = fstatSync(fd);
