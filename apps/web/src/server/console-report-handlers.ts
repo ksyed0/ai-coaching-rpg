@@ -134,7 +134,7 @@ type Spec = {
  * The write throttle's key (an in-memory key only: never logged or returned): the account's id (control's own id, at most 64 characters), so signing in again (a new
  * cookie) does not reset its budget; for a legacy sign-in, a digest of the console cookie as before.
  */
-const cookieKey = (cookie: string | null): string => createHash("sha256").update(`cookie\0${cookie ?? ""}`).digest("hex").slice(0, 32);
+const cookieKey = (cookie: string | null | undefined): string => createHash("sha256").update(`cookie\0${cookie ?? ""}`).digest("hex").slice(0, 32);
 const throttleKey = (req: Request, who: ConsoleCaller): string => (who.accountId !== null ? `account\0${who.accountId}` : cookieKey(readConsoleCookie(req)));
 
 const SLUG_NAME_MAX = 40;
