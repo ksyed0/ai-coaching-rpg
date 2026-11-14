@@ -40,6 +40,14 @@ export type ControlConfig = {
   reportAccessDays: number;
   /** EPIC-0002: added to `bound × EVAL_TIMEOUT_MS` for the overall timeout of one evaluate run, in ms (0 to 3600000). */
   evaluateMarginMs: number;
+  /** US-0083: `<dataDir>/accounts.json`, the facilitator and admin accounts (hashes only). */
+  accountsFile: string;
+  /** US-0083: `<dataDir>/session-owners.json`, which account owns which session (kept apart from sessions.json). */
+  ownersFile: string;
+  /** US-0083: ADMIN_BOOTSTRAP_PASSWORD (10 to 200 characters), the default admin's first password. A secret: never log it. */
+  adminBootstrapPassword: string;
+  /** US-0083: ADMIN_RESET === "1" resets the default admin's password at start. */
+  adminReset: boolean;
 };
 
 const TOKEN_MIN_CHARS = 32;
@@ -105,6 +113,9 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
   const reportAccessDays = whole("REPORT_ACCESS_DAYS", 90, 1, 365);
   const evaluateMarginMs = whole("REPORT_EVALUATE_MARGIN_MS", 120_000, 0, 3_600_000);
 
+  const bootstrap = env.ADMIN_BOOTSTRAP_PASSWORD ?? "ChangeMe-Admin-1";
+  if (bootstrap.length < 10 || bootstrap.length > 200) problems.push("ADMIN_BOOTSTRAP_PASSWORD must be 10 to 200 characters");
+
   // US-0073: with no usable dataDir (already reported) the audio default is not computed.
   const audio = parseAudioSettings(env, dataDir === "" ? path.sep : dataDir);
   if (!audio.ok) problems.push(...audio.errors);
@@ -119,6 +130,6 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
     sessionsDir: path.join(dataDir, "sessions"), listFile: path.join(dataDir, "sessions.json"),
     scenariosDir, logDir, graceMs, readyTimeoutMs, intentsDir: path.join(dataDir, "intents"), aiPlayer: ai.settings,
     reportsDir: path.join(dataDir, "reports"), reportAccessFile: path.join(dataDir, "report-access.json"), reportAccessDays,
-    evaluateMarginMs,
+    evaluateMarginMs, accountsFile: path.join(dataDir, "accounts.json"), ownersFile: path.join(dataDir, "session-owners.json"), adminBootstrapPassword: bootstrap, adminReset: env.ADMIN_RESET === "1",
   };
 }

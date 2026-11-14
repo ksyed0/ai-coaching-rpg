@@ -7,7 +7,8 @@ import { CLIENT_ID_MAX_CHARS } from "@acr/events";
  * Default deny: an unknown type, a malformed frame or an unlisted event parses to `{ type: "ignored" }`; keys not listed here are dropped.
  */
 export type BotEvent =
-  | { seq: number; type: "utterance"; roleId: string; text: string }
+  /** `to` (US-0082): the role the line is addressed to, when it is. */
+  | { seq: number; type: "utterance"; roleId: string; text: string; to?: string }
   | { seq: number; type: "scene.entered"; sceneId: string; participants: string[] }
   | { seq: number; type: "scene.exited"; sceneId: string }
   | { seq: number; type: "session.started"; aiRoles: string[] }
@@ -20,9 +21,11 @@ export type BotFrame =
     type: "joined"; roleId: string; brief: string; privateFacts: string[]; reconnectToken: string;
     state: {
       status: "idle" | "running" | "ended"; paused: boolean; aiRoles: string[]; currentScene: { id: string; participants: string[] } | null; lastSeq: number;
-      transcript: { seq: number; roleId: string; text: string; sceneId: string | null }[];
+      transcript: { seq: number; roleId: string; text: string; sceneId: string | null; to?: string }[];
     };
     scenes: { id: string; title: string; goal: string }[];
+    /** US-0082: the runtime takes this bot's `activity` reports (absent from an older runtime: the bot then sends none). */
+    activity?: true;
   }
   | { type: "event"; event: BotEvent }
   | { type: "roster"; audience: "peers"; entries: { roleId: string; ready: boolean; ai: boolean }[] }
@@ -41,7 +44,7 @@ const Seq = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Ids = z.array(Id).max(MAX_ROLES);
 
 const EventSchema = z.discriminatedUnion("type", [
-  z.object({ seq: Seq, type: z.literal("utterance"), roleId: Id, text: z.string().max(MAX_TEXT) }),
+  z.object({ seq: Seq, type: z.literal("utterance"), roleId: Id, text: z.string().max(MAX_TEXT), to: Id.optional().catch(undefined) }),
   z.object({ seq: Seq, type: z.literal("scene.entered"), sceneId: Id, participants: Ids }),
   z.object({ seq: Seq, type: z.literal("scene.exited"), sceneId: Id }),
   z.object({ seq: Seq, type: z.literal("session.started"), aiRoles: Ids.default([]) }),
@@ -63,9 +66,10 @@ const JoinedSchema = z.object({
     currentScene: z.object({ id: Id, participants: Ids }).nullable(),
     lastSeq: Seq,
     // The runtime does not cap the snapshot: keep the LAST MAX_TRANSCRIPT entries rather than refusing the frame (a refused joined leaves the bot mute).
-    transcript: z.array(z.object({ seq: Seq, roleId: Id, text: z.string().max(MAX_TEXT), sceneId: Id.nullable() })).transform((t) => t.slice(-MAX_TRANSCRIPT)),
+    transcript: z.array(z.object({ seq: Seq, roleId: Id, text: z.string().max(MAX_TEXT), sceneId: Id.nullable(), to: Id.optional().catch(undefined) })).transform((t) => t.slice(-MAX_TRANSCRIPT)),
   }),
   scenes: z.array(z.object({ id: Id, title: z.string().max(MAX_SHORT), goal: z.string().max(MAX_TEXT) })).max(MAX_SCENES).default([]),
+  activity: z.literal(true).optional().catch(undefined),
 });
 
 const RosterSchema = z.object({

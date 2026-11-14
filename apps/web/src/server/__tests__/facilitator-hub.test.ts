@@ -27,7 +27,7 @@ function setup(o: { commandTimeoutMs?: number; maxStreams?: number; maxPendingBy
   const h = new FacilitatorHub({ setTimer: timers.setTimer, now: o.now ?? (() => 0), newChannelId: () => `ch-${++n}`, newRef: () => `ref-${++r}`, ...(o.commandTimeoutMs !== undefined && { commandTimeoutMs: o.commandTimeoutMs }), ...(o.maxStreams !== undefined && { maxStreams: o.maxStreams }), ...(o.maxPendingBytes !== undefined && { maxPendingBytes: o.maxPendingBytes }) });
   const open = (joined = o.joined ?? join()) => {
     const conn = new FakeConn(); const rec = sseRecorder();
-    const res = h.open({ sessionId: "s1", expiresAt: o.expiresAt ?? 10 ** 13, conn: asConn(conn), joined, out: rec.out });
+    const res = h.open({ sessionId: "s1", accountId: null, epoch: null, expiresAt: o.expiresAt ?? 10 ** 13, conn: asConn(conn), joined, out: rec.out });
     return { conn, rec, r: res };
   };
   return { h, timers, open };
@@ -321,7 +321,7 @@ describe("FacilitatorHub", () => {
     const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0, maxPendingBytes: 10 });
     const chunks: string[] = []; let ends = 0;
     const conn = new FakeConn();
-    const r = h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
+    const r = h.open({ sessionId: "s1", accountId: null, epoch: null, expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
     expect(r).not.toBe("capacity");
     expect(ends).toBe(0); // retry, joined, characters and roster are over the cap and still open
     conn.emit({ type: "event", event: ev(6) });
@@ -337,7 +337,7 @@ describe("FacilitatorHub", () => {
     const chunks: string[] = []; let ends = 0;
     const conn = new FakeConn();
     for (let i = 6; i <= 15; i++) conn.queued.push({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage); // ~5 KB of replay
-    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join({ replay: { afterSeq: 5, toSeq: 15, events: 10, complete: true } }), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
+    h.open({ sessionId: "s1", accountId: null, epoch: null, expiresAt: 10 ** 13, conn: asConn(conn), joined: join({ replay: { afterSeq: 5, toSeq: 15, events: 10, complete: true } }), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
     expect(chunks.filter((c) => c.includes("event: event"))).toHaveLength(10); // the whole replay is delivered, in order
     expect(ends).toBe(0);
     for (let i = 16; i <= 18; i++) conn.emit({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage);
@@ -351,7 +351,7 @@ describe("FacilitatorHub", () => {
     const timers = manualTimers();
     const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0 });
     const body = sseBody(); const conn = new FakeConn();
-    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join({ replay: undefined, state: big }), out: body.out });
+    h.open({ sessionId: "s1", accountId: null, epoch: null, expiresAt: 10 ** 13, conn: asConn(conn), joined: join({ replay: undefined, state: big }), out: body.out });
     expect(conn.closed).toBe(0);
     const reader = body.stream.getReader(); const dec = new TextDecoder(); let text = "";
     while (!/event: roster/.test(text)) text += dec.decode((await reader.read()).value);
@@ -516,7 +516,7 @@ describe("FacilitatorHub commands", () => {
     const timers = manualTimers();
     const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0, maxPendingBytes: 10, newChannelId: () => "ch-x", newRef: () => "r" });
     const conn = new FakeConn();
-    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: () => false, end: () => {} } });
+    h.open({ sessionId: "s1", accountId: null, epoch: null, expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: () => false, end: () => {} } });
     const p = h.send({ sessionId: "s1", channel: "ch-x", message: PAUSE });
     conn.emit({ type: "event", event: ev(6) }); // a write after the opening stalls the page
     expect(await p).toEqual({ kind: "unconfirmed" });

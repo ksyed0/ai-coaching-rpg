@@ -201,6 +201,7 @@ export function ConsoleControls({
         running={state?.status === "running" && ui.conn === "live"}
         paused={state?.paused === true}
         sceneRoles={state?.currentScene?.participants ?? null}
+        activity={ui.activity ?? {}}
         {...(fetchImpl ? { fetch: fetchImpl } : {})}
       />
       <div role="status">

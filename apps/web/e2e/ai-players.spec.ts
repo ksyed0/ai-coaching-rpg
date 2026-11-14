@@ -106,7 +106,7 @@ test("facilitator creates a session, makes Tech lead an AI player on the created
   test.setTimeout(300_000);
   const { stack: s, fac, sessionId, codes } = await sessionWithAi(browser);
   // The AI role's code is gone from the page; the other two are still shown.
-  await expect(fac.locator(".code-row code")).toHaveCount(2);
+  await expect(fac.locator(".code-row code.code-value")).toHaveCount(2);
   await expect(
     fac.getByRole("button", { name: "Make Tech lead human" }),
   ).toBeVisible();
@@ -116,14 +116,14 @@ test("facilitator creates a session, makes Tech lead an AI player on the created
 
   const line = "Can someone take the rollback plan to the customer?";
   await say(players.delivery_lead.page, line);
-  // The AI player answers the human line (a reply, no prompt): its line is in the human's transcript, marked AI, as Tech lead.
+  // The AI player answers the human line (a reply, no prompt): its line is in the human's transcript, marked AI: named by its role, then the AI badge and "AI player".
   const ai = transcript(players.delivery_lead.page)
     .locator("li.msg")
     .filter({ hasText: MOCK_REPLY });
   await expect(ai).toHaveCount(1);
-  await expect(ai.locator(".h b")).toHaveText("AI player");
+  await expect(ai.locator(".h b")).toHaveText(ROLE_LABEL.tech_lead);
   await expect(ai.locator(".pill.ai")).toHaveText("AI");
-  await expect(ai.locator(".h .muted")).toHaveText(ROLE_LABEL.tech_lead);
+  await expect(ai.locator(".h .muted")).toHaveText("AI player");
   // The other human sees the same line, and the facilitator's timeline too.
   await expect(
     transcript(players.account_manager.page).locator("li.msg").filter({ hasText: MOCK_REPLY }),
@@ -193,7 +193,7 @@ test("switching back to human shows New code for Tech lead once and the code joi
   const heading = fac.getByRole("heading", { name: "New code for Tech lead" });
   await expect(heading).toHaveCount(1);
   const panel = fac.locator("section").filter({ has: heading });
-  const code = (await panel.locator(".code-row code").innerText()).trim();
+  const code = (await panel.locator(".code-row code.code-value").innerText()).trim();
   expect(code).not.toBe("");
   // The seat is a human seat again: the AI row is gone and Reissue is offered.
   await expect(

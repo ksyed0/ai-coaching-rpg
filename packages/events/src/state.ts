@@ -1,6 +1,11 @@
 import type { RoleKind, SessionEvent, Channel } from "./events.js";
 
-export type Utterance = { seq: number; ts: number; sceneId: string | null; roleId: string; text: string; channel: Channel };
+export type Utterance = { seq: number; ts: number; sceneId: string | null; roleId: string; text: string; channel: Channel;
+  /** US-0082: the role the line is directed at (the utterance event's validated `to`); absent when the line is not addressed. */
+  to?: string };
+
+/** US-0082: an utterance's `to` as a transcript keeps it: only a non-empty string, else nothing (so an absent field stays absent). */
+export const toOf = (e: { to?: unknown }): { to?: string } => (typeof e.to === "string" && e.to.length > 0 ? { to: e.to } : {});
 export type NpcState = { goals: string[]; knowledge: string[]; released: string[] };
 
 /** US-0059: words and lines one role has spoken. */
@@ -100,7 +105,7 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
     case "scene.exited":
       return { ...s, currentScene: null, gmVerdicts: {} };
     case "utterance":
-      return { ...s, talk: withTalk(s.talk, e.roleId, e.text), transcript: [...s.transcript, { seq: e.seq, ts: e.ts, sceneId: s.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel }] };
+      return { ...s, talk: withTalk(s.talk, e.roleId, e.text), transcript: [...s.transcript, { seq: e.seq, ts: e.ts, sceneId: s.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel, ...toOf(e) }] };
     case "inject.fired":
       return { ...s, injectsFired: [...s.injectsFired, e.injectId] };
     case "npc.updated": {
@@ -151,7 +156,7 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
 export function reduceReplay(state: SessionState, e: SessionEvent): SessionState {
   if (e.type !== "utterance" && e.type !== "inject.fired") return reduce(state, e);
   if (e.seq !== state.lastSeq + 1) throw new Error(`event seq ${e.seq} out of order; expected ${state.lastSeq + 1}`);
-  if (e.type === "utterance") state.transcript.push({ seq: e.seq, ts: e.ts, sceneId: state.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel });
+  if (e.type === "utterance") state.transcript.push({ seq: e.seq, ts: e.ts, sceneId: state.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel, ...toOf(e) });
   else state.injectsFired.push(e.injectId);
   // talk is copied per utterance (one small record per speaking role, not per line), so the fold stays linear in the log.
   return { ...state, lastSeq: e.seq, ...(e.type === "utterance" ? { talk: withTalk(state.talk, e.roleId, e.text) } : {}) };

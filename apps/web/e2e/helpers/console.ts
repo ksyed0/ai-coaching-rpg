@@ -23,9 +23,10 @@ export async function signIn(
   name = FAC_NAME,
 ): Promise<void> {
   await page.goto(`${baseUrl}/console`);
+  await page.getByText("Use the shared secret instead").click();
   await page.getByLabel("Facilitator secret").fill(secret);
   await page.getByLabel("Your name").fill(name);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in with the secret" }).click();
   await expect(page.getByText(`Signed in as ${name}`)).toBeVisible();
 }
 
@@ -52,7 +53,8 @@ export async function shownCodes(page: Page): Promise<Record<Player, string>> {
           hasText: new RegExp(`^${ROLE_LABEL[role]}$`),
         }),
       });
-    out[role] = (await row.locator("code").innerText()).trim();
+    // The code only: the row also holds the join link in its own <code class="code-url">.
+    out[role] = (await row.locator("code.code-value").innerText()).trim();
     expect(out[role]).not.toBe("");
   }
   return out;

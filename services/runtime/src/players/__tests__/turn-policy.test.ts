@@ -524,3 +524,89 @@ describe("TurnPolicy humans and the quiet clock", () => {
     expect(p.due()).toEqual({ trigger: "nudge" });
   });
 });
+
+// US-0081 (AC-0471, TC-0251): after a nudge no further nudge, by this AI player or any other, until a human line arrives in the scene.
+describe("TurnPolicy one nudge until a human speaks (US-0081)", () => {
+  const humanLine = (replayed = false): PolicyEvent => ({ kind: "line", roleId: "human", ai: false, human: true, ...(replayed ? { replayed: true as const } : {}) });
+  function quiet() {
+    const m = inScene();
+    m.p.observe({ kind: "humans", connected: true });
+    return m;
+  }
+
+  it("test_turn_policy_own_spoken_nudge_blocks_further_nudges_until_a_human_line", () => {
+    const { p, adv } = quiet();
+    adv(S.nudgeMs);
+    p.finish(p.begin("nudge")!, true);
+    adv(10 * S.nudgeMs);
+    expect(p.due()).toBeNull();
+    expect(p.wakeAt()).toBeNull();
+    p.observe(humanLine());
+    adv(S.settleMs);
+    expect(p.due()).toEqual({ trigger: "reply" }); // the human line is answered
+    p.finish(p.begin("reply")!, true);
+    adv(S.nudgeMs);
+    expect(p.due()).toEqual({ trigger: "nudge" }); // and the floor is open again
+  });
+
+  it("test_turn_policy_another_ai_players_nudge_blocks_this_one", () => {
+    const { p, adv } = quiet();
+    adv(S.nudgeMs - 1);
+    p.observe({ kind: "nudged" });
+    p.observe({ kind: "line", roleId: "bot-b", ai: true });
+    adv(10 * S.nudgeMs);
+    expect(p.due()).toBeNull();
+    expect(p.wakeAt()).toBeNull();
+  });
+
+  it("test_turn_policy_an_ai_character_or_ai_player_line_does_not_reopen_the_nudge", () => {
+    const { p, adv } = quiet();
+    p.observe({ kind: "nudged" });
+    p.observe(npc());
+    p.observe({ kind: "line", roleId: "bot-b", ai: true });
+    adv(S.settleMs);
+    p.finish(p.begin("reply")!, true); // the NPC line is still answered
+    adv(10 * S.nudgeMs);
+    expect(p.due()).toBeNull();
+  });
+
+  it("test_turn_policy_a_failed_nudge_does_not_close_the_floor", () => {
+    const { p, adv } = quiet();
+    adv(S.nudgeMs);
+    p.finish(p.begin("nudge")!, false);
+    adv(S.nudgeMs);
+    expect(p.due()).toEqual({ trigger: "nudge" });
+  });
+
+  it("test_turn_policy_a_new_scene_reopens_the_floor", () => {
+    const { p, adv } = quiet();
+    p.observe({ kind: "nudged" });
+    p.observe({ kind: "scene", sceneId: "s2", participants: [ME, "human"] });
+    adv(S.nudgeMs);
+    expect(p.due()).toEqual({ trigger: "nudge" });
+  });
+
+  it("test_turn_policy_replayed_history_ending_in_an_ai_player_line_restores_the_closed_floor", () => {
+    const { p, adv } = quiet();
+    p.observe(humanLine(true));
+    p.observe({ kind: "line", roleId: "bot-b", ai: true, replayed: true });
+    adv(10 * S.nudgeMs);
+    expect(p.due()).toBeNull();
+    const m = quiet();
+    m.p.observe({ kind: "line", roleId: "bot-b", ai: true, replayed: true });
+    m.p.observe(humanLine(true));
+    m.adv(S.nudgeMs);
+    expect(m.p.due()).toEqual({ trigger: "nudge" });
+  });
+
+  it("test_turn_policy_reset_reopens_the_floor", () => {
+    const { p, adv } = quiet();
+    p.observe({ kind: "nudged" });
+    p.reset();
+    p.observe({ kind: "started" });
+    p.observe({ kind: "scene", sceneId: "s1", participants: [ME, "human"] });
+    p.observe({ kind: "humans", connected: true });
+    adv(S.nudgeMs);
+    expect(p.due()).toEqual({ trigger: "nudge" });
+  });
+});

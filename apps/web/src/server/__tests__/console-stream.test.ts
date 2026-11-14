@@ -12,6 +12,7 @@ import { route } from "../routes";
 import { seal } from "../seal";
 import { realTimer } from "../runtime-connection";
 import { FakeConn, manualTimers, parseSse, sseReader, until } from "./fakes";
+import { ADMIN, accountCookie, legacyCookie, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -24,8 +25,7 @@ const config: Config = {
   runtimeUrl: "ws://127.0.0.1:1", publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10,
   maxStreamsPerAddress: 10, facilitatorSecret: SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: "launcher-token-" + "t".repeat(20),
 };
-const consoleCookie = (expiresAt = T0 + 3_600_000, secret = SECRET) =>
-  `${CONSOLE_COOKIE}=${seal({ name: "Ann Lee", epoch: secretEpoch(secret), expiresAt }, KEYS, T0, "fac")}`;
+const consoleCookie = (expiresAt = T0 + 3_600_000) => accountCookie(ADMIN, { keys: KEYS, now: T0, expiresAt });
 const playerCookie = () =>
   `${COOKIE_NAME}=${seal({ sessionId: SID, roleId: "r", participantId: "p", credential: "c", logIdentity: "l", expiresAt: T0 + 3_600_000 }, KEYS, T0)}`;
 
@@ -62,7 +62,7 @@ beforeEach(() => {
   connect = vi.fn(async (_url: string, xff: string) => { forwarded.push(xff); const c = new FacConn(); conns.push(c); return c; });
   const timers = manualTimers();
   deps = {
-    config, now: () => clock, connect: connect as unknown as Deps["connect"], launcher: launcher as never,
+    config, now: () => clock, connect: connect as unknown as Deps["connect"], launcher: withConsoleAuth(launcher) as never,
     facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: timers.setTimer, now: () => clock }), setTimer: timers.setTimer,
   } as unknown as Deps;
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -108,9 +108,12 @@ describe("GET /api/v1/console/sessions/:id/stream", () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it("a cookie from before a FACILITATOR_SECRET change is 401", async () => {
-    const res = await stream({ cookie: consoleCookie(T0 + 3_600_000, "an older secret entirely") });
+  it("a legacy cookie from before a FACILITATOR_SECRET change is 401, and so is an account cookie from an older epoch", async () => {
+    const res = await stream({ cookie: legacyCookie("Ann Lee", { keys: KEYS, now: T0, secret: "an older secret entirely" }) });
     expect(res.status).toBe(401);
+    const old = await stream({ cookie: accountCookie({ ...ADMIN, epoch: ADMIN.epoch - 1 }, { keys: KEYS, now: T0 }) });
+    expect(old.status).toBe(401);
+    expect(old.headers.get("Set-Cookie")).toContain("Max-Age=0");
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -149,7 +152,7 @@ describe("GET /api/v1/console/sessions/:id/stream", () => {
     const noLauncher = await handleConsoleStream(req(), { ...deps, launcher: undefined } as Deps);
     expect(noLauncher.status).toBe(502);
     expect((await noLauncher.json()).error.code).toBe("launcher_unavailable");
-    const off = await handleConsoleStream(req(), { ...deps, config: { ...config, facilitatorSecret: undefined } } as Deps);
+    const off = await handleConsoleStream(req(), { ...deps, config: { ...config, launcherToken: undefined } } as Deps);
     expect(off.status).toBe(503);
   });
 

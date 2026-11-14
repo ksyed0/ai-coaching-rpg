@@ -2236,3 +2236,213 @@ Status: Done
 Branch: feature/EPIC-0003-US-0075-voice-audio-delete
 Notes: Plan: docs/superpowers/plans/2026-11-13-voice-a2b1b-audio-delete.md (Task 1: the `deleted` index line in the speech protocol and the filing; then the typed lock acquirer and shared mutex, the fail-closed index reader, the deleted-aware sweep, the delete core and route, wiring, end to end with mutation checks, documents). Covers AC-0442 to AC-0450 (TC-0233 to TC-0241). Filed 2026-11-13; Tasks 1 to 9 built the same day and Task 10 (the documents) closed it. Done 2026-11-13 on feature/EPIC-0003-US-0075-voice-audio-delete; the PR into `develop` is not yet opened. Test cases TC-0233 to TC-0241 Pass (TC-0241's mutation checks are prior evidence); TC-0242 (the owner-run real delete) is Not Run.
 ```
+
+```
+US-0083 (EPIC-0002): As an admin, I want per-person facilitator accounts that I manage from the console, with each session owned by the facilitator who created it, so that a client rollout can add and remove people, keep each person's sessions private and stop a person's access at once.
+Priority: High
+Estimate: XL
+Status: In Progress
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Dependencies: US-0057
+Acceptance Criteria:
+  - [x] AC-0500: accounts and passwords on disk: passwords are stored only as salted scrypt hashes (the hash never contains the plain text, equal passwords hash differently; a temporary password is 16 characters from a 31-character alphabet without look-alikes); the shared safe JSON file and `FileAccountStore` refuse a symlink, a hard-linked file, a foreign owner, a file accessible to group or other, a corrupt, oversize or wrong-shape file (duplicate ids or logins) and never return an empty result for one, a missing file reads as null, and a failed rename leaves the old file (TC-0270); ticked 2026-11-13: control accounts.passwords.test.ts, accounts.safe-json-file.test.ts and accounts.store.test.ts
+  - [x] AC-0501: the default admin: a missing `accounts.json` is a first start that creates `admin` (active, must change, no expiry) with `ADMIN_BOOTSTRAP_PASSWORD` (10 to 200 characters) or the default `ChangeMe-Admin-1`, once even under concurrent starts; a corrupt or unsafe file is refused and never replaced; a present file never gets a second default admin; `ADMIN_RESET=1` restores the default with a new epoch, logs a loud line at every start (never a password) and never reopens the legacy latch; control logs one line while the default admin still must change (TC-0271); ticked 2026-11-13: control accounts.service.test.ts (ensure_default_admin, concurrent_ensure_default_admin, admin_reset_logs_the_loud_line, missing_file_is_first_start_but_corrupt_file_is_refused, present_file_never_gets_a_second_default_admin, admin_reset_restores_default, default_admin_does_not_expire), config.test.ts and main.test.ts
+  - [x] AC-0502: sign-in and password rules: logins are trimmed and lower-cased; an unknown login, a wrong password and a revoked account are all refused after exactly one hash verification; a correct temporary password older than 72 hours (invited, or active after a reset) answers `expired` and only with the right password; a password change needs at least 10 characters different from the current one, clears must-change, activates an invited account, closes the legacy latch and makes the old epoch fail (TC-0272); ticked 2026-11-13: control accounts.service.test.ts (login_unknown_wrong_and_revoked_all_refused_with_one_verify_each, login_after_72h_is_expired_only_with_the_right_password, change_password_*)
+  - [x] AC-0503: account lifecycle: create returns the temporary password once and stores only the hash and closes the legacy latch; a duplicate login (case-insensitive) is a conflict; a name that cleans to empty is invalid (`cleanConsoleName` now lives in `@acr/events`); resend replaces the temporary password and the old one stops working; reset returns an active account to must-change; revoke bumps the epoch and refuses sign-in; the last active admin cannot be revoked; reinstate issues a new temporary password; a public account never carries a password (TC-0273); ticked 2026-11-13: control accounts.service.test.ts (create_*, resend_*, reset_*, revoke_*, reinstate_*, public_account_never_has_password) and packages/events display-name.test.ts
+  - [x] AC-0504: control account routes and settings behind the service token: login, check, password, list, create, resend, reset, revoke, reinstate and the legacy latch; a refused account answers 401 `account_refused`, distinct from the token's 401; `AccountError` maps to 404, 409, 409 and 400; bodies are validated and length-limited; an unusable accounts file answers a generic 500 with no detail; an issued answer carries the temporary password and a list never does; logs never hold a password or hash (TC-0274); ticked 2026-11-13: control api.accounts.test.ts, api.test.ts and config.test.ts
+  - [x] AC-0505: session owners: `session-owners.json` is a separate safe file (a corrupt or group-writable file is refused), `sessions.json` is byte-identical with and without an owner, a session records its creator as owner, the owner can be assigned or cleared through `PUT /sessions/:id/owner` (unknown session 404), and an owner survives stop, restart, resume and end (TC-0275); ticked 2026-11-13: control accounts.owners.test.ts and supervisor.owner.test.ts
+  - [x] AC-0506: web sign-in: a login and password set the sealed console cookie `{ accountId, epoch }` (also with no `FACILITATOR_SECRET`); a wrong login or password is one neutral 401 that is charged per address, per login and globally (the sixth wrong password for one login is throttled even from a fresh address, and the right one is blocked too: the accepted 60 s lockout trade-off); an expired temporary password says so only after the right password; an unreachable control service answers 502 and charges nothing; Origin and Fetch-Metadata checks stay; a valid cookie is never blocked by the address throttle; no password or secret in any response or log (TC-0276); ticked 2026-11-13: web console-accounts.login.test.ts
+  - [x] AC-0507: every console request, server page and open event stream re-checks the account against control, so a revoked, reset or password-changed cookie fails on the very next request and an open stream ends within one heartbeat (a revoke closes that account's streams at once); control unreachable answers 502 and keeps the cookie; a must-change account is refused on every route, page and stream except the password change and the sign-out; the console is enabled without `FACILITATOR_SECRET` (TC-0277); ticked 2026-11-13: web console-recheck.test.ts (guard rechecks on every request, must_change blocks, open_stream_ends_within_one_heartbeat_after_revoke, close_account_closes_that_accounts_streams, control_unreachable_answers_502_and_keeps_the_cookie, console_enabled_without_facilitator_secret)
+  - [x] AC-0508: password change route: reachable while the account must change, re-seals the cookie so the old cookie fails (the second tab gets 401), refuses a legacy cookie (403) and an anonymous caller (401), checks Origin and the body, tells a wrong current password (403, cookie kept, charged to the account and eventually throttled) from a revoked or stale account (401, cookie cleared), and answers 502 with the cookie kept when control cannot classify a refusal (TC-0278); ticked 2026-11-13: web console-accounts.login.test.ts (change_password_reseals_cookie_old_cookie_fails_two_tabs_second_gets_401 and the password-route tests)
+  - [x] AC-0509: ownership on every console route that takes a session id: a facilitator gets the same neutral 404 for another facilitator's session as for an unknown one (the route table lists every session route), a session with no owner is admin-only, the admin can use any session, a facilitator can use their own, the session lookup is made once per request, the list is filtered for a facilitator and not for an admin, create records the caller as owner, the owner route is admin-only (a facilitator gets 403) and rejects an unknown or revoked account, and the review name `by` is the server-built account slug (a body `by` is ignored) (TC-0279); ticked 2026-11-13: web console-ownership.test.ts (route table, 404 on every route, admin-only unowned, list filter, create owner, set_owner, account slug, review_by)
+  - [x] AC-0510: reassigning or clearing a session's owner ends the previous owner's open streams (only that session's streams); a failed assignment leaves streams open; a throw while closing streams does not fail the assignment (TC-0280); ticked 2026-11-13: web console-ownership.test.ts (reassigning_a_session_ends_its_open_streams, clearing_the_owner, a_failed_assignment, a_throw_while_closing, hub_close_session_ends_only_that_sessions_streams)
+  - [x] AC-0511: admin account routes in the web app: a facilitator and a legacy caller get 403 on every one; create returns the temporary password and a list never does; each action needs Origin and the request header; the last-admin revoke returns its conflict message; control failures map to statuses; `by` comes from the cookie, never the body; a revoke closes that account's streams; ids and bodies are validated before any control call; the admin routes are blocked while the admin must change (TC-0281); ticked 2026-11-13: web console-admin-accounts.test.ts
+  - [x] AC-0512: the sign-in and forced change-password screens: the sign-in form posts login and password, goes straight to the password page when must-change, shows the neutral refusal, the expired, throttled and unreachable messages in words, shows the shared-secret disclosure only while the legacy sign-in is allowed, and keeps no password in storage or a URL; the change form labels three fields with the minimum length as helper text, rejects a mismatch or a short password before any request, sends the current and new password once, goes to the console on success and keeps no password in storage or a URL (TC-0282); ticked 2026-11-13: web ConsoleLogin.test.tsx and ChangePasswordForm.test.tsx
+  - [x] AC-0513: the admin Facilitators screen: lists name, login and status and shows only the actions allowed for each status (resend, reset, revoke, reinstate), asks to confirm each (revoke says running sessions keep running and stay reachable by the admin only), can create a facilitator or an admin and needs a name and a login, shows the credentials once as inert text with Copy buttons, removes the password from the page on dismiss and after a remount (it is never in storage or a URL), says plainly what went wrong, disables buttons while pending, and offers Try again after a load failure; a non-admin never sees the Admin link or page (TC-0283); ticked 2026-11-13: web FacilitatorsPanel.test.tsx and CredentialsPanel.test.tsx; console-recheck.test.ts (non_admin_never_sees_the_admin_link_or_page)
+  - [x] AC-0514: the session list shows the owner and an Assign control for an admin only: it offers only active accounts and Unassigned, posts the chosen owner and refreshes, shows an owner whose account is revoked or invited (and lets the admin unassign it or give it to an active account), shows an unknown owner as `Unknown account`, and a shared-secret admin sees no Owner column, makes no accounts call and gets no alert (TC-0284); ticked 2026-11-13: web SessionList.owner.test.tsx
+  - [x] AC-0515: end to end with the real control service and web app: the default admin signs in, is forced to change the password, and the default is refused afterwards; the shared secret is refused once the latch closed; the admin creates two facilitators and their temporary passwords show once and not after a reload; a facilitator is forced to change it, creates a session, and the other facilitator gets 404 (the same as for an unknown session) on the session, its stream and the list; the admin sees the owner; a revoke ends the owner's page and open stream within 8 s and refuses every later request with the old cookie while the session keeps Running; the admin assigns the session to the other facilitator who then runs it (TC-0285); ticked 2026-11-13: web e2e accounts.spec.ts (the journey; 2 of 2 passed in the Task 10 report, 2026-11-13: prior evidence, the controller re-runs it with the gates)
+  - [x] AC-0516: no serious or critical Axe violations (WCAG 2 A, AA, 2.1 A, AA), in light and dark, on the forced password change (empty and with the short-password refusal), the admin screen (the list, the one-time credentials and the revoke dialog) and the session list's Owner column with its select; no horizontal scroll at 1280 and 400 px (TC-0286); ticked 2026-11-13: web e2e accounts.spec.ts (the Axe test; passed in the Task 10 report, 2026-11-13: prior evidence)
+  - [x] AC-0517: the legacy shared secret: it signs in while the latch is open (and fails closed with 502 when the latch cannot be read), is refused once the first password change or the first created account closed the latch, acts as an admin for sessions but gets 403 on every admin account route and cannot change a password through the account route, and a legacy cookie is refused on its next request once the latch closes (TC-0287); ticked 2026-11-13: web console-accounts.login.test.ts, console-recheck.test.ts (legacy_cookie_without_kind_works_only_while_the_latch_is_open), console-admin-accounts.test.ts (facilitator_and_legacy_get_403_on_every_admin_route), control api.accounts.test.ts (legacy_route_reports_the_latch) and accounts.service.test.ts (create_closes_legacy, change_password_clears_must_change_closes_legacy)
+  - [x] AC-0518: documented: `docs/THREAT_MODEL.md` ("Facilitator accounts": the default password and its mitigations, the temporary password on screen, epoch revoke and the stream heartbeat, ownership, throttles and the 60 s lockout, file safety, deleting `accounts.json` as a reset, the legacy latch), `docs/ROLLBACK.md` ("US-0083": deploy control before web, `ADMIN_RESET`, no data step), README, `.env.example`, `CHANGELOG.md`, the client demo cue card and `demo-up.sh` (TC-0288); ticked 2026-11-13: the Task 11 documents pass and `npm run plan:test`
+Notes: Spec docs/superpowers/specs/2026-11-13-facilitator-accounts-design.md (approved 2026-11-13); plan docs/superpowers/plans/2026-11-13-facilitator-accounts.md (11 tasks, reviewed by Opus before the build; rulings R1 to R8 in the controller's ledger `.superpowers/sdd/2026-11-13-facilitator-accounts/progress.md`). Filed 2026-11-13 from the registry; the owner gave the go-ahead the same day. Built the same day as TASK-0130 to TASK-0140, with a review per task and a fix round where it found a defect; TASK-0141 is the documents pass. Owner decisions: a default admin with a fixed documented password and a forced change at first sign-in (`admin` / `ChangeMe-Admin-1`, or `ADMIN_BOOTSTRAP_PASSWORD`); no email (the temporary password is shown once on screen); a local file store behind an interface; a facilitator sees only their own sessions and the admin sees all; approach B (accounts in the control service). Builder calls recorded in the spec: temporary passwords expire after 72 hours (every temporary password, invited or after a reset: ruling R4), minimum user password 10, epoch-based revoke that takes effect on the next request, page and open stream, the shared secret closed by a one-way latch, owners in `session-owners.json`, the review name built from the account. Accepted trade-offs and residuals are in docs/THREAT_MODEL.md ("Facilitator accounts"): the public default password until its first change, a 60 s per-login lockout anyone who knows the login can trigger, a stream joining at the moment of a revoke ending at the next 15 s heartbeat, and a legacy caller typing a review name equal to an account slug. Deploy control before web (docs/ROLLBACK.md, "US-0083"). Status is In Progress, not Complete, until the full gates and the whole-branch review have passed (TC-0285 and TC-0286 are the Task 10 e2e results, prior evidence): the controller flips it. TC-0289 (a real deployment, hosted host) and TC-0290 (a mail-free temporary password handover by a real admin) are owner-run and Not Run. Related decision still open: the `X-Acr-By` reading from A2b-1a (`<name>-console`, name at most 56, header at most 64) is recommended and awaiting the owner's confirmation.
+```
+
+```
+US-0084 (EPIC-0002): As an admin, I want the system to email a new facilitator their sign-in details, so that I do not have to hand over a temporary password myself.
+Priority: Low
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0084-email-sending
+Dependencies: US-0083
+Acceptance Criteria:
+  - [ ] AC-0519: the account create, resend, reset and reinstate actions send the login and a temporary password (or a one-time link) by email through a configurable sender instead of, or beside, showing it once on screen; no password appears in a log; delivery failure is visible to the admin (not started)
+Notes: Filed 2026-11-13 from the US-0083 design (non-goal: email). The credentials screen is the delivery mechanism until then.
+```
+
+```
+US-0085 (EPIC-0002): As an operator, I want accounts and session owners kept in a database instead of two local files, so that more than one control process can share them and backups and audit are standard.
+Priority: Low
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0002-US-0085-database-store
+Dependencies: US-0083
+Acceptance Criteria:
+  - [ ] AC-0520: a database-backed `AccountStore` and owner store replace the JSON files behind the same interfaces, with a migration from `accounts.json` and `session-owners.json`, and the same refusal and epoch rules (not started)
+Notes: Filed 2026-11-13 from the US-0083 design (the store is behind an interface so this is a swap).
+```
+
+```
+US-0086 (EPIC-0002): As a client organisation, I want my facilitators to sign in with our company single sign-on, so that we manage who may run sessions in one place.
+Priority: Low
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0002-US-0086-sso-oidc
+Dependencies: US-0083
+Acceptance Criteria:
+  - [ ] AC-0521: an OIDC or SAML provider can sign a facilitator in; accounts map to the provider's identities; revoking in the provider ends the console sign-in; the local password sign-in can be disabled (not started)
+Notes: Filed 2026-11-13 from the US-0083 design (backlog: SSO or OIDC).
+```
+
+```
+US-0087 (EPIC-0002): As an operator, I want accounts handled by a separate auth service, so that sign-in can be shared by the console, the reports and later products and can be secured on its own.
+Priority: Low
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0002-US-0087-auth-service
+Dependencies: US-0083
+Acceptance Criteria:
+  - [ ] AC-0522: an auth service owns accounts, sign-in and sessions behind a documented API, and the console and control service call it instead of their own account code (not started)
+Notes: Filed 2026-11-13 from the US-0083 design (the owner's option C).
+```
+
+```
+US-0088 (EPIC-0002): As an operator, I want configurable password rules, so that the client's own security policy (length, complexity, reuse, expiry) can be enforced.
+Priority: Low
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0002-US-0088-password-rules
+Dependencies: US-0083
+Acceptance Criteria:
+  - [ ] AC-0523: the minimum length and any complexity, reuse and age rules are settings, and the change form says what is required (not started)
+Notes: Filed 2026-11-13 from the US-0083 design. Today the rule is a minimum of 10 characters and a value different from the current one.
+```
+
+```
+US-0089 (EPIC-0008): As a client organisation, I want my own admin who manages only my facilitators and sessions, so that clients sharing one deployment cannot see or manage each other's.
+Priority: Low
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0008-US-0089-client-admins
+Dependencies: US-0083
+Acceptance Criteria:
+  - [ ] AC-0524: an account belongs to a client (tenant); a client admin manages only that client's accounts and sees only that client's sessions; the platform admin manages clients (not started)
+Notes: Filed 2026-11-13 from the US-0083 design; tied to EPIC-0008 (multi-client service).
+```
+
+```
+TASK-0130 (US-0083): Build the safe JSON file, password primitives and account store (Task 1)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 1 of the plan (AC-0500). Commits: 2bbe21e4. Done 2026-11-13.
+```
+
+```
+TASK-0131 (US-0083): Build the account service and move `cleanConsoleName` to `@acr/events` (Task 2)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 2 (AC-0501 to AC-0503); one fix round closed the default-admin race, pinned one verification per login and added the loud `ADMIN_RESET` line. Ruling R4: every temporary password, invited or after a reset, expires after 72 hours. Commits: 6beec781 and 4b0a093f. Done 2026-11-13.
+```
+
+```
+TASK-0132 (US-0083): Add the control account routes, settings and wiring (Task 3)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 3 (AC-0504); an unusable accounts file refuses the control start. Commits: c8b78490. Done 2026-11-13.
+```
+
+```
+TASK-0133 (US-0083): Record and assign session owners in the control service (Task 4)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 4 (AC-0505); owners live in `session-owners.json`, not `sessions.json`. Commits: 22dc8193. Done 2026-11-13.
+```
+
+```
+TASK-0134 (US-0083): Re-check the account on every console request, page and stream (Task 5a)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 5a (AC-0507): the console cookie, the always-rechecked guard, the stream heartbeat and `closeAccount`, the async `consoleView`, the test support. Commits: 957351d5. Done 2026-11-13.
+```
+
+```
+TASK-0135 (US-0083): Add the account sign-in and password change routes (Task 5b)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 5b (AC-0506, AC-0508, AC-0517); one fix round told a wrong current password from a stale account. Commits: 727f8ef5 and b9bcf2b9. Done 2026-11-13.
+```
+
+```
+TASK-0136 (US-0083): Enforce ownership and the account's review name on every console route (Task 6)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 6 (AC-0509, AC-0510); one fix round ended the previous owner's open streams on reassignment. Commits: 1c7bf10c and d66669ba. Done 2026-11-13.
+```
+
+```
+TASK-0137 (US-0083): Add the admin account routes in the web app (Task 7)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 7 (AC-0511). Commits: 29e99514. Done 2026-11-13.
+```
+
+```
+TASK-0138 (US-0083): Build the account sign-in and forced change-password screens (Task 8)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 8 (AC-0512). Commits: 329b002d. Done 2026-11-13.
+```
+
+```
+TASK-0139 (US-0083): Build the admin facilitators screen and the session owner column (Task 9)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 9 (AC-0513, AC-0514); one fix round let a revoked or invited owner be unassigned and hid owners for the shared-secret sign-in. Commits: 2796fa27 and e5f335c6. Done 2026-11-13.
+```
+
+```
+TASK-0140 (US-0083): Add the accounts end-to-end and Axe spec (Task 10)
+Type: Test
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 10 (AC-0515, AC-0516); also repaired the console e2e helpers that read the join link as a code. Commits: 8f559768 and 690be4d1. Done 2026-11-13.
+```
+
+```
+TASK-0141 (US-0083): Document accounts, file the stories and update the demo kit (Task 11)
+Type: Docs
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0083-facilitator-accounts
+Notes: Task 11 (AC-0518): THREAT_MODEL, ROLLBACK, README, `.env.example`, CHANGELOG, this plan, the registry, the test cases, the demo cue card and `demo-up.sh`, progress.md and MEMORY.md. Commits: this commit. Done 2026-11-13.
+```

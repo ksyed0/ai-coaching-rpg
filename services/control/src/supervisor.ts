@@ -11,6 +11,7 @@ import { ChildMessageSchema, ParentMessageSchema, RoleIdSchema, type ChildMessag
 import { loadScenario } from "@acr/script";
 import { isAllowedScenario, scenarioDir } from "./scenarios.js";
 import type { SessionList } from "./session-list.js";
+import { OwnerStore } from "./accounts/owners.js";
 import { VoiceTokenRefused } from "./voice/tokens.js";
 import type { VoiceFromRuntime } from "./voice/voice-host.js";
 
@@ -39,7 +40,7 @@ export type SpawnFn = (o: { env: NodeJS.ProcessEnv; logFile: string }) => ChildH
 export type SetTimer = (fn: () => void, ms: number) => () => void;
 
 export type SessionStatus = "running" | "stopped" | "ended";
-export type SessionInfo = { sessionId: string; scenarioId: string; status: SessionStatus; port?: number; modelLabel?: string; includeInGroup?: boolean };
+export type SessionInfo = { sessionId: string; scenarioId: string; status: SessionStatus; port?: number; modelLabel?: string; includeInGroup?: boolean; owner?: string };
 export type CreateResult = { sessionId: string; status: "running"; port: number; modelLabel: string; codes: { roleId: string; code: string }[] };
 
 type Codes = { roleId: string; code: string }[];
@@ -132,9 +133,10 @@ export class Supervisor {
   private closed = false;
   private readonly bots?: BotHost;
   private readonly voice?: VoiceLink;
+  private readonly owners: OwnerStore;
 
   constructor(private readonly o: {
-    config: ControlConfig; list: SessionList; scenarios: () => Promise<{ id: string; title: string }[]>; spawn: SpawnFn;
+    config: ControlConfig; list: SessionList; /** US-0083: who owns each session (default: the file named by config.ownersFile). */ owners?: OwnerStore; scenarios: () => Promise<{ id: string; title: string }[]>; spawn: SpawnFn;
     setTimer?: SetTimer; log?: (m: string) => void; newSessionId?: () => string; newToken?: () => string;
     reissueTimeoutMs?: number; now?: () => number;
     /** What the allowlist copies from (default: this process's environment; the entry point passes it with `.env` merged under). */
@@ -144,6 +146,7 @@ export class Supervisor {
     /** US-0070: the speech workers. Optional: without it no worker is ever started (a runtime's voice messages are then ignored). */
     voice?: (deps: VoiceDeps) => VoiceLink;
   }) {
+    this.owners = o.owners ?? new OwnerStore(o.config.ownersFile);
     this.parentEnv = o.parentEnv ?? process.env;
     this.now = o.now ?? Date.now;
     this.reissueTimeoutMs = o.reissueTimeoutMs ?? DEFAULT_REISSUE_TIMEOUT_MS;
@@ -161,7 +164,7 @@ export class Supervisor {
     return this.o.list.read().filter((e) => e.status !== "ended").length + this.inflight + this.zombies;
   }
 
-  async create(scenarioId: string): Promise<CreateResult> {
+  async create(scenarioId: string, owner?: string): Promise<CreateResult> {
     const allowed = await this.o.scenarios();
     if (!isAllowedScenario(allowed, scenarioId)) throw new ControlError("unknown_scenario", "that scenario is not available");
     // No await between this check and the increment: concurrent creates cannot both take the last slot.
@@ -169,6 +172,7 @@ export class Supervisor {
     this.inflight++;
     const sessionId = this.newSessionId();
     let listed = false;
+    let ownerSet = false;
     let child: ChildHandle | undefined;
     let exit: ExitState = { done: false };
     const timer: { cancel?: () => void } = {};
@@ -187,6 +191,7 @@ export class Supervisor {
       const early: Early = { ended: false };
       const ready = await this.awaitReady(spawned, true, timer, early);
       timer.cancel?.();
+      if (owner !== undefined) { this.owners.set(sessionId, owner); ownerSet = true; }
       this.o.list.upsert({ sessionId, scenarioId, status: "running" });
       listed = true;
       this.goLive(sessionId, scenarioId, spawned, exit, token, ready, early);
@@ -194,6 +199,7 @@ export class Supervisor {
       return { sessionId, status: "running", port: ready.port, modelLabel: ready.modelLabel, codes: ready.codes!.filter((c) => !(ready.aiRoles ?? []).includes(c.roleId)) };
     } catch (err) {
       timer.cancel?.();
+      if (ownerSet) { try { this.owners.set(sessionId, null); } catch { /* the entry was never usable */ } }
       const clean = await this.rollback(sessionId, listed, child, exit);
       this.logFn(`session ${sessionId} create failed`);
       if (!clean) throw new ControlError("start_failed", START_FAILED);
@@ -312,9 +318,11 @@ export class Supervisor {
     } catch { /* no sessions directory yet */ }
   }
 
-  private info(id: string, scenarioId: string, status: SessionStatus): SessionInfo {
+  private info(id: string, scenarioId: string, status: SessionStatus, owners: Record<string, string> = this.owners.all()): SessionInfo {
     const l = this.live.get(id);
     const out: SessionInfo = { sessionId: id, scenarioId, status: l?.status ?? status };
+    const owner = owners[id];
+    if (owner !== undefined) out.owner = owner;
     if (l?.port !== undefined && out.status === "running") out.port = l.port;
     if (l?.modelLabel !== undefined && out.status === "running") out.modelLabel = l.modelLabel;
     if (l?.includeInGroup !== undefined && out.status === "running") out.includeInGroup = l.includeInGroup;
@@ -327,7 +335,14 @@ export class Supervisor {
   }
 
   list(): SessionInfo[] {
-    return this.o.list.read().map((e) => this.info(e.sessionId, e.scenarioId, e.status));
+    const owners = this.owners.all();
+    return this.o.list.read().map((e) => this.info(e.sessionId, e.scenarioId, e.status, owners));
+  }
+
+  /** US-0083: assigns (or, with null, clears) the owner of a known session. Whether the account exists is the caller's check. */
+  setOwner(id: string, owner: string | null): void {
+    if (typeof id !== "string" || !isValidSessionId(id) || !this.o.list.read().some((x) => x.sessionId === id)) throw new ControlError("not_found", "that session does not exist");
+    this.owners.set(id, owner);
   }
 
   facilitator(id: string): { port: number; token: string } | undefined {

@@ -488,6 +488,7 @@ function View(p: ViewProps) {
         <CodesPanel
           key={p.shown.seq}
           codes={p.shown.codes}
+          sessionId={p.sessionId}
           heading={p.shown.heading}
           onDismiss={p.onDismissCodes}
         />

@@ -4,6 +4,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { aiErrorText, fetchIntents, HINT_MAX, INTENT_TRIGGERS, intentOutcome, promptAi, type IntentView } from "../../lib/console-ai";
 import { isolate } from "../../lib/console-view";
 import { roleLabel } from "../../lib/names";
+import type { ActivityEntry, ActivityMap } from "../../lib/activity";
+import { AiTurnState } from "./AiTurnState";
 
 // US-0060: the facilitator's AI players panel in the live view. A row per AI role: a private hint (shown to nobody but this page and the
 // prompt route: never in a transcript line), the Prompt button, and a disclosure of the player's recent turns. Everything that came from
@@ -19,9 +21,11 @@ export type AiPlayersPanelProps = {
   /** The current scene's participants (`null`: no scene). Left out: not restricted. A role outside it cannot be prompted. */
   sceneRoles?: string[] | null;
   fetch?: typeof fetch;
+  /** US-0082: the transient turn reports per role (Thinking / Waiting / how a turn ended); left out: no state is shown. */
+  activity?: ActivityMap;
 };
 
-export function AiPlayersPanel({ sessionId, channel, aiRoles, running, paused = false, sceneRoles, fetch: fetchImpl }: AiPlayersPanelProps) {
+export function AiPlayersPanel({ sessionId, channel, aiRoles, running, paused = false, sceneRoles, fetch: fetchImpl, activity }: AiPlayersPanelProps) {
   const headingId = useId();
   if (aiRoles.length === 0) return null;
   return (
@@ -40,6 +44,7 @@ export function AiPlayersPanel({ sessionId, channel, aiRoles, running, paused = 
             paused={paused}
             inScene={sceneRoles === undefined || (sceneRoles !== null && sceneRoles.includes(roleId))}
             {...(fetchImpl ? { fetchImpl } : {})}
+            {...(activity ? { turn: Object.hasOwn(activity, roleId) ? activity[roleId]! : null } : {})}
           />
         ))}
       </ul>
@@ -49,7 +54,7 @@ export function AiPlayersPanel({ sessionId, channel, aiRoles, running, paused = 
 
 const WHEN: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit" };
 
-function Row({ sessionId, roleId, channel, running, paused, inScene, fetchImpl }: { sessionId: string; roleId: string; channel: string | null; running: boolean; paused: boolean; inScene: boolean; fetchImpl?: typeof fetch }) {
+function Row({ sessionId, roleId, channel, running, paused, inScene, fetchImpl, turn }: { sessionId: string; roleId: string; channel: string | null; running: boolean; paused: boolean; inScene: boolean; fetchImpl?: typeof fetch; /** US-0082: undefined = not shown; null = no report yet. */ turn?: ActivityEntry | null }) {
   // Why Prompt is off while the session is running (the engine would refuse it); a pause is named first.
   const blocked = !running ? null : paused ? "Resume the session before you prompt an AI player." : !inScene ? "This AI player is not in the current scene." : null;
   const label = roleLabel(roleId);
@@ -111,6 +116,7 @@ function Row({ sessionId, roleId, channel, running, paused, inScene, fetchImpl }
     <li className="card stack">
       <p>
         <b>{label}</b> <span className="pill ai">AI</span>
+        {turn !== undefined ? <> <AiTurnState entry={turn ?? undefined} /></> : null}
       </p>
       <div className="field">
         <label className="f" htmlFor={`${id}-h`}>

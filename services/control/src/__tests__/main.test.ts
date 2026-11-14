@@ -1,5 +1,5 @@
 import http from "node:http";
-import { cpSync, existsSync, mkdirSync, writeFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, writeFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +11,9 @@ import { SessionEngine } from "../../../runtime/src/engine/session-engine.js";
 import { makeDraftDir } from "../../../runtime/src/review/__tests__/fixtures.js";
 import { REPO_ROOT } from "../config.js";
 import { BotHost } from "../bots/bot-host.js";
-import { startControl, type RunningControl } from "../main.js";
+import { startControl, startupCause, type RunningControl } from "../main.js";
+import { AccountError } from "../accounts/service.js";
+import { UnusableFileError } from "../accounts/safe-json-file.js";
 import * as participantWrites from "../participant-writes.js";
 import * as reportsModule from "../reports.js";
 import { startAudioSweep } from "../voice/sweep.js";
@@ -337,5 +339,70 @@ describe("startControl", () => {
       await vi.waitFor(() => expect(logs).toContain("report open after evaluate did not complete"));
       expect(logs.filter((l) => l.includes("report open after evaluate"))).toHaveLength(1);
     } finally { rmSync(draft.root, { recursive: true, force: true }); }
+  });
+});
+
+describe("startControl accounts (US-0083)", () => {
+  it("creates the default admin before listening, serves the account routes, and logs no password", async () => {
+    const logs: string[] = [];
+    running = await startControl({ ...env, ADMIN_BOOTSTRAP_PASSWORD: "Boot-Secret-12345" }, { log: (m) => logs.push(m), port: 0 });
+    const file = readFileSync(path.join(root, "data", "accounts.json"), "utf8");
+    expect(file).toContain('"login":"admin"');
+    expect(file).not.toContain("Boot-Secret-12345");
+    const res = await fetch(`http://127.0.0.1:${running.port}/accounts/login`, {
+      method: "POST", headers: { "x-service-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ login: "admin", password: "Boot-Secret-12345" }),
+    });
+    expect(res.status).toBe(200);
+    expect(logs.some((l) => l.includes("default admin must still change"))).toBe(true);
+    expect(logs.join("\n")).not.toContain("Boot-Secret-12345");
+  });
+  it("refuses to start on an unusable accounts file and leaves it untouched", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    writeFileSync(path.join(root, "data", "accounts.json"), "{not json", { mode: 0o600 });
+    await expect(startControl(env, { port: 0 })).rejects.toThrow(/accounts file/);
+    expect(readFileSync(path.join(root, "data", "accounts.json"), "utf8")).toBe("{not json");
+  });
+  it("test_main_accounts_start_failure_logs_the_safe_cause_and_never_the_bootstrap_password", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    const f = path.join(root, "data", "accounts.json");
+    writeFileSync(f, '{"legacyClosed":false,"accounts":[]}', { mode: 0o600 });
+    chmodSync(f, 0o640);
+    const logs: string[] = [];
+    const err = await startControl({ ...env, ADMIN_BOOTSTRAP_PASSWORD: "Boot-Secret-12345" }, { port: 0, log: (m) => logs.push(m) }).catch((e: unknown) => e as Error);
+    expect(String(err)).toMatch(/accounts file/);
+    const line = logs.find((l) => l.startsWith("accounts: start refused"));
+    expect(line).toBeDefined();
+    expect(line).toContain("UnusableFileError");
+    expect(line).toContain("group or others");
+    const all = `${logs.join("\n")}\n${String(err)}`;
+    expect(all).not.toContain("Boot-Secret-12345");
+    expect(all).not.toContain(root);
+  });
+  it("test_main_startup_cause_gives_fixed_text_for_refusals_and_only_name_and_code_otherwise", () => {
+    const fs = Object.assign(new Error("EACCES: permission denied, open '/srv/secret/accounts.json'"), { code: "EACCES" });
+    expect(startupCause(fs)).toBe("Error (EACCES)");
+    expect(startupCause(new TypeError("scrypt failed for ChangeMe-Admin-1"))).toBe("TypeError");
+    expect(startupCause(new AccountError("invalid", "login is required"))).toContain("login is required");
+    expect(startupCause(new UnusableFileError("it is not valid JSON"))).toBe("UnusableFileError: the file is not usable: it is not valid JSON");
+    expect(startupCause("text")).toBe("Error");
+    expect(startupCause(Object.assign(new Error("x"), { name: "bad name with spaces", code: "lower" }))).toBe("Error");
+  });
+  it("refuses to start on a corrupt session owners file and leaves it untouched", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    writeFileSync(path.join(root, "data", "session-owners.json"), "{not json", { mode: 0o600 });
+    await expect(startControl(env, { port: 0 })).rejects.toThrow(/session owners file/);
+    expect(readFileSync(path.join(root, "data", "session-owners.json"), "utf8")).toBe("{not json");
+  });
+  it("refuses to start on a group-writable session owners file and leaves it untouched", async () => {
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    const f = path.join(root, "data", "session-owners.json");
+    writeFileSync(f, '{"owners":{}}', { mode: 0o600 });
+    chmodSync(f, 0o660);
+    await expect(startControl(env, { port: 0 })).rejects.toThrow(/session owners file/);
+    expect(readFileSync(f, "utf8")).toBe('{"owners":{}}');
+  });
+  it("starts when the session owners file is missing", async () => {
+    running = await startControl(env, { port: 0 });
+    expect(running.port).toBeGreaterThan(0);
   });
 });

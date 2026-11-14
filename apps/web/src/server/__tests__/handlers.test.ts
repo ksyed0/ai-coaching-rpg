@@ -54,7 +54,7 @@ function makeDeps(o: { hub?: Partial<ConstructorParameters<typeof StreamHub>[0]>
   const joinThrottle = new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock, ...o.throttle });
   const connect = vi.fn((url: string, address: string) => RuntimeConnection.connect(url, address));
   const config: Config = { runtimeUrl: o.runtimeUrl ?? rt.url, publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10 };
-  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: () => clock }), reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: () => clock }), reportWriteThrottle: new JoinThrottle({ max: 30, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleReportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: () => clock }), reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), reportReadFailThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), voiceTokenThrottle: new JoinThrottle({ max: 20, windowMs: 60_000, blockMs: 60_000, now: () => clock }), hub, facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }) };
+  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: () => clock }), consoleLoginThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: () => clock }), reportWriteThrottle: new JoinThrottle({ max: 30, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleReportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: () => clock }), reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), reportReadFailThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), voiceTokenThrottle: new JoinThrottle({ max: 20, windowMs: 60_000, blockMs: 60_000, now: () => clock }), hub, facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }) };
   return { deps, timers, connect, hub, joinThrottle };
 }
 
@@ -719,6 +719,16 @@ describe("POST /api/v1/say, /consent and /leave", () => {
     // The fake runtime is a real socket: the frame can still be in flight when the hub answers.
     await vi.waitFor(() => expect(rt.received.at(-1)).toEqual({ type: "say", text: "Hello there.", expectSceneId: "s1_intro" }));
     expect(rt.sockets).toHaveLength(1);
+  });
+
+  it("test_handle_say_relays_a_well_formed_to_and_refuses_a_bad_one", async () => {
+    // US-0082 (AC-0484): the BFF only checks the shape; the runtime decides whether the addressee is in the scene.
+    const { deps, timers } = makeDeps();
+    await openStream(deps);
+    const res = await sent(timers, handleSay(postReq("say", cookieValue(), { text: "@Tech lead size?", to: "tech_lead" }), deps));
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(rt.received.at(-1)).toEqual({ type: "say", text: "@Tech lead size?", to: "tech_lead" }));
+    for (const to of [5, "", "x".repeat(500)]) expect((await handleSay(postReq("say", cookieValue(), { text: "hi", to }), deps)).status).toBe(400);
   });
 
   it("a runtime error maps to a fixed message and status, never the runtime's own text", async () => {

@@ -8,6 +8,7 @@ import { AiPlayerBot } from "./bot.js";
 import { BOT_ALERTS } from "./bot-alerts.js";
 import type { BotSocket } from "./bot-socket.js";
 import { SessionBudget } from "./budget.js";
+import { NudgeFloor } from "./nudge-floor.js";
 import type { IntentEntry, IntentLog } from "./intent-log.js";
 
 /** B18: the delay before the first re-attach of a dropped bot; it doubles per consecutive failure up to the cap. */
@@ -57,6 +58,8 @@ type Sess = {
   lastPrompt: Map<string, number>;
   /** US-0070: a voice turn is open in this session (the runtime's voice_turn); a bot made meanwhile starts held by it. */
   voiceOpen: boolean;
+  /** US-0081: the session's nudge floor: one AI player nudges at a time, and a said nudge silences every AI player's nudges until a human line. */
+  floor: NudgeFloor;
 };
 
 /**
@@ -260,7 +263,7 @@ export class BotHost {
   private state(sessionId: string): Sess {
     let st = this.sessions.get(sessionId);
     if (!st) {
-      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), reissueAlerted: new Set(), attached: false, removed: new Set(), bound: new Map(), reservations: new Map(), lastPrompt: new Map(), voiceOpen: false };
+      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), reissueAlerted: new Set(), attached: false, removed: new Set(), bound: new Map(), reservations: new Map(), lastPrompt: new Map(), voiceOpen: false, floor: new NudgeFloor() };
       this.sessions.set(sessionId, st);
     }
     return st;
@@ -357,7 +360,7 @@ export class BotHost {
     // The budget is created by `attach` (seeded with aiCalls) before any bot exists; a bot is only ever made once a port is known.
     if (!st.budget) return null;
     const bot = new AiPlayerBot({
-      sessionId, roleId, scenario: st.scenario, provider: this.o.provider, settings: this.o.settings, budget: st.budget, intents: this.o.intents,
+      sessionId, roleId, scenario: st.scenario, provider: this.o.provider, settings: this.o.settings, budget: st.budget, intents: this.o.intents, floor: st.floor,
       alert: (a) => this.raise(sessionId, roleId, BOT_ALERTS[a]),
       needCode: () => { if (this.sessions.get(sessionId) === st) this.requestCode(st, sessionId, roleId); },
       log: (m) => this.log(`session ${sessionId} AI player ${roleId}: ${m}`),

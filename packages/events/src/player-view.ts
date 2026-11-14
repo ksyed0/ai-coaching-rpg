@@ -1,29 +1,43 @@
-import type { SessionEvent } from "./events.js";
-import type { PlayerSnapshot, SessionState } from "./state.js";
+import type { ExitReason, SessionEvent } from "./events.js";
+import { toOf, type PlayerSnapshot, type SessionState } from "./state.js";
 
 // Framework-free and Node-free: runs in the browser. `reduce` (state.ts) cannot be used on a player's stream because it throws on a seq
 // gap, and a player's stream has gaps by design (the server filters what a player may not see). This is the gap-tolerant counterpart.
 
-/** Scene info a player may see: only scenes the player takes part in (carried in `joined.scenes`). */
-export type PlayerScene = { id: string; title: string; goal: string; timeBoxMinutes: number };
+/**
+ * Scene info a player may see: only scenes the player takes part in (carried in `joined.scenes`). `endsWhen` (US-0080) is the scene's end
+ * rule in plain words (its `ends_when`, else its Game Master condition), resolved by the runtime; OPTIONAL on the wire, absent when the
+ * scene has neither or the runtime predates it.
+ */
+export type PlayerScene = { id: string; title: string; goal: string; timeBoxMinutes: number; endsWhen?: string };
 /** US-0059: an inject as the facilitator's console sees it. For the facilitator's `joined` ONLY: never in a player's message. */
 export type FacilitatorInject = { id: string; to: string[]; content: string; atMinute?: number };
 /** US-0059: a scene with its injects, in script order (the facilitator's `joined.scenes`). */
 export type FacilitatorScene = PlayerScene & { injects: FacilitatorInject[] };
-export type PlayerLine = { seq: number; ts: number; roleId: string; text: string; sceneId: string | null };
+export type PlayerLine = { seq: number; ts: number; roleId: string; text: string; sceneId: string | null; /** US-0082: the role the line is directed at, when it is. */ to?: string };
 export type PlayerView = {
   lastSeq: number;
   status: SessionState["status"];
   paused: boolean;
   /** ts of the pause event that began the current pause; null when not paused. */
   pausedSince: number | null;
-  scene: { id: string; enteredAt: number; pausedMs: number } | null;
+  /**
+   * US-0082: `participants` are the current scene's roles ([] when none were carried): the composer's @ list offers the others. Always set
+   * by initPlayerView and applyPlayerEvent; optional in the type so a view built elsewhere (the console's scene status) needs no list.
+   */
+  scene: { id: string; enteredAt: number; pausedMs: number; participants?: string[] } | null;
   transcript: PlayerLine[];
   /** Updates in seq order. `private: true` marks a facilitator whisper to this player (BUG-0023); an inject has no such key. */
   injects: { seq: number; content: string; sceneId: string; private?: true }[];
   ended: { reason: string; message?: string } | null;
   /** US-0060: player roles an AI plays; [] when none. Labels come from this, never from a name. */
   aiRoles: string[];
+  /**
+   * US-0080: the last scene exit this page received LIVE (never from a snapshot, so a late join or a reload has none). It drives the
+   * inform-only scene-ended dialog; a later scene.entered keeps it, a later scene.exited replaces it. `reason` is kept as sent (a newer
+   * runtime may add a reason; the page words an unknown one generically).
+   */
+  lastExit: { seq: number; sceneId: string; reason: ExitReason | (string & {}) } | null;
 };
 
 const stringsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
@@ -47,9 +61,9 @@ export function initPlayerView(snapshot: PlayerSnapshot | SessionState): PlayerV
   const sc = snapshot.currentScene;
   return {
     lastSeq: snapshot.lastSeq, status: snapshot.status, paused: snapshot.paused, pausedSince: snapshot.pausedSince,
-    scene: sc ? { id: sc.id, enteredAt: sc.enteredAt, pausedMs: sc.pausedMs } : null,
-    transcript: snapshot.transcript.map((u) => ({ seq: u.seq, ts: u.ts, roleId: u.roleId, text: u.text, sceneId: u.sceneId })),
-    injects: whisperUpdates(snapshot.whispers) /* a SessionState's record (never sent to a player) is not a list: none */, ended: null, aiRoles: stringsOf(snapshot.aiRoles),
+    scene: sc ? { id: sc.id, enteredAt: sc.enteredAt, pausedMs: sc.pausedMs, participants: stringsOf(sc.participants) } : null,
+    transcript: snapshot.transcript.map((u) => ({ seq: u.seq, ts: u.ts, roleId: u.roleId, text: u.text, sceneId: u.sceneId, ...toOf(u) })),
+    injects: whisperUpdates(snapshot.whispers) /* a SessionState's record (never sent to a player) is not a list: none */, ended: null, aiRoles: stringsOf(snapshot.aiRoles), lastExit: null,
   };
 }
 
@@ -68,12 +82,15 @@ export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView 
       return { ...v, status: "running", aiRoles: stringsOf(e.aiRoles) };
     case "scene.entered":
       if (!tsOk) return v;
-      return { ...v, scene: { id: e.sceneId, enteredAt: e.ts, pausedMs: 0 }, pausedSince: v.paused ? e.ts : null };
-    case "scene.exited":
-      return { ...v, scene: null };
+      return { ...v, scene: { id: e.sceneId, enteredAt: e.ts, pausedMs: 0, participants: stringsOf(e.participants) }, pausedSince: v.paused ? e.ts : null };
+    case "scene.exited": {
+      const x = e as { sceneId?: unknown; reason?: unknown };
+      const lastExit = typeof x.sceneId === "string" && typeof x.reason === "string" ? { seq: e.seq, sceneId: x.sceneId, reason: x.reason } : v.lastExit;
+      return { ...v, scene: null, lastExit };
+    }
     case "utterance":
       if (typeof e.text !== "string") return v;
-      return { ...v, transcript: [...v.transcript, { seq: e.seq, ts: e.ts, roleId: e.roleId, text: e.text, sceneId: v.scene?.id ?? null }] };
+      return { ...v, transcript: [...v.transcript, { seq: e.seq, ts: e.ts, roleId: e.roleId, text: e.text, sceneId: v.scene?.id ?? null, ...toOf(e) }] };
     case "inject.fired":
       return { ...v, injects: [...v.injects, { seq: e.seq, content: e.content, sceneId: e.sceneId }] };
     case "facilitator.command":

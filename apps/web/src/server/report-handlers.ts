@@ -352,7 +352,7 @@ function roleOf(req: Request): string | null {
 /** GET /api/v1/console/sessions/:id/report-links */
 export function handleConsoleReportLinks(req: Request, deps: Deps): Promise<Response> {
   return safely(async () => {
-    const g = guard(req, deps, false);
+    const g = await guard(req, deps, false);
     if ("response" in g) return priv(g.response);
     const id = sessionIdOf(req);
     if (id === null) return priv(fail(404, "not_found", "That session was not found."));
@@ -370,7 +370,7 @@ export function handleConsoleReportLinks(req: Request, deps: Deps): Promise<Resp
 /** POST /api/v1/console/sessions/:id/report-links { role }: issues a link; the token is in this response only. */
 export function handleConsoleReportLinksIssue(req: Request, deps: Deps): Promise<Response> {
   return safely(async () => {
-    const g = guard(req, deps, true);
+    const g = await guard(req, deps, true);
     if ("response" in g) return priv(g.response);
     const id = sessionIdOf(req);
     if (id === null) return priv(fail(404, "not_found", "That session was not found."));
@@ -389,7 +389,7 @@ export function handleConsoleReportLinksIssue(req: Request, deps: Deps): Promise
 /** POST /api/v1/console/sessions/:id/report-links/:role { action: "reissue" | "revoke" } */
 export function handleConsoleReportLinkAction(req: Request, deps: Deps): Promise<Response> {
   return safely(async () => {
-    const g = guard(req, deps, true);
+    const g = await guard(req, deps, true);
     if ("response" in g) return priv(g.response);
     const id = sessionIdOf(req);
     const role = roleOf(req);

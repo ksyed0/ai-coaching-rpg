@@ -19,7 +19,7 @@ export default defineConfig({
       // VoiceClient against a fake room instead; the wrapper is covered by the opt-in live checks and the browser e2e.
       // Review finding 4: the rule "disableMicrophone unpublishes the track" (not merely mutes it) is proven in CI ONLY against the fake
       // BrowserRoom; against a real LiveKit server it is proven only by the opt-in VOICE_LIVE=1 run, which CI does not execute.
-      exclude: ["src/app/**", "src/demo/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**", "src/lib/livekit-room-browser.ts"],
+      exclude: ["src/app/**", "src/demo/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**", "src/server/test-support/**", "src/lib/livekit-room-browser.ts"],
       thresholds: { lines: 80 },
     },
   },

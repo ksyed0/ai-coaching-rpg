@@ -222,14 +222,14 @@ describe("The Friday Escalation, simulated end to end", () => {
       "scene.entered:s1_huddle", "inject.fired:email_from_priya",
       "utterance:delivery_lead", "utterance:tech_lead", "utterance:account_manager", "gm.decision:false",
       "utterance:delivery_lead", "utterance:tech_lead", "utterance:account_manager", "gm.decision:true",
-      "scene.exited:s1_huddle:gm_detects", "scene.entered:s2_client_call",
+      "scene.exited:s1_huddle:gm_detects", "scene.entered:s2_client_call", "inject.fired:call_opens", // US-0080: scene 2 opens with a message
       "facilitator.command:whisper",
       "utterance:delivery_lead", "utterance:client_sponsor",
       "facilitator.command:resume", "facilitator.command:resume", "inject.fired:cfo_pressure", "npc.updated",
       "utterance:account_manager", "utterance:client_sponsor", "gm.decision:false",
       "utterance:delivery_lead", "utterance:client_sponsor",
       "utterance:account_manager", "utterance:client_sponsor", "gm.decision:true",
-      "scene.exited:s2_client_call:gm_detects", "scene.entered:s3_internal_wrap",
+      "scene.exited:s2_client_call:gm_detects", "scene.entered:s3_internal_wrap", "inject.fired:wrap_opens", // US-0080: so does scene 3
       "utterance:tech_lead",
       "facilitator.command:resume", "facilitator.command:advance",
       "scene.exited:s3_internal_wrap:facilitator_advance", "session.ended:script_complete",

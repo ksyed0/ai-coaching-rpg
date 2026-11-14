@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0076               | US-0075           |
-| TASK         | TASK-0112             | TASK-0111         |
-| AC           | AC-0451               | AC-0450           |
-| TC           | TC-0243               | TC-0242           |
+| US           | US-0090               | US-0089           |
+| TASK         | TASK-0142             | TASK-0141         |
+| AC           | AC-0540               | AC-0539           |
+| TC           | TC-0310               | TC-0309           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0044                | L-0043            |
 
@@ -115,3 +115,7 @@ Assigned 2026-11-12 (EPIC-0003 voice A2b-1a close-out, feature/EPIC-0003-US-0074
 Assigned 2026-11-13 (EPIC-0003 voice A2b-1b, feature/EPIC-0003-US-0075-voice-audio-delete): US-0075 (voice audio delete, control API); TASK-0111 (US-0075); AC-0442..AC-0450 (all under US-0075: the `deleted` index line in the protocol, the route and its body, the live refusal, audit first, partial results, the fail-closed index, the deleted-aware sweep, no replay and no leak after delete, end to end and mutation checks); TC-0233..TC-0241 (one per AC, in order; edge cases get the next free ids then). A2b-2 (web BFF routes and console panel) and A3 are not filed. The next US is US-0076, the next AC is AC-0451, the next TC is TC-0242, the next TASK is TASK-0112, the next L is L-0044.
 
 Assigned 2026-11-13 (EPIC-0003 voice A2b-1b close-out, feature/EPIC-0003-US-0075-voice-audio-delete): TC-0242 (US-0075, the owner-run delete on a real recorded session, Not Run). No new US, TASK, AC or BUG. Final assignment for this slice: US-0075, TASK-0111, AC-0442..AC-0450, TC-0233..TC-0242. A2b-2 (web BFF routes and console panel) and A3 (facilitator voice tools) are not filed and their story numbers are not reserved: the next US is US-0076, the next AC is AC-0451, the next TC is TC-0243, the next TASK is TASK-0112, the next BUG is BUG-0035, the next L is L-0044.
+
+Reserved blocks (2026-11-13, facilitator accounts, feature/EPIC-0002-US-0083-facilitator-accounts): US-0083 (facilitator accounts and admin console) and the backlog stories US-0084 (email sending), US-0085 (database store), US-0086 (SSO or OIDC), US-0087 (separate auth service), US-0088 (password rules), US-0089 (per-client admins); TASK-0130..TASK-0141 (one per plan task: TASK-0130 Task 1, TASK-0131 Task 2, TASK-0132 Task 3, TASK-0133 Task 4, TASK-0134 Task 5a, TASK-0135 Task 5b, TASK-0136 Task 6, TASK-0137 Task 7, TASK-0138 Task 8, TASK-0139 Task 9, TASK-0140 Task 10, TASK-0141 Task 11); AC-0500..AC-0539 (US-0083 AC-0500..AC-0518, the backlog placeholders AC-0519..AC-0524 for US-0084..US-0089 in order, AC-0525..AC-0539 unused); TC-0270..TC-0309 (TC-0270..TC-0288 one per AC in order, TC-0289 and TC-0290 the owner-run items, Not Run; TC-0291..TC-0309 unused). Ids in a block that its story does not use stay unused. The Next and Last rows above point past these blocks.
+
+Assigned 2026-11-13 (facilitator accounts close-out, Task 11): the ids above were filed in `docs/RELEASE_PLAN.md` and `docs/TEST_CASES.md`. Reconciliation: the voice slices on this line stopped at US-0075, TASK-0111, AC-0450, TC-0242 (the registry's earlier Next row). The client-demo branch (`feature/EPIC-0002-demo-feedback-fixes`) used, in `docs/superpowers/notes/US-0080-notes.md`, `US-0081-notes.md` and `US-0082-notes.md`, US-0080..US-0082, TASK-0120..TASK-0122, AC-0460..AC-0499 and TC-0243..TC-0269; those ids are NOT filed in this registry or in the plan files yet (only in the notes), and US-0076..US-0079, TASK-0112..TASK-0119 and TASK-0123..TASK-0129 are not filed here either. The accounts blocks sit above all of them (no collision), so when that branch's stories are filed they fit below the Next row. When the branches merge, keep the maximum of every row and every reserved block, then run `npm run plan:generate`. The next US is US-0090, the next AC is AC-0540, the next TC is TC-0310, the next TASK is TASK-0142, the next BUG is BUG-0035, the next L is L-0044.

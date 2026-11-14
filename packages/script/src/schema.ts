@@ -73,9 +73,21 @@ export const ExitConditionSchema = z.union([
   z.literal("time_box_elapsed"), z.literal("facilitator_advance"), z.object({ gm_detects: z.string() }),
 ]);
 
+/** US-0080: a scene's player-facing end rule is one short plain sentence, shown on the player's scene card and in the scene-ended dialog. */
+export const MAX_ENDS_WHEN_CHARS = 200;
+const CONTROL_CHAR = /\p{Cc}/u;
+/** The `ends_when` rule (also applied to a `gm_detects` condition before it is shown to a player in its place). */
+export const EndsWhenText = z.string().trim().min(1, "must not be empty").max(MAX_ENDS_WHEN_CHARS, `is longer than ${MAX_ENDS_WHEN_CHARS} characters`)
+  .refine((s) => !CONTROL_CHAR.test(s), "must be one line without control characters");
+
 export const SceneSchema = z.object({
   id: Id, title: z.string(), goal: z.string(), participants: z.array(Id).min(1),
   time_box_minutes: z.number().positive(), opening_inject: Id.optional(),
+  /**
+   * US-0080: optional, what ends this scene in plain words for the players ("Ends when: ..."). No default on purpose: a scene without it
+   * loads exactly as before (no key, so the same scenario hash), and players are shown its first `gm_detects` condition instead.
+   */
+  ends_when: EndsWhenText.optional(),
   injects: z.array(InjectSchema).optional(),
   exit_when: z.object({ any_of: z.array(ExitConditionSchema).min(1) }),
 });

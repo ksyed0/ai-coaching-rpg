@@ -154,7 +154,7 @@ export function answerFor(o: CommandOutcome): Response {
 
 /** POST /api/v1/console/sessions/:id/command { channel, kind, ...fields } */
 export async function handleConsoleCommand(req: Request, deps: Deps): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
@@ -169,7 +169,7 @@ export async function handleConsoleCommand(req: Request, deps: Deps): Promise<Re
 
 /** POST /api/v1/console/sessions/:id/facts { channel }: the hidden-fact text of this tab's stream, from the hub's memory. */
 export async function handleConsoleFacts(req: Request, deps: Deps): Promise<Response> {
-  const g = guard(req, deps, true);
+  const g = await guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();

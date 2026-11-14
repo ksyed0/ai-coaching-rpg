@@ -899,3 +899,74 @@ describe("LauncherClient voiceToken", () => {
     expect(f.calls).toEqual([]);
   });
 });
+
+describe("LauncherClient accounts (US-0083)", () => {
+  const ACCOUNT = { id: "acc-1", login: "dana@client.example", name: "Dana", role: "facilitator", status: "active", mustChange: false, tempExpiresAt: null, epoch: 4, createdAt: 1, createdBy: "acc-0" };
+  const KEPT = { id: "acc-1", login: "dana@client.example", name: "Dana", role: "facilitator", status: "active", mustChange: false, epoch: 4 };
+
+  it("test_launcher_client_account_check_picks_fields_and_refused_is_null_while_every_other_failure_throws", async () => {
+    const ok = fakeFetch(() => reply(envelope({ account: { ...ACCOUNT, password: { salt: "s", hash: "h" } } })));
+    expect(await client(ok.fetch).accountCheck("acc-1", 4)).toEqual(KEPT);
+    expect(ok.calls[0]!.url).toBe(`${BASE}/accounts/check`);
+    expect(ok.calls[0]!.method).toBe("POST");
+    expect(JSON.parse(ok.calls[0]!.body!)).toEqual({ accountId: "acc-1", epoch: 4 });
+    expect(ok.calls[0]!.headers["x-service-token"]).toBe(TOKEN);
+
+    const refused = fakeFetch(() => reply(errorEnvelope("account_refused"), 401));
+    expect(await client(refused.fetch).accountCheck("acc-1", 4)).toBeNull();
+    // The token's own 401 is NOT a refused account: it throws, so the console answers 502 and keeps the cookie.
+    const token = fakeFetch(() => reply(errorEnvelope("unauthorized"), 401));
+    await expect(client(token.fetch).accountCheck("acc-1", 4)).rejects.toMatchObject({ reason: "unauthorized" });
+    const down = fakeFetch(() => { throw new TypeError("connect ECONNREFUSED"); });
+    await expect(client(down.fetch).accountCheck("acc-1", 4)).rejects.toMatchObject({ reason: "unavailable" });
+    // An answer for another account or epoch, or a malformed one, fails closed.
+    for (const account of [{ ...ACCOUNT, id: "acc-2" }, { ...ACCOUNT, epoch: 5 }, { ...ACCOUNT, role: "root" }, { ...ACCOUNT, mustChange: "no" }]) {
+      const f = fakeFetch(() => reply(envelope({ account })));
+      await expect(client(f.fetch).accountCheck("acc-1", 4)).rejects.toMatchObject({ reason: "failed" });
+    }
+    // A malformed id or epoch never reaches the network.
+    const none = fakeFetch(() => reply(envelope({ account: ACCOUNT })));
+    expect(await client(none.fetch).accountCheck("", 4)).toBeNull();
+    expect(await client(none.fetch).accountCheck("acc-1", -1)).toBeNull();
+    expect(await client(none.fetch).accountCheck("acc-1", 1.5)).toBeNull();
+    expect(none.calls).toHaveLength(0);
+  });
+
+  it("test_launcher_client_login_password_and_legacy_map_control_codes_and_never_echo_a_password", async () => {
+    const PASSWORD = "Pass-Word-Value-123";
+    const ok = fakeFetch(() => reply(envelope({ account: ACCOUNT })));
+    expect(await client(ok.fetch).accountLogin("dana@client.example", PASSWORD)).toEqual(KEPT);
+    expect(ok.calls[0]!.url).toBe(`${BASE}/accounts/login`);
+    expect(ok.calls[0]!.url).not.toContain(PASSWORD);
+    for (const code of ["login_refused", "login_expired"] as const) {
+      const f = fakeFetch(() => reply(errorEnvelope(code, `text with ${PASSWORD}`), 401));
+      const err = await client(f.fetch).accountLogin("x", PASSWORD).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(LauncherError);
+      expect((err as LauncherError).reason).toBe(code);
+      expect(String((err as Error).message)).not.toContain(PASSWORD);
+    }
+    const changed = fakeFetch(() => reply(envelope({ account: { ...ACCOUNT, epoch: 5 } })));
+    expect(await client(changed.fetch).accountChangePassword("acc-1", 4, "old-pass", "new-password-1")).toMatchObject({ epoch: 5 });
+    expect(JSON.parse(changed.calls[0]!.body!)).toEqual({ accountId: "acc-1", epoch: 4, current: "old-pass", next: "new-password-1" });
+    const weak = fakeFetch(() => reply(errorEnvelope("weak_password"), 400));
+    await expect(client(weak.fetch).accountChangePassword("acc-1", 4, "a", "b")).rejects.toMatchObject({ reason: "weak_password" });
+    const other = fakeFetch(() => reply(envelope({ account: { ...ACCOUNT, id: "acc-9" } })));
+    await expect(client(other.fetch).accountChangePassword("acc-1", 4, "a", "b")).rejects.toMatchObject({ reason: "failed" });
+    await expect(client(other.fetch).accountChangePassword("", 4, "a", "b")).rejects.toMatchObject({ reason: "account_refused" });
+
+    for (const allowed of [true, false]) {
+      const f = fakeFetch(() => reply(envelope({ allowed })));
+      expect(await client(f.fetch).legacyAllowed()).toBe(allowed);
+      expect(f.calls[0]!.url).toBe(`${BASE}/accounts/legacy`);
+    }
+    const bad = fakeFetch(() => reply(envelope({ allowed: "yes" })));
+    await expect(client(bad.fetch).legacyAllowed()).rejects.toMatchObject({ reason: "failed" });
+  });
+
+  it("test_launcher_client_session_info_carries_a_well_formed_owner", async () => {
+    const f = fakeFetch((c) => reply(envelope(c.url.endsWith("/sessions") ? [{ ...INFO, owner: "acc-1" }, { ...INFO, owner: 7 }, INFO] : { ...INFO, owner: "acc-2" })));
+    const list = await client(f.fetch).sessions();
+    expect(list.map((s) => s.owner)).toEqual(["acc-1", undefined, undefined]);
+    expect((await client(f.fetch).session(SID)).owner).toBe("acc-2");
+  });
+});

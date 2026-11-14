@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { isValidSessionId } from "@acr/events";
 import { AppHeader } from "../../../components/AppHeader";
-import { ConsoleDisabled } from "../../../components/console/ConsoleDisabled";
+import { ConsoleDisabled, ConsoleUnavailable } from "../../../components/console/ConsoleDisabled";
 import { ConsoleLogin } from "../../../components/console/ConsoleLogin";
 import { SessionConsole } from "../../../components/console/SessionConsole";
 import { MESSAGES } from "../../../lib/messages";
 import { TitleBlock } from "../../../components/TitleBlock";
 import { CONSOLE_COOKIE } from "../../../server/console-session";
-import { consoleView } from "../../../server/routes";
+import { consoleLegacyAllowed, consolePageRedirect, consoleView } from "../../../server/routes";
 
 // /console/<id>: one session's readiness, Start and live view. The id is checked here; the BFF checks it again on every call.
 
@@ -26,7 +26,10 @@ export default async function ConsoleSessionPage({
 }) {
   const { id } = await params;
   if (!isValidSessionId(id)) notFound();
-  const view = consoleView((await cookies()).get(CONSOLE_COOKIE)?.value);
+  const view = await consoleView((await cookies()).get(CONSOLE_COOKIE)?.value);
+  const to = consolePageRedirect(view);
+  if (to !== null) redirect(to);
+  const legacyAllowed = view.kind === "signed_out" && (await consoleLegacyAllowed());
   return (
     <>
       <AppHeader />
@@ -36,9 +39,9 @@ export default async function ConsoleSessionPage({
           lede={
             view.kind === "signed_in"
               ? MESSAGES.consoleLede
-              : view.kind === "disabled"
+              : view.kind === "disabled" || view.kind === "unavailable"
                 ? "The console is not available."
-                : "Sign in with the facilitator secret and your name."
+                : "Sign in with your login and password."
           }
         />
         <div className={view.kind === "signed_in" ? "body" : "body narrow"}>
@@ -46,8 +49,10 @@ export default async function ConsoleSessionPage({
             <SessionConsole sessionId={id} />
           ) : view.kind === "disabled" ? (
             <ConsoleDisabled />
+          ) : view.kind === "unavailable" ? (
+            <ConsoleUnavailable />
           ) : (
-            <ConsoleLogin />
+            <ConsoleLogin legacyAllowed={legacyAllowed} />
           )}
         </div>
       </main>

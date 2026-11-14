@@ -8,7 +8,10 @@ export type Config = {
   maxStreams: number;
   maxStreamsPerSession: number;
   maxStreamsPerAddress: number;
-  /** The facilitator console: usable only when all three are set (see consoleEnabled). */
+  /**
+   * The facilitator console is usable when LAUNCHER_URL and LAUNCHER_TOKEN are set (see missingConsoleVars): accounts live in the control
+   * service. US-0083: FACILITATOR_SECRET is optional and serves the legacy shared-secret sign-in only, until control's latch closes.
+   */
   facilitatorSecret?: string;
   launcherUrl?: string;
   launcherToken?: string;
@@ -20,10 +23,9 @@ export type Config = {
 };
 
 /** The console variables that are unset (names only). Empty means the console is enabled. */
-export function missingConsoleVars(c: Pick<Config, "facilitatorSecret" | "launcherUrl" | "launcherToken">): string[] {
-  // Names only: a value (the secret, the token) is tested for presence and never placed in a structure that reaches a log line.
+export function missingConsoleVars(c: Pick<Config, "launcherUrl" | "launcherToken">): string[] {
+  // Names only: a value (the token) is tested for presence and never placed in a structure that reaches a log line.
   const missing: string[] = [];
-  if (!c.facilitatorSecret) missing.push("FACILITATOR_SECRET");
   if (!c.launcherUrl) missing.push("LAUNCHER_URL");
   if (!c.launcherToken) missing.push("LAUNCHER_TOKEN");
   return missing;
