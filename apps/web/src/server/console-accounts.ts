@@ -40,9 +40,9 @@ export async function handleConsoleSetOwner(req: Request, deps: Deps): Promise<R
       if (!known) return invalid();
     }
     const info = await deps.launcher.setOwner(id, owner);
-    // The heartbeat re-checks only the account, never ownership: end the session's open streams now, so a previous owner stops
-    // receiving the live view; their reconnect meets the stream route's ownership check. The owner is already recorded, so a throw
-    // here must not turn the answer into an error.
+    // End the session's open streams now (the heartbeat's ownership re-check would end a previous owner's stream only at its next beat),
+    // so a previous owner stops receiving the live view at once; their reconnect meets the stream route's ownership check. The owner is
+    // already recorded, so a throw here must not turn the answer into an error.
     try {
       deps.facilitatorHub.closeSession(id);
     } catch {
@@ -86,7 +86,8 @@ function accountFailure(err: unknown, context: "create" | "revoke" | "other"): R
         return fail(409, "conflict", "That action is not possible for the account in its current state.");
       case "invalid":
       case "bad_request":
-        return fail(400, "invalid", "Check the login, name and role and try again.");
+        // Final review T7 M2: the login, name and role belong to create; an action's refusal says nothing about them.
+        return fail(400, "invalid", context === "create" ? "Check the login, name and role and try again." : "That request was not valid. Reload the page and try again.");
       default:
         return failure(err);
     }
@@ -108,11 +109,14 @@ export async function handleAdminAccountsList(req: Request, deps: Deps): Promise
   }
 }
 
-/** POST /api/v1/console/admin/accounts { login, name, role }: `by` is the caller's account id; a `by` in the body is accepted and ignored. */
+/**
+ * POST /api/v1/console/admin/accounts { login, name, role }: `by` is the caller's account id, from the cookie. A `by` in the body is a
+ * plain 400 (final review T7 M1: never silently ignored).
+ */
 export async function handleAdminAccountCreate(req: Request, deps: Deps): Promise<Response> {
   const g = await adminGuard(req, deps, true);
   if ("response" in g) return g.response;
-  const body = await readBody(req, ["login", "name", "role", "by"], MAX_ADMIN_BODY_BYTES);
+  const body = await readBody(req, ["login", "name", "role"], MAX_ADMIN_BODY_BYTES);
   if (body === null || !field(body.login) || !field(body.name) || (body.role !== "admin" && body.role !== "facilitator")) return badRequest();
   if (!deps.launcher) return unreachable();
   try {

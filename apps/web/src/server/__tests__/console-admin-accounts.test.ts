@@ -139,11 +139,33 @@ describe("admin account routes", () => {
 
   it("by_comes_from_the_cookie_not_the_body", async () => {
     const { deps, fake } = setup();
-    const r = await handleAdminAccountCreate(post(adminCookie(), BASE, { login: "n@x.example", name: "N", role: "admin", by: "someone-else" }), deps);
+    const r = await handleAdminAccountCreate(post(adminCookie(), BASE, { login: "n@x.example", name: "N", role: "admin" }), deps);
     expect(r.status).toBe(200);
     expect(fake.accountCreate).toHaveBeenCalledTimes(1);
     expect(fake.accountCreate.mock.calls[0]![0].by).toBe(ADMIN.id);
-    expect(JSON.stringify(fake.accountCreate.mock.calls[0])).not.toContain("someone-else");
+  });
+
+  // Final review T7 M1: a body `by` is not part of the create body: a plain 400, control is never asked.
+  it("test_console_admin_accounts_create_with_a_body_by_is_a_plain_400", async () => {
+    const { deps, fake } = setup();
+    const r = await handleAdminAccountCreate(post(adminCookie(), BASE, { login: "n@x.example", name: "N", role: "admin", by: "someone-else" }), deps);
+    expect(r.status).toBe(400);
+    expect((await r.json()).error.code).toBe("bad_request");
+    expect(fake.accountCreate).not.toHaveBeenCalled();
+  });
+
+  // Final review T7 M2: an action refused as invalid does not talk about the login, name and role (those belong to create).
+  it("test_console_admin_accounts_an_action_refused_as_invalid_has_a_generic_message", async () => {
+    for (const action of ACTIONS) {
+      for (const reason of ["invalid", "bad_request"] as const) {
+        const { deps } = setup({ accountAction: vi.fn(async () => { throw new LauncherError(reason); }) });
+        const r = await handleAdminAccountAction(action)(post(adminCookie(), `${BASE}/${TARGET.id}/${action}`), deps);
+        expect([r.status, (await r.json()).error], `${action} ${reason}`).toEqual([400, { code: "invalid", message: "That request was not valid. Reload the page and try again." }]);
+      }
+    }
+    const { deps } = setup({ accountCreate: vi.fn(async () => { throw new LauncherError("invalid"); }) });
+    const c = await handleAdminAccountCreate(post(adminCookie(), BASE, { login: "x", name: "y", role: "admin" }), deps);
+    expect((await c.json()).error.message).toBe("Check the login, name and role and try again.");
   });
 
   it("revoke_closes_that_accounts_streams", async () => {

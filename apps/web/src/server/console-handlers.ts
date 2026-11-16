@@ -65,6 +65,8 @@ const MAX_CREDENTIAL_CHARS = 200;
 const LOGIN_ROLE = "login";
 const PASSWORD_ROLE = "password";
 const ACCOUNT_REFUSED_MESSAGE = "That did not work. Check the login and the password and try again.";
+/** A right but expired temporary password, on sign-in and on the password change (only an admin's resend, reset or reinstate helps). */
+export const LOGIN_EXPIRED_MESSAGE = "This temporary password has expired. Ask an administrator for a new one.";
 const unreachableAnswer = () => fail(502, "launcher_unavailable", "The session service is not reachable. Try again.");
 
 const field = (v: unknown): v is string => typeof v === "string" && v.length >= 1 && v.length <= MAX_CREDENTIAL_CHARS;
@@ -105,7 +107,7 @@ async function accountLogin(deps: Deps, address: string, loginName: string, pw: 
     if (err instanceof LauncherError && err.reason === "login_refused") return chargeAndRefuse(deps, address, key, ACCOUNT_REFUSED_MESSAGE);
     // Only after the right password: a temporary password past its expiry. Not a guess, so it is not charged.
     if (err instanceof LauncherError && err.reason === "login_expired")
-      return fail(401, "login_expired", "This temporary password has expired. Ask an administrator for a new one.");
+      return fail(401, "login_expired", LOGIN_EXPIRED_MESSAGE);
     return unreachableAnswer();
   }
   const { cookie, body } = accountSession(deps, account);
@@ -185,6 +187,9 @@ export async function handleConsolePassword(
   } catch (err) {
     if (err instanceof LauncherError) {
       if (err.reason === "weak_password") return fail(400, "weak_password", "Choose a longer password that is not easy to guess.");
+      // Final review IMPORTANT 3: the right current password, but a temporary one past its expiry. Not a guess: nothing is charged. The
+      // cookie is cleared: only an admin's resend, reset or reinstate helps, and each moves the epoch, so it could never work again.
+      if (err.reason === "login_expired") return fail(401, "login_expired", LOGIN_EXPIRED_MESSAGE, { headers: { "Set-Cookie": CLEAR } });
       if (err.reason === "account_refused") {
         // Control answers a wrong current password and a revoked or stale account alike, so ask which one it was.
         let still: AccountInfo | null;

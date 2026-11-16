@@ -559,7 +559,10 @@ export class LauncherClient {
     return a;
   }
 
-  /** US-0083: changes the password; the answer carries the new epoch. `weak_password` and `account_refused` are the refusals. */
+  /**
+   * US-0083: changes the password; the answer carries the new epoch. `weak_password`, `account_refused` and (a right but expired temporary
+   * password) `login_expired` are the refusals.
+   */
   async accountChangePassword(accountId: string, epoch: number, current: string, next: string): Promise<AccountInfo> {
     if (!isAccountId(accountId) || !isEpoch(epoch)) throw new LauncherError("account_refused");
     const a = toAccount(await this.call("POST", "/accounts/password", { accountId, epoch, current, next }, this.timeoutMs));

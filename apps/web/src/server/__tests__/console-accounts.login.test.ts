@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handleConsoleLogin, handleConsolePassword, requireConsole } from "../console-handlers";
+import { handleConsoleLogin, handleConsolePassword, LOGIN_EXPIRED_MESSAGE, requireConsole } from "../console-handlers";
 import { openConsoleCookie } from "../console-session";
 import { LauncherError, type AccountInfo } from "../launcher-client";
 import {
@@ -258,6 +258,24 @@ describe("console password change", () => {
     expect(r.headers.get("Set-Cookie")).toContain("Max-Age=0");
     expect((await handleConsolePassword(password({ current: PW, next: NEW_PW }, c), deps)).status).toBe(401);
     expect(closeAccount).not.toHaveBeenCalled();
+  });
+
+  // Final review IMPORTANT 3: control answers a right but expired temporary password `login_expired`. The BFF says so plainly (the
+  // sign-in's wording), charges nothing (it is not a guess) and clears the cookie: only an admin's resend, reset or reinstate helps, and
+  // each moves the epoch, so this cookie could never work again anyway.
+  it("test_console_accounts_change_with_an_expired_temporary_is_login_expired_uncharged_and_signs_out", async () => {
+    const t = setup();
+    t.accountChangePassword.mockImplementation(async () => { throw new LauncherError("login_expired"); });
+    const c = accountCookie(FACILITATOR);
+    const fail = vi.spyOn(t.deps.consoleLoginThrottle, "fail");
+    for (let i = 0; i < 7; i++) {
+      const r = await handleConsolePassword(password({ current: PW, next: NEW_PW }, c), t.deps);
+      expect(r.status).toBe(401);
+      expect((await r.json()).error).toEqual({ code: "login_expired", message: LOGIN_EXPIRED_MESSAGE });
+      expect(r.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    }
+    expect(fail).not.toHaveBeenCalled();
+    expect(t.closeAccount).not.toHaveBeenCalled();
   });
 
   it("accountCheck unavailable while classifying a refusal: 502 and the cookie is kept", async () => {
