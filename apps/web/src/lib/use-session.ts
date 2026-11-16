@@ -137,7 +137,8 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       // "Held muted" means a voice seat the facilitator holds muted: a mute kept from before the opt-in is news when the seat opts in.
       const was = s.voice?.state === "voice" && s.voice.mutedBy === "facilitator";
       const now = a.voice.state === "voice" && a.voice.mutedBy === "facilitator";
-      const announce = s.voice !== null && was !== now;
+      // Leaving voice (to text or none) is not "You can speak again": the unmute is told only when the new state is voice.
+      const announce = s.voice !== null && (now ? !was : was && a.voice.state === "voice");
       const muteNotice = announce ? { kind: now ? "self_muted" as const : "self_again" as const, n: (s.muteNotice?.n ?? 0) + 1 } : s.muteNotice;
       return { ...s, voice: a.voice, voiceEvents, muteNotice };
     }

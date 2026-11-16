@@ -104,6 +104,18 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     expect(live()).toContain(SELF_MUTED);
   });
 
+  it("a voice seat held muted that moves to text only or none hears no 'You can speak again'", () => {
+    for (const to of ["text_only", "none"]) {
+      cleanup(); FakeEventSource.reset();
+      const m = mount();
+      join(m);
+      emit(m.es(), "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
+      emit(m.es(), "voice", { state: to, muted: false });
+      expect(live()).not.toContain(AGAIN);
+      expect(screen.queryByText(AGAIN)).toBeNull();
+    }
+  });
+
   it("a focused Mute button keeps its focus when the mute lands, and a press sends nothing", async () => {
     const m = mount();
     join(m);
@@ -111,6 +123,8 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     unmuteButton().focus();
     emit(m.es(), "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
     expect(document.activeElement).toBe(unmuteButton());
+    expect(unmuteButton().hasAttribute("disabled")).toBe(false);
+    expect(unmuteButton().getAttribute("aria-disabled")).toBe("true");
     const calls = m.f.calls.length;
     await act(async () => { fireEvent.click(unmuteButton()); });
     expect(m.f.calls.length).toBe(calls);
