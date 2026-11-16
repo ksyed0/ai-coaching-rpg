@@ -340,3 +340,49 @@ describe("AudioPanel: delete", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
+
+// A2b-2 Task 7: no axe or a11y lint exists for console components in this repo, so keyboard reachability is asserted here. jsdom has no
+// Tab key, so "reachable by Tab" is checked the way the browser decides it: a native control, tabIndex not negative, not disabled, not
+// hidden, with an accessible name, and focus() lands on it, in document order.
+describe("AudioPanel: keyboard and roles", () => {
+  const TABBABLE = "button, input, select, textarea, a[href], audio[controls], [tabindex]";
+  const tabbable = (root: ParentNode) => Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter((e) => e.tabIndex >= 0 && !(e as HTMLButtonElement).disabled && !e.hidden);
+  const name = (e: HTMLElement) => e.getAttribute("aria-label") ?? ((e as HTMLInputElement).labels?.[0]?.textContent ?? e.textContent)?.trim() ?? "";
+
+  it("every control is a focusable, named native control: Play per clip, Delete per seat, Delete all audio", async () => {
+    const m = mount((u) => (u === BASE ? { status: 200, body: ok(list(TWO)) } : undefined));
+    await screen.findByRole("heading", { level: 2, name: "Recordings" });
+    const stops = tabbable(m.container);
+    const buttons = Array.from(m.container.querySelectorAll<HTMLElement>("button"));
+    expect(buttons.length).toBeGreaterThanOrEqual(4);
+    for (const b of buttons) expect(stops).toContain(b);
+    for (const e of stops) {
+      expect(name(e)).not.toBe("");
+      e.focus();
+      expect(document.activeElement).toBe(e);
+    }
+    expect(m.container.querySelector("[tabindex]:not([tabindex='0']):not([tabindex='-1'])")).toBeNull();
+  });
+
+  it("the delete confirmation's radios, Delete audio and Cancel are all tabbable, and the group is named", async () => {
+    const m = mount((u) => (u === BASE ? { status: 200, body: ok(list(TWO)) } : undefined));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete all audio" }));
+    const box = screen.getByRole("group", { name: "Confirm delete" });
+    const stops = tabbable(box);
+    expect(stops.map(name)).toEqual(expect.arrayContaining(["Facilitator decision", "Participant asked", "Delete audio", "Cancel"].map((n) => expect.stringContaining(n))));
+    expect(stops.length).toBeGreaterThanOrEqual(4);
+    for (const e of stops) { e.focus(); expect(document.activeElement).toBe(e); }
+    expect(m.container.contains(box)).toBe(true);
+  });
+
+  it("a list failure is announced by role=alert and its Retry is tabbable; a notice uses role=status", async () => {
+    const m = mount(() => ({ status: 502, body: refused("generic", "x") }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toBe("");
+    const retry = screen.getByRole("button", { name: "Retry" });
+    expect(tabbable(m.container)).toContain(retry);
+    cleanup();
+    mount((u) => (u === BASE ? { status: 200, body: ok(list([], { })) } : undefined));
+    expect(await screen.findByRole("status")).toBeTruthy();
+  });
+});
