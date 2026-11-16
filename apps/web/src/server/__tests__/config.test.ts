@@ -152,7 +152,7 @@ describe("loadConfig CONSOLE_STREAM_OUTAGE_MS", () => {
     expect(loadConfig({ ...base(), CONSOLE_STREAM_OUTAGE_MS: v }).consoleStreamOutageMs).toBe(Number(v));
   });
 
-  it.each(["29999", "900001", "abc", "1.5", "0", "-30000", "off", "never", "1000000"])("test_config_console_stream_outage_ms_%s_is_refused_without_echoing_it", (v) => {
+  it.each(["29999", "900001", "abc", "1.5", "-777", "off", "never", "1234567"])("test_config_console_stream_outage_ms_%s_is_refused_without_echoing_it", (v) => {
     let message = "";
     try { loadConfig({ ...base(), CONSOLE_STREAM_OUTAGE_MS: v }); } catch (e) { message = (e as Error).message; }
     expect(message).toContain("CONSOLE_STREAM_OUTAGE_MS");

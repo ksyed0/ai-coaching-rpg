@@ -22,7 +22,7 @@ import { FacilitatorBudget } from "./facilitator-budget";
 import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, handleVoice, handleVoiceToken, seatedIn, VOICE_TOKEN_THROTTLE, type Deps } from "./handlers";
 import { LauncherClient } from "./launcher-client";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
-import { consoleRecheck, FacilitatorHub, outageCheckLimit } from "./facilitator-hub";
+import { consoleRecheck, DEFAULT_CONSOLE_STREAM_OUTAGE_MS, FacilitatorHub, outageCheckLimit } from "./facilitator-hub";
 import { StreamHub } from "./stream-hub";
 import { JoinThrottle } from "./throttle";
 
@@ -77,7 +77,7 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // US-0071: voice token requests per participant (a digest of the cookie's seat), in a table of their own.
     voiceTokenThrottle: new JoinThrottle({ ...VOICE_TOKEN_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
-    facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now, outageLimit: outageCheckLimit(config.consoleStreamOutageMs), ...(launcher && { recheck: consoleRecheck(launcher) }) }),
+    facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now, outageLimit: outageCheckLimit(config.consoleStreamOutageMs ?? DEFAULT_CONSOLE_STREAM_OUTAGE_MS), ...(launcher && { recheck: consoleRecheck(launcher) }) }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
     ...(launcher && { launcher }),
   };

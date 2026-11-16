@@ -8,8 +8,8 @@ export type Config = {
   maxStreams: number;
   maxStreamsPerSession: number;
   maxStreamsPerAddress: number;
-  /** US-0083: how long (ms) the control service may go without answering before an open console stream is ended (CONSOLE_STREAM_OUTAGE_MS). */
-  consoleStreamOutageMs: number;
+  /** US-0083: how long (ms) the control service may go without answering before an open console stream is ended (CONSOLE_STREAM_OUTAGE_MS, default 180000); loadConfig always sets it, hand-built test configs may omit it. */
+  consoleStreamOutageMs?: number;
   /**
    * The facilitator console is usable when LAUNCHER_URL and LAUNCHER_TOKEN are set (see missingConsoleVars): accounts live in the control
    * service. US-0083: FACILITATOR_SECRET is optional and serves the legacy shared-secret sign-in only, until control's latch closes.
