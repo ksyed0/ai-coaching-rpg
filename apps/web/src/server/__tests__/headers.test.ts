@@ -23,6 +23,7 @@ describe("security headers (src/proxy.ts)", () => {
       expect(directive(csp, "frame-ancestors")).toBe("frame-ancestors 'none'");
       expect(directive(csp, "base-uri")).toBe("base-uri 'none'");
       expect(directive(csp, "default-src")).toBe("default-src 'self'");
+      expect(directive(csp, "media-src")).toBe("media-src 'self' blob:");
     }
   });
 

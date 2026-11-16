@@ -24,6 +24,7 @@ export function contentSecurityPolicy(nonce: string, o: { dev: boolean; https: b
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${o.dev ? " 'unsafe-eval'" : ""}`,
     `style-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' blob: data:",
+    "media-src 'self' blob:", // the Recordings panel plays a fetched clip through an object URL
     "font-src 'self'",
     `connect-src 'self'${o.livekit === undefined ? "" : ` ${liveKitSources(o.livekit)}`}`,
     "object-src 'none'",

@@ -160,6 +160,52 @@ describe("SessionConsole", () => {
     expect(screen.queryByText("The session has started.")).toBeNull();
   });
 
+  describe("Recordings panel (A2b-2)", () => {
+    const clips = (n: number) => ({ recordingStopped: true, textUnavailable: false, tooLongForText: false, clips: Array.from({ length: n }, (_x, i) => ({ role: "delivery_lead", segment: `s${i}`, startMs: 1000 * i, endMs: 1000 * i + 500, status: "empty", audio: "available" })) });
+    const audioCalls = (m: ReturnType<typeof mount>) => m.f.calls.filter((c) => c.url.includes("/audio"));
+
+    it("appears after the ended final, below the report links, naming the seat by role label when the roster has no name", async () => {
+      const m = mount(readiness({ status: "running", roster: [] }), { "/audio": { status: 200, body: ok(clips(2)) } });
+      await goLive(m);
+      expect(audioCalls(m)).toHaveLength(0);
+      await act(async () => FakeEventSource.last().emit("ended", {}));
+      const h = await screen.findByRole("heading", { name: "Recordings" });
+      const links = screen.getByRole("heading", { name: "Participant reports" });
+      expect(links.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: /^Play clip/ }).length).toBe(2);
+    });
+
+    it("appears when the readiness poll says the session ended (no stream), with an empty roster", async () => {
+      const m = mount(readiness({ launcherStatus: "ended", status: "ended", roster: [] }), { "/audio": { status: 200, body: ok(clips(1)) } });
+      expect(await screen.findByRole("heading", { name: "Recordings" })).toBeTruthy();
+      expect(screen.getByRole("heading", { level: 3, name: "Delivery lead" })).toBeTruthy();
+      expect(audioCalls(m).length).toBeGreaterThan(0);
+    });
+
+    it("renders nothing when control has no audio and the roster shows no voice seat; shows No recordings with a voice seat", async () => {
+      const empty = { recordingStopped: true, textUnavailable: false, tooLongForText: false, clips: [] };
+      const m = mount(readiness({ launcherStatus: "ended", status: "ended", roster: [] }), { "/audio": { status: 200, body: ok(empty) } });
+      await waitFor(() => expect(audioCalls(m).length).toBeGreaterThan(0));
+      await flush();
+      expect(screen.queryByRole("heading", { name: "Recordings" })).toBeNull();
+      cleanup();
+      mount(readiness({ status: "running" }), { "/audio": { status: 200, body: ok(empty) } });
+      await screen.findByText(/Model:/);
+      await flush();
+      await joined(FakeEventSource.last());
+      await act(async () => FakeEventSource.last().emit("roster", { entries: [{ roleId: "delivery_lead", name: "Dana", joined: true, consented: true, connected: true, voice: "voice" }] }));
+      await act(async () => FakeEventSource.last().emit("ended", {}));
+      expect(await screen.findByText("No recordings.")).toBeTruthy();
+    });
+
+    it("is not shown while the session is not ended", async () => {
+      const m = mount(readiness({ status: "running" }), { "/audio": { status: 200, body: ok(clips(1)) } });
+      await goLive(m);
+      expect(screen.queryByRole("heading", { name: "Recordings" })).toBeNull();
+      expect(audioCalls(m)).toHaveLength(0);
+    });
+  });
+
   it("the stopped message is announced once, Restart stays", async () => {
     const m = await goLive(mount(readiness({ status: "running" })));
     m.current.readiness = readiness({ launcherStatus: "stopped", status: null, roster: [] });
