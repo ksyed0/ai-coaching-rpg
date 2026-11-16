@@ -730,7 +730,7 @@ Re-run in this pass: control `accounts.*`, `api.accounts`, `supervisor.owner`, `
 ### Open owner items
 
 1. TO RUN (owner): TC-0289 (a real hosted deployment: sign in as `admin`, change the password, create a facilitator, revoke, `ADMIN_RESET`) and TC-0290 (a temporary password handover without email); set `ADMIN_BOOTSTRAP_PASSWORD` or change the default password at once on any reachable host.
-2. TO CONFIRM (owner): the `X-Acr-By` reading from A2b-1a, `<name>-console` (name at most 56 characters, whole header at most 64). The controller recommended it (Option A) on 2026-11-13; it is RECOMMENDED, awaiting the owner, and is not confirmed.
+2. CONFIRMED (owner, 2026-11-16): the `X-Acr-By` reading from A2b-1a, `<name>-console` (name at most 56 characters, whole header at most 64). The controller recommended it (Option A) on 2026-11-13 and the owner CONFIRMED Option A on 2026-11-16 (header at most 64; Option B declined).
 3. Decide: R4 (every temporary password expires after 72 h, including after a reset; a one-line change to invited-only).
 
 ### Next
