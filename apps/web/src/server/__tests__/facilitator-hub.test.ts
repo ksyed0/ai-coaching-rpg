@@ -596,7 +596,7 @@ describe("FacilitatorHub outage window (US-0083)", () => {
       for (const a of answers) { steps.push(a); timers.fire(HEARTBEAT_MS); for (let i = 0; i < 5; i++) await Promise.resolve(); }
     };
     const finals = () => rec.frames().map((f) => f.event).filter((e) => e === "reconnecting" || e === "expired");
-    return { h, beat, finals };
+    return { h, beat, finals, conn };
   }
 
   it("test_facilitator_hub_outage_limit_derives_from_the_setting", () => {
@@ -620,6 +620,7 @@ describe("FacilitatorHub outage window (US-0083)", () => {
     await t.beat("unavailable", "reject", "unavailable");
     expect(t.finals()).toEqual(["reconnecting"]);
     expect(t.h.size()).toBe(0);
+    expect(t.conn.closed).toBeGreaterThan(0);
   });
 
   it("test_facilitator_hub_a_default_limit_of_twelve_applies_without_an_option", async () => {
@@ -638,7 +639,7 @@ describe("FacilitatorHub outage window (US-0083)", () => {
     expect(t.finals()).toEqual(["reconnecting"]);
   });
 
-  it("test_facilitator_hub_a_gone_answer_resets_the_count_and_ends_with_reconnecting_at_once", async () => {
+  it("test_facilitator_hub_a_gone_answer_ends_the_stream_at_once_with_reconnecting", async () => {
     const t = outage(3);
     await t.beat("unavailable", "unavailable", "gone");
     expect(t.finals()).toEqual(["reconnecting"]);
@@ -659,5 +660,14 @@ describe("FacilitatorHub outage window (US-0083)", () => {
       await t.beat("unavailable");
       expect(t.finals()).toEqual(["reconnecting"]);
     }
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, 1, -5, 2.5])("test_facilitator_hub_an_invalid_outage_limit_%s_falls_back_to_the_default_of_twelve", async (bad) => {
+    const t = outage(bad);
+    expect(t.h.outageLimit).toBe(12);
+    await t.beat(...Array<Step>(11).fill("unavailable"));
+    expect(t.finals()).toEqual([]);
+    await t.beat("unavailable");
+    expect(t.finals()).toEqual(["reconnecting"]);
   });
 });

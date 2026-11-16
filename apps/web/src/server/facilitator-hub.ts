@@ -114,7 +114,8 @@ export class FacilitatorHub {
     this.newChannelId = o.newChannelId ?? randomUUID;
     this.commandTimeoutMs = o.commandTimeoutMs ?? COMMAND_TIMEOUT_MS;
     this.newRef = o.newRef ?? randomUUID;
-    this.outageLimit = o.outageLimit ?? outageCheckLimit(DEFAULT_CONSOLE_STREAM_OUTAGE_MS);
+    // Only a whole number of at least 2 is used; NaN, Infinity, 0, 1, a negative or a fraction would fail open or close too soon.
+    this.outageLimit = o.outageLimit !== undefined && Number.isInteger(o.outageLimit) && o.outageLimit >= 2 ? o.outageLimit : outageCheckLimit(DEFAULT_CONSOLE_STREAM_OUTAGE_MS);
   }
 
   size(): number { return this.streams.size; }
