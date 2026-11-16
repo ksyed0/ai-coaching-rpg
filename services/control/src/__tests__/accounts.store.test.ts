@@ -36,6 +36,10 @@ describe("accounts store", () => {
       { legacyClosed: false, accounts: [{ ...acct("a", "ann"), role: "root" }] },
       { legacyClosed: false, accounts: [{ ...acct("a", "ann"), status: "gone" }] },
       { legacyClosed: false, accounts: [{ ...acct("a", "ann"), password: { salt: "x" } }] },
+      // final review T1 M4: an extra key inside `password`, and a name that is not a string
+      { legacyClosed: false, accounts: [{ ...acct("a", "ann"), password: { salt: "c2FsdA", hash: "aGFzaA", plain: "x" } }] },
+      { legacyClosed: false, accounts: [{ ...acct("a", "ann"), name: 5 }] },
+      { legacyClosed: false, accounts: [{ ...acct("a", "ann"), name: null }] },
       { legacyClosed: false, accounts: [{ ...acct("a", "ann"), epoch: "1" }] },
       { legacyClosed: false, accounts: [{ ...acct("a", "ann"), extra: 1 }] },
       { legacyClosed: false, extra: 1, accounts: [] },

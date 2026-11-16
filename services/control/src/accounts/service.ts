@@ -105,10 +105,16 @@ export class AccountService {
     return a && a.status !== "revoked" && a.epoch === epoch ? toPublic(a) : null;
   }
 
-  async changePassword(id: string, epoch: number, current: string, next: string): Promise<{ ok: true; account: PublicAccount } | { ok: false; reason: "refused" | "weak" }> {
+  /**
+   * `expired`: the current password is right but it is a temporary password past its expiry (R4: every temporary password expires after
+   * 72 h; only an admin resend, reset or reinstate helps). A wrong current password stays `refused`, so expiry is told only to someone who
+   * knows the password.
+   */
+  async changePassword(id: string, epoch: number, current: string, next: string): Promise<{ ok: true; account: PublicAccount } | { ok: false; reason: "refused" | "weak" | "expired" }> {
     const a0 = this.load().accounts.find((x) => x.id === id);
     if (!a0 || a0.status === "revoked" || a0.epoch !== epoch) return { ok: false, reason: "refused" };
     if (!(await verifyPassword(current, a0.password))) return { ok: false, reason: "refused" };
+    if (a0.tempExpiresAt !== null && this.o.now() > a0.tempExpiresAt) return { ok: false, reason: "expired" };
     if (next.length < MIN_PASSWORD_LENGTH || next === current) return { ok: false, reason: "weak" };
     const password = await hashPassword(next);
     const f = this.load();

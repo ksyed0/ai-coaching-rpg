@@ -31,7 +31,8 @@ const ROUTES: Record<string, Route> = {
 async function boot(outcome: unknown, fn: string): Promise<{ port: number; stub: ReturnType<typeof vi.fn> }> {
   const stub = vi.fn(async () => outcome);
   const moderation = { [fn]: stub } as unknown as ModerationService;
-  const supervisor = { get: (id: string) => (id === ID ? { sessionId: id } : undefined) } as unknown as Supervisor;
+  const get = (id: string) => (id === ID ? { sessionId: id } : undefined);
+  const supervisor = { get, getWithoutOwner: get } as unknown as Supervisor;
   const server = http.createServer(
     createApi({ config: { serviceToken: TOKEN } as ControlConfig, supervisor, scenarios: () => Promise.resolve([]), moderation }),
   );

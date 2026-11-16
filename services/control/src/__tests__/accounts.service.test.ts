@@ -166,6 +166,19 @@ describe("AccountService", () => {
     expect(s.svc.list().find((a) => a.login === "bob")).toMatchObject({ status: "active", mustChange: false, tempExpiresAt: null });
   });
 
+  // Final review IMPORTANT 3 (R4: every temporary password expires after 72 h): a right but expired temporary password cannot change the
+  // password (it answers `expired`, never `refused`, so the BFF can say so plainly); a wrong one stays `refused` (expiry is told only to
+  // someone who knows the password).
+  it("test_accounts_service_change_password_with_an_expired_temporary_is_expired", async () => {
+    const s = setup();
+    await s.svc.ensureDefaultAdmin();
+    const iss = await s.svc.create({ login: "bob", name: "Bob", role: "facilitator" }, null);
+    s.clock.t += H72 + 1;
+    expect(await s.svc.changePassword(iss.account.id, 0, iss.temporaryPassword, NEWPW)).toEqual({ ok: false, reason: "expired" });
+    expect(await s.svc.changePassword(iss.account.id, 0, "nope", NEWPW)).toEqual({ ok: false, reason: "refused" });
+    expect(s.svc.list().find((a) => a.login === "bob")).toMatchObject({ status: "invited", mustChange: true, epoch: 0 });
+  });
+
   it("change_password_rejects_short_and_same_as_current", async () => {
     const s = setup();
     await s.svc.ensureDefaultAdmin();

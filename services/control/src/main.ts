@@ -185,7 +185,7 @@ export async function startControl(
   let moderation: ModerationService | undefined;
   const jobs = new ReportJobService({
     config, parentEnv: env, log, ...(opts.evalSpawn ? { spawn: opts.evalSpawn } : {}),
-    sessions: { get: (id) => { const s = supervisor.get(id); return s ? { scenarioId: s.scenarioId, ended: s.status === "ended" } : undefined; } },
+    sessions: { get: (id) => { const s = supervisor.getWithoutOwner(id); return s ? { scenarioId: s.scenarioId, ended: s.status === "ended" } : undefined; } },
     onDone: async (id, _outputDir, by) => {
       let opened = false;
       try { opened = (await moderation?.open(id, by))?.status === 200; } catch { /* logged below */ }

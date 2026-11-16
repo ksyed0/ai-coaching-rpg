@@ -34,7 +34,8 @@ function fakes(): Fakes {
 }
 async function boot(o: { jobs?: boolean; moderation?: boolean; known?: boolean; f?: Fakes } = {}): Promise<{ port: number; f: Fakes }> {
   const f = o.f ?? fakes();
-  const supervisor = { get: (id: string) => (o.known !== false && id === ID ? { sessionId: id } : undefined) } as unknown as Supervisor;
+  const get = (id: string) => (o.known !== false && id === ID ? { sessionId: id } : undefined);
+  const supervisor = { get, getWithoutOwner: get } as unknown as Supervisor;
   const handler = createApi({
     config: { serviceToken: TOKEN } as ControlConfig, supervisor, scenarios: () => Promise.resolve([]),
     ...(o.jobs !== false ? { jobs: f.jobs as unknown as ReportJobService } : {}),

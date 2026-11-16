@@ -37,8 +37,10 @@ const DELETE_BUSY = "Too many deletes are running. Try again in a moment.";
 const WAV_HEADERS: Record<string, string> = { "Content-Type": "audio/wav", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "none" };
 const MAX_FIELD = 200;
 
-const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD), owner: z.string().min(1).max(64).optional() });
-const OwnerBody = z.strictObject({ owner: z.string().min(1).max(64).nullable() });
+// US-0083 final review: an owner is an account id (the same 1..64 [A-Za-z0-9_-] rule as the BFF's isAccountId).
+const OwnerId = z.string().refine(isSafeId);
+const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD), owner: OwnerId.optional() });
+const OwnerBody = z.strictObject({ owner: OwnerId.nullable() });
 // One role, or the whole session: never "neither". A body that forgets roleId must not silently reissue every code.
 const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), all: z.literal(true).optional(), by: z.string().max(MAX_FIELD).optional(), reason: z.literal("removed").optional() })
   .refine((b) => (b.roleId === undefined) !== (b.all === undefined))
@@ -162,6 +164,7 @@ export function createApi(deps: {
       const b = parse(PasswordBody, await jsonBody(req));
       const r = await accounts.changePassword(b.accountId, b.epoch, b.current, b.next);
       if (r.ok) return ok(res, { account: r.account });
+      if (r.reason === "expired") return fail(res, 401, "login_expired", "That login is not allowed.");
       return r.reason === "weak" ? fail(res, 400, "weak_password", "Choose a longer password that differs from the current one.") : refused();
     }
     if (seg.length === 3 && method === "POST" && (seg[2] === "resend" || seg[2] === "reset" || seg[2] === "reinstate" || seg[2] === "revoke")) {
@@ -349,7 +352,7 @@ export function createApi(deps: {
         try { role = decodeURIComponent(seg[3]!); } catch { return notFound(); }
         if (!RoleIdSchema.safeParse(role).success) return notFound(); // before the body is read or anything is called
       }
-      const exists = (): void => { if (!supervisor.get(id)) throw new HttpError(404, "not_found", "That session does not exist."); };
+      const exists = (): void => { if (!supervisor.getWithoutOwner(id)) throw new HttpError(404, "not_found", "That session does not exist."); };
       if (seg.length === 3 && method === "GET") { exists(); return ok(res, await reports.links(id)); }
       if (seg.length === 3 && method === "POST") {
         const body = parse(LinkBody, await jsonBody(req));
@@ -374,7 +377,7 @@ export function createApi(deps: {
       if (body.roleId !== undefined) return ok(res, { code: await supervisor.reissue(id, body.roleId, body.by, body.reason) });
       return ok(res, { codes: await supervisor.reissueAll(id, body.by) });
     }
-    if (await handleReportRoute(seg, method, req, res, { sessionId: id, knows: (sid) => supervisor.get(sid) !== undefined, jobs, moderation })) return;
+    if (await handleReportRoute(seg, method, req, res, { sessionId: id, knows: (sid) => supervisor.getWithoutOwner(sid) !== undefined, jobs, moderation })) return;
     return notFound();
   }
 
