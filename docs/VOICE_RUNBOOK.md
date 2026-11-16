@@ -202,6 +202,19 @@ tmutil addexclusion <dir>
 
   Use the manual Caddy fallback of section 5.
 
+### Facilitator mute (slice A3a)
+
+The voice panel in the console has a Mute / Unmute button for each human seat that has a voice state, and a status line that says what happened. **A mute stops what that seat says from becoming game input; it does not silence the person.** They can still talk in the room, and everyone else hears them. Say this to the room before you use it.
+
+- **What a mute does.** The seat stops recording at once, the speech worker ignores that seat's audio and writes no file for it, and a line already in flight when you press Mute is refused, never added after it. A line transcribed before the mute stays in the log: there is no way to strike or hide it, and the AI characters may have answered it already. The mute is written to the session log as `facilitator.command` / `mute_seat` with your sign-in name.
+- **What everyone sees.** Every participant's page shows "The <role> microphone has been muted by the facilitator" (and "... is on again"), by role, never by a person's name or yours. The muted person's page says the facilitator has muted their microphone and disables their unmute button. The console shows "Muted by facilitator" beside the seat.
+- **How long it lasts.** Until you press Unmute. A pause, a resume, a refresh, a rejoin, a reissue or a different person taking the seat do not end it.
+- **After a runtime restart** a resumed session keeps every facilitator mute (it is rebuilt from the log) and comes back paused as always. **A mute you set before the session started is held in memory only and is lost by a restart before the start**: look at the seat after the restart and mute it again. There is no Mute button before the start (the lobby has no voice panel), so you normally mute after the start.
+- **The button says it failed, or the status line says the stream is not live.** The command was refused (voice is off, the session ended, or the seat is an AI character) or never reached the runtime. Nothing is muted in that case: read the seat's label, not the button you pressed. A mute whose log write fails is undone at once, so the seat is not muted.
+- **A participant says they are muted but you did not mute them.** Check the seat for "Muted by facilitator". If it is not there, they pressed their own mute (their own mute is separate and can be lifted by them) or voice is unavailable for them.
+- **After rolling the runtime back to a version before A3a, all facilitator mutes are gone** (the old runtime ignores the command). Mute the seats again. See `docs/ROLLBACK.md`, "US-0091".
+- **Deploy order: web with or before runtime.** An old web console that receives the new event mishandles it.
+
 ## 9. OWNER-RUN ROOM TEST
 
 This follows spec section 13. It takes about 30 minutes of two people's time, and only people who agree to be recorded take part. Use `lan` mode (`local` serves one machine only), and run it after the two-device address check of section 5.
@@ -303,7 +316,8 @@ Run on the pilot laptop, in this order. Ask before each item marked **approval**
 
 9. **Real timing numbers.** One short room-test run (section 9) with `VOICE_TIMING_LOG=1`, read with `pnpm voice:timings`.
 10. **Audio (A2a).** With one person joined by voice and the owner's approval to record: say two sentences, end the session, then in `AUDIO_DIR` check with `ls -lR` that the identity folder, the role folder and the index and WAV files are 0700 and 0600, that `ended.json` exists, and that `<logIdentity>.audio-audit.jsonl` holds an opt-in line and no text. Restart the control service during a second session and confirm the first session's audio is untouched. On a throwaway session folder only (with approval), set `endedAtMs` in its `ended.json` more than `AUDIO_MAX_RETENTION_DAYS` days back, restart control and confirm the folder is removed and the audit file gains exactly one `audio.deleted` line. Read the notice wording against the opt-out behaviour (audio recorded before an opt-out stays until expiry). Record the results (TC-0218). Then, still in that session and with a facilitator account, open the Recordings panel after the end, play a clip in each browser the pilot will use, delete one seat with "Participant asked" and then the rest, and compare the panel with `<logIdentity>.audio-audit.jsonl` (one `audio.played` per press, one `audio.deleted` per folder per delete); record the results (TC-0320 for the review and delete, TC-0321 for a clip actually playing under the page CSP, which jsdom cannot prove).
-11. **Clean-up.**
+11. **Facilitator mute (A3a, owner-run, with approval to record).** With two people joined by voice in a live session: in the console's voice panel press Mute on one seat and confirm that (a) the button reads Unmute and the seat shows "Muted by facilitator"; (b) the muted person's page says "The facilitator has muted your microphone" and its own unmute button is off; (c) the other person's page announces "The <role> microphone has been muted by the facilitator" by role label, with no name; (d) what the muted person says now makes no line in the transcript and no new WAV appears for that seat in `AUDIO_DIR`, while the other person's speech still does; (e) a refresh and a rejoin of the muted person keep it muted; (f) Unmute restores recording and both pages say so; (g) the session log holds two `facilitator.command` lines with `command` `mute_seat` and your sign-in name in `by`, and no player's stream ever carried `by`. Record the result as TC-0332.
+12. **Clean-up.**
     - Run `pnpm voice:down`.
     - Run `docker compose -p scenecoach-voice ps -a`; it must show nothing.
     - Confirm the state directory holds no `livekit.env`.

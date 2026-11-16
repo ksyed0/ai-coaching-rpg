@@ -788,3 +788,34 @@ The full gates and the whole-branch review (the controller), then flip US-0083 t
 ### Next
 
 The whole-branch review of US-0090 and its fixes; then the PR into `develop` (the story stays In Progress until the review has passed; nothing is pushed or merged); then A3 (facilitator voice tools), brainstorm and plan first.
+
+## Session 50 — 2026-11-16 (EPIC-0003 voice slice A3a: the facilitator mutes a participant's microphone, US-0091)
+
+### What Was Done
+
+- **Built US-0091 (voice A3a) on `feature/EPIC-0003-US-0090-voice-audio-panel`** (the same branch as A2b-2; spec `docs/superpowers/specs/2026-11-16-voice-a3a-facilitator-mute-design.md` Draft 3, reviewed against the code by an Opus agent; plan `docs/superpowers/plans/2026-11-16-voice-a3a-facilitator-mute.md`; Tasks 1 to 7 are code and tests with a review per task and fix rounds on Tasks 5, 6 and 7, Task 8 is the end-to-end test, the mutation checks and these documents; no PR yet). During a live voice session the facilitator can mute and unmute one participant's microphone from the console, and every participant sees by role that the seat is muted. **A mute stops the seat's speech becoming game input; it does not silence the person.**
+  - **Runtime and events (Tasks 1 to 4):** `FacilitatorCommand` `mute_seat` `{ roleId, muted }`, appended as `facilitator.command` with `by`; `SessionState.facilitatorMutedSeats` rebuilt from the log; the host marks a mute on receipt (rolled back if refused or the append fails), applies an unmute only after its append, repeats the recording check inside the engine mutex, and uses the union of the participant's own mute and the facilitator set in `voiceMutedOf`, `isRecordingHolder` and the voice-seat `isMuted`; the participant's own unmute is refused `muted_by_facilitator`; a mute before the start is held and written after `session.started`; no Game Master tick; `commandForPlayer` gives players `{ command, roleId, muted }` and never `by`; the player snapshot and peers roster carry the state; AI bots ignore it.
+  - **Web (Tasks 5 to 7):** the `mute_seat` console command kind, the forwarded `voice` frame with `mutedBy`, fixed refusal copy; the voice panel's Mute / Unmute button, "Muted by facilitator" label and polite status line; the participant's notice and disabled unmute button, and the role-label notices on every page.
+  - **End to end and mutation checks (Task 8):** `services/control/src/__tests__/voice/mute-seat.e2e.test.ts` drives the real `SessionHost`, speech worker and audio store (control's relay played in the test): a muted seat leaves no voice line, no log utterance, no WAV and no role folder, another seat is unaffected, and after the unmute the next burst is written. Eight mutations each failed a named test and were reverted (the report lists them): the set removed from the union (and from `isRecordingHolder` and the voice-seat `isMuted` alone), cleared in `release`, cleared in `forgetVoice`, the `muted_by_facilitator` refusal dropped, `by` leaked in `commandForPlayer`, the in-mutex guard removed.
+  - **Documents (Task 8):** US-0091, TASK-0143, AC-0550 to AC-0559, TC-0322 to TC-0332 filed and the registry advanced; `docs/THREAT_MODEL.md` "Voice facilitator mute, slice A3a"; `docs/VOICE_RUNBOOK.md` section 8 "Facilitator mute" and owner checklist item 11 (clean-up is now item 12); `docs/ROLLBACK.md` "US-0091"; `CHANGELOG.md`; the spec status line; MEMORY fact 35; the backlog note.
+- **Decisions (owner, 2026-11-16):** per-seat, instant, reversible; a line transcribed before the mute stays; mute only (live partial transcripts are A3b); a facilitator mute ends only when the facilitator unmutes; every participant sees it by role label. Calls C1 to C11 are in the spec (notably `LOG_FORMAT` not bumped, so a rolled-back runtime drops every mute, and deploy web with or before runtime).
+
+### Verification (2026-11-16, macOS arm64, the Task 8 run)
+
+`pnpm --filter <pkg> exec vitest run --coverage` all passed: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974; line coverage 100, 98.46, 98.13 and 98.02 percent. `tsc --noEmit` clean for events, runtime, control and web. Not run in this pass: the speech, script, adapters and voice-ops suites (no change in them), `pnpm lint:sdk`, and the forked-process `*.real.test.ts` variants. The mutation checks were run on the runtime mute tests (`mute-seat`, `player-copies`, `voice-mute` and, for the first one, the wider voice and roster tests) and the new control e2e, not on the whole suite.
+
+### Known gaps (deferred follow-ups worth keeping)
+
+- **Residuals, stated in the threat model:** a muted person can still talk in the room; a line before the mute stays in the sealed log; a mute held before the start is lost by a runtime restart before the start; there is no console control before the start (the lobby has no voice panel, the server path exists).
+- **Accepted gaps:** a runtime rolled back to before A3a drops every facilitator mute (re-mute); an old web console mishandles the new event (deploy web with or before runtime).
+- **Deferred review minors** (the SDD ledger `.superpowers/sdd/2026-11-16-voice-a3a-facilitator-mute/progress.md` lists them; the final whole-branch review triages them): the console's `notLive` flag is not reset when the stream is live again; a mute or unmute while the page is disconnected is shown as state only; the single status slot keeps a stale line; `bot.ts` treats any non-pause command as a resume (protected only by the parser enum and tests); a rolled-back mute does not restore a dropped voice turn.
+- **The e2e is in-process** (real host, worker and store, control's relay played by the test), not forked processes or LiveKit; the forked `audio-store.e2e.real.test.ts` variant was not extended.
+
+### Open owner items
+
+1. TO RUN (owner): **TC-0332** (a real participant muted in a live voice session, with a real browser showing the notices, with the room test after TC-0242); still open from before: TC-0320, TC-0321, TC-0218, TC-0232, TC-0242, A1c's real run (TC-0204), the OpenRouter key rotation, the domain and certificate (US-0048), TC-0289 and TC-0290. Voice must not go live before the deferred compliance items.
+2. TO DECIDE (owner, optional): a Mute control in the lobby (before the start), and whether a strike or hide tool for an already-transcribed line is wanted.
+
+### Next
+
+The whole-branch review of US-0090 and US-0091 and its fixes; then the PR into `develop` (both stories stay In Progress until the review has passed; nothing is pushed or merged); then A3b (live partial transcripts for the facilitator), brainstorm and plan first with the capacity decision the 4-to-8 talker room test should inform.

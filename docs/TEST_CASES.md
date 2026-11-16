@@ -4194,3 +4194,166 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-16 (Task 8). Not run by the agents: jsdom cannot play audio or enforce a CSP, so the header is asserted in `headers.test.ts` (TC-0316) but a blob URL played under it is unproven. If a browser blocks it, the fix is in `apps/web/src/server/headers.ts` (`media-src`).
+
+## US-0091: voice facilitator mute (EPIC-0003 voice A3a)
+
+TC-0322: The `mute_seat` command, its schema and the replayed state
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0550
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `packages/events`: `pnpm exec vitest run`.
+  2. From `services/runtime`: `pnpm exec vitest run protocol.mute-seat session-engine`.
+Expected Result: `mute_seat` parses only with a role id and a boolean (no extra key, no free text) in the runtime protocol and the shared events schema; it is appended as `facilitator.command` with `by`; the reducer holds `facilitatorMutedSeats` sorted, the last command per seat wins, and a restart rebuilds it from the log; the engine refuses an unknown seat and an ended session; a player snapshot decides the field.
+Actual Result: As expected (events `state.test.ts` and the events suite; runtime `protocol.mute-seat.test.ts` and `session-engine.test.ts`). 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0323: Host ordering: refusals, rollback, unmute after the append, the in-mutex guard, no Game Master tick
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0551
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run session-host.mute-seat`.
+Expected Result: Refusals in order (`voice_off`, `unknown_role`, `forbidden` for an AI character or AI seat, `ended`); allowed while paused and for a seat with no holder or a text-only holder; a mute applies on receipt (recording false, `voice_state` re-sent) before its append is on disk and is rolled back and re-sent if refused or the append fails; an unmute applies only after its append and a failing append leaves the seat muted; a line that passed the recording check before the mute is refused `not_recording` inside the engine mutex and never appended; no Game Master tick follows a mute.
+Actual Result: As expected (`session-host.mute-seat.test.ts`, 20 tests). Mutation checks: the in-mutex guard removed and the facilitator set removed from `voiceMutedOf` / `isRecordingHolder` each fail the tests named in the Task 8 report (TC-0330). 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0324: The union with the participant's own mute, the seat's lifetime and the pre-start hold
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0552
+Type: Unit and integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run session-host.mute-seat ws-server.mute-seat voice-mute`.
+Expected Result: A facilitator-muted seat is not recording (`isRecordingHolder`), shows muted in the voice seats and in `voiceMutedOf` (so `joined.voice` and the `voice` frames carry `muted: true`, `mutedBy: "facilitator"`); the participant's own mute and the facilitator set are independent; `release`, `forgetVoice`, pause, resume, a rejoin and a different holder do not clear it; only `mute_seat` with `muted: false` does; the participant's own unmute is refused `muted_by_facilitator` and their own mute is accepted; a mute sent before the start is held, written straight after `session.started` with the same `by`, and holds from the first turn (a restart before the start loses it: pinned as the residual).
+Actual Result: As expected (`session-host.mute-seat.test.ts`, `ws-server.mute-seat.test.ts` and `voice-mute.test.ts`). 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0325: Every participant sees the mute by role label; `by` never reaches a player; bots unaffected
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0553
+Type: Unit and integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run player-copies roster ws-server.mute-seat`.
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/bots/bot.test.ts`.
+Expected Result: `commandForPlayer` returns exactly `{ type, seq, ts, sessionId, command, roleId, muted }` for `mute_seat` (no `by`); the player snapshot and the peers roster carry the current mute so a fresh join without `lastSeq` sees it; the holder is sent a `voice` frame with `mutedBy: "facilitator"` on a mute and `muted: false` without it on an unmute, and others get none; an AI bot ignores the frame and a `mute_seat` does not resume a paused bot.
+Actual Result: As expected (`player-copies.test.ts`, `roster.test.ts`, `ws-server.mute-seat.test.ts`, control `bot.test.ts`). Mutation check: leaking `by` in `commandForPlayer` fails the tests named in the Task 8 report (TC-0330). 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0326: Web: the `mute_seat` command kind and the voice frame
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0554
+Type: Unit and integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-command.test.ts src/server/__tests__/stream-hub.test.ts src/server/__tests__/facilitator-hub.test.ts src/server/__tests__/hub.runtime.test.ts src/server/__tests__/voice-handlers.test.ts src/server/__tests__/facilitator-copies.test.ts`.
+Expected Result: The command body is strict (`channel`, `kind`, `roleId`, `muted`; a body `by` refused); it goes through the existing guard, throttle and refusal sentences with fixed copy for `voice_off`, `forbidden` and `muted_by_facilitator`; the stream forwards the unsolicited `voice` frame in order and keeps `mutedBy` in the join; the facilitator copy of the new event is not undefined.
+Actual Result: As expected (the six files named; the whole web suite is recorded in the Notes). 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0327: Console: the Mute / Unmute button, the status line and the refusals
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0555
+Type: Component
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/VoicePanel.test.tsx src/lib/__tests__/console-voice.test.ts src/lib/__tests__/console-commands.test.ts src/lib/__tests__/console-view.test.ts`.
+Expected Result: A button per human seat with a voice state, named for the seat, labelled in words ("Muted by facilitator", never colour alone); a polite status line with different copy for mute and unmute and the fixed refusal sentences; a double press sends one command; a press while the stream is not live says so instead of doing nothing.
+Actual Result: As expected (the four files named). 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0328: Participant page: the muted notice, the disabled unmute button and the role notices
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0556
+Type: Component
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/SessionScreenMute.test.tsx src/components/__tests__/MicButton.test.tsx src/lib/__tests__/use-session.test.ts`.
+Expected Result: The muted participant's page shows "The facilitator has muted your microphone" (a live region), its unmute button is `aria-disabled` and keeps focus, and "You can speak again" is said once on the unmute and not when leaving voice; every page says "The <role> microphone has been muted by the facilitator" / "... is on again" by role, a mute before voice is announced, and replayed mutes are not re-announced.
+Actual Result: As expected (the three files named). 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0329: End to end through the real host, speech worker and audio store
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0557
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/mute-seat.e2e.test.ts`.
+Expected Result: With the tech lead facilitator-muted, the real worker (file ingest played in steps) sends no voice line for that seat, the real host logs no voice utterance for it, no WAV and no role folder is written for it, while the other seat's line is logged and its WAV written; after the unmute `recording` is true again, the next burst becomes one logged line and exactly one WAV.
+Actual Result: As expected (`mute-seat.e2e.test.ts`, 1 test: real `SessionHost`, `startWorker`, `openStore` and `AudioStore`; the test plays control's relay (`voice_state` from `voiceSeats()`, `voice_line` into `onVoiceUtterance`, the answer back). It is in-process, not forked processes and not LiveKit. 2026-11-16 (macOS arm64; the four suites run with coverage on this branch: events 108, runtime 4647 (+1 skipped), control 1724 (+1 skipped), web 1974, all passed; line coverage 100, 98.46, 98.13 and 98.02 percent; `tsc --noEmit` clean for events, runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0330: Mutation checks: each makes a named test fail
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0558
+Type: Mutation
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Apply one mutation at a time to `services/runtime/src/host/session-host.ts` or `player-copies.ts` (the facilitator set removed from `voiceMutedOf`; from `isRecordingHolder` only; from the voice-seat `isMuted` only; the set cleared in `release`; cleared in `forgetVoice`; the `muted_by_facilitator` refusal dropped; `by` added to the `mute_seat` case of `commandForPlayer`; the in-mutex guard removed).
+  2. Run the runtime mute tests and the control e2e after each, then revert.
+Expected Result: Every mutation makes at least one named test fail. (a) the set removed from `voiceMutedOf`: 11 runtime tests and the control e2e fail (session-host.mute-seat.test.ts: "appends facilitator.command with by, stops recording...", "the participant's own mute and the facilitator set are independent; the union feeds isRecordingHolder...", and others; ws-server.mute-seat.test.ts: "a fresh join without lastSeq sees it..."); the set removed from `isRecordingHolder` only: 4 fail ("Review Focus 1...", "appends facilitator.command with by..."); from the voice-seat `isMuted` only: 6 fail; (b) the set cleared in `release`: "release, forgetVoice (reissue), pause, resume and a rejoin do not clear it" and "a fresh join without lastSeq sees it..." fail; cleared in `forgetVoice`: the first of those fails; (c) the `muted_by_facilitator` refusal dropped: "the participant's own mute and the facilitator set are independent..." fails; (d) `by` leaked in `commandForPlayer`: player-copies.test.ts "A3A: a mute_seat reaches every player as exactly command, roleId and muted (no by, no name)..." and ws-server.mute-seat.test.ts "other players get the role-label event and nobody gets `by` or the facilitator's name" fail; (e) the in-mutex guard removed: "Review Focus 1: a line that passed the recording check before the mute is refused inside the engine mutex, never appended after it" fails.
+Actual Result: As expected: the results table is in `.superpowers/sdd/2026-11-16-voice-a3a-facilitator-mute/task-8-report.md`; each mutation was reverted and the tree was clean afterwards (2026-11-16, macOS arm64). A mutation was not committed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass. The brief's fifth mutation (check the mute after the append instead of on receipt) was replaced by the controller with removing the in-mutex guard.
+
+TC-0331: The documents are filed and consistent
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0559
+Type: Review
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Read `docs/THREAT_MODEL.md` ("Voice facilitator mute, slice A3a"), `docs/VOICE_RUNBOOK.md` (section 8 "Facilitator mute" and checklist item 11), `docs/ROLLBACK.md` ("US-0091"), `CHANGELOG.md` `[Unreleased]`, `docs/ID_REGISTRY.md`, this plan and `progress.md`.
+  2. Run `npm run plan:generate`.
+Expected Result: The threat model names the residuals (a muted person can still talk, a line before the mute stays, a pre-start mute is lost by a restart before the start, no console control before the start), the runbook and rollback say a rolled-back runtime drops every mute, deploy web with or before runtime, `LOG_FORMAT` not bumped, no data step; the registry's next ids are US-0092, TASK-0144, AC-0560, TC-0333.
+Actual Result: As expected (read through and generated 2026-11-16).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0332: A facilitator mutes a real participant in a live voice session and a real browser shows the notices (owner-run)
+Related Story: US-0091
+Related Task: TASK-0143
+Related AC: AC-0553, AC-0555, AC-0556, AC-0557
+Type: Manual
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. With the owner's stack (`pnpm voice:up`, a real microphone and two real browsers; `docs/VOICE_RUNBOOK.md` section 9 and checklist item 11), start a session with two people joined by voice.
+  2. In the console press Mute for one seat; speak as that person, then as the other; press Unmute and speak again.
+  3. Refresh the muted person's page and rejoin while muted.
+  4. Read the session log and the audio folder.
+Expected Result: The button and the seat label change in words; the muted page says the facilitator has muted the microphone and its unmute button is off; the other page says "The <role> microphone has been muted by the facilitator", with no name; what the muted person says while muted makes no transcript line and no WAV, the other person's speech does; the refresh and rejoin keep the mute; Unmute restores recording and both pages say so; the log holds two `mute_seat` lines with the facilitator's sign-in name in `by`, and no participant's stream carried it.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8). Not run by the agents: no real room, real microphone or real browser session exists for A3a. The owner runs it with the room test, after TC-0242.
