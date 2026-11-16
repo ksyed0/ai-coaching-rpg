@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { postJson } from "./api";
 import type { ApiResult } from "./api";
 import { CONSOLE_COPY, failureText } from "./console-api";
+import { roleLabel } from "./names";
 
 // US-0059: the browser side of the facilitator controls. One command at a time; a command is never retried (a refusal after a wait is
 // indistinguishable from success on a second try, so the facilitator reads the live view and decides). The BFF's message is shown as
@@ -111,7 +112,8 @@ export async function fetchFacts(
       };
 }
 
-const ANNOUNCE: Record<ConsoleCommand["kind"], string | null> = {
+// A fixed sentence per kind; mute_seat's words depend on the command (mute and unmute differ), so announce() builds them.
+const ANNOUNCE: Record<Exclude<ConsoleCommand["kind"], "mute_seat">, string | null> = {
   pause: "Paused.",
   resume: "Resumed.",
   advance: "Moving on to the next scene.",
@@ -119,9 +121,11 @@ const ANNOUNCE: Record<ConsoleCommand["kind"], string | null> = {
   whisper: "Whisper sent.",
   release_hidden: "Fact released.",
   set_npc_stance: "Stance changed.",
-  mute_seat: "Mute updated.",
   end_now: null, // the stream's "ended" final is announced once by the page
 };
+
+const announce = (c: ConsoleCommand): string | null =>
+  c.kind === "mute_seat" ? `Microphone ${c.muted ? "muted" : "unmuted"} for ${roleLabel(c.roleId)}.` : ANNOUNCE[c.kind];
 
 export function useConsoleCommands(
   sessionId: string,
@@ -143,7 +147,7 @@ export function useConsoleCommands(
       try {
         const r = await sendCommand(sessionId, channel, c, fetchImpl);
         if (r.ok) {
-          setStatus(ANNOUNCE[c.kind]);
+          setStatus(announce(c));
           return true;
         }
         setError(refusal(r));

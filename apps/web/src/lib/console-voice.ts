@@ -9,6 +9,8 @@ export const CONSOLE_VOICE = {
   caption: "Each participant's voice choice. Speaking is shown as it happens and is not announced.",
   speaking: "Speaking",
   quiet: "Quiet",
+  // A3A: the one label for a facilitator-muted seat (the roster has no `by`).
+  mutedByFacilitator: "Muted by facilitator",
   states: { voice: "Voice on", text_only: "Text only", none: "Not chosen", off: "Voice off" } satisfies Record<ConsoleVoiceState, string>,
 } as const;
 

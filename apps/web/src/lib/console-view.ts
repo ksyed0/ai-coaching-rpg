@@ -56,6 +56,7 @@ export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): O
         case "release_hidden": return fac(`Fact ${e.fact} of ${label(e.roleId)} released by ${by}`);
         case "prompt_ai": return fac(`AI player for ${label(e.roleId)} prompted by ${by}`);
         case "set_npc_stance": return fac(`Stance of ${label(e.roleId)} changed by ${by}`);
+        case "mute_seat": return fac(`Microphone of ${label(e.roleId)} ${e.muted ? "muted" : "unmuted"} by ${by}`);
         default: return null;
       }
     case "inject.fired":

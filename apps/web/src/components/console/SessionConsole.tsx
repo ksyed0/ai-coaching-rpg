@@ -91,6 +91,7 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
         <LiveView
           ui={ui}
           clock={resolved.clock}
+          {...(final === null ? { sessionId, fetch: resolved.fetch } : {})}
           controls={
             final === null ? (
               <ConsoleControls sessionId={sessionId} ui={ui} fetch={resolved.fetch} />

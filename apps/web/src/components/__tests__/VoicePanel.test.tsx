@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, renderHook, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initialState, type SessionState } from "@acr/events";
 import { parseReadiness } from "../../lib/console-api";
 import { CONSOLE_VOICE } from "../../lib/console-voice";
+import { MESSAGES } from "../../lib/messages";
 import { viewFromReset } from "../../lib/console-view";
 import { useConsoleStream, type ConsoleStreamUi, type FacilitatorRosterEntry } from "../../lib/use-console-stream";
-import { FakeClock, FakeEventSource, fakeFetch, fakeTimer, ok, readiness } from "../../lib/__tests__/fakes";
+import { FakeClock, FakeEventSource, fakeFetch, fakeTimer, ok, readiness, refused } from "../../lib/__tests__/fakes";
 import { LiveView } from "../console/LiveView";
 import { Readiness } from "../console/Readiness";
 import { SpeakingIndicator } from "../console/SpeakingIndicator";
@@ -180,5 +181,102 @@ describe("client roster parsers keep voice and speaking", () => {
       { roleId: "b", ...base },
       { roleId: "c", name: "Ana", ...base, ai: true },
     ]);
+  });
+});
+
+// A3A Task 6: the facilitator's Mute/Unmute button per human seat with a voice state, "Muted by facilitator" in words, a polite status
+// line for the result (the panel had no live region before) and the one in-flight command.
+describe("VoicePanel facilitator mute", () => {
+  const SID = "abcd1234efgh5678";
+  const CH = "11111111-1111-4111-8111-111111111111";
+  const ROSTER: FacilitatorRosterEntry[] = [
+    { roleId: "account_manager", name: "Sam", ...base, voice: "voice" },
+    { roleId: "delivery_lead", name: "Jo", ...base, voice: "text_only", facilitatorMuted: true },
+    { roleId: "client_sponsor", ...base },
+    { roleId: "ai_seat", name: "Bot", ...base, ai: true, voice: "voice" },
+  ];
+  const mount = (f: ReturnType<typeof fakeFetch>, roster = ROSTER) =>
+    render(<VoicePanel roster={roster} mute={{ sessionId: SID, channel: CH, fetch: f.fetch }} />);
+  const rowOf = (name: string) => screen.getAllByRole("row").find((r) => within(r).queryByRole("rowheader")?.textContent?.includes(name))!;
+
+  it("a human seat with a voice state has a native button whose name names the seat; the label follows the state", () => {
+    mount(fakeFetch());
+    const mute = within(rowOf("Sam")).getByRole("button");
+    expect(mute.tagName).toBe("BUTTON");
+    expect(mute.textContent).toBe("Mute");
+    expect(mute.getAttribute("aria-label")).toBe("Mute microphone, Sam (Account manager)");
+    const unmute = within(rowOf("Jo")).getByRole("button");
+    expect(unmute.textContent).toBe("Unmute");
+    expect(unmute.getAttribute("aria-label")).toBe("Unmute microphone, Jo (Delivery lead)");
+  });
+
+  it("a muted seat shows the words Muted by facilitator (an aria-hidden icon, never colour alone); an unmuted seat shows none", () => {
+    mount(fakeFetch());
+    const word = within(rowOf("Jo")).getByText("Muted by facilitator");
+    expect(word.closest(".pill")!.querySelector("[aria-hidden='true']")!.textContent!.trim()).not.toBe("");
+    expect(within(rowOf("Sam")).queryByText("Muted by facilitator")).toBeNull();
+  });
+
+  it("an AI seat and a seat without a voice state have no button", () => {
+    mount(fakeFetch());
+    expect(screen.getAllByRole("button")).toHaveLength(2);
+    expect(screen.queryByText("Bot")).toBeNull();
+  });
+
+  it("without a command context (an ended session) there are no buttons and no status line", () => {
+    render(<VoicePanel roster={ROSTER} />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("pressing Mute sends one mute_seat command and the status line announces the result politely", async () => {
+    const f = fakeFetch();
+    mount(f);
+    expect(screen.getByRole("status").getAttribute("aria-live")).toBe("polite");
+    fireEvent.click(within(rowOf("Sam")).getByRole("button"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Microphone muted for Account manager."));
+    expect(f.calls).toHaveLength(1);
+    expect(f.calls[0]!.body).toEqual({ channel: CH, kind: "mute_seat", roleId: "account_manager", muted: true });
+    fireEvent.click(within(rowOf("Jo")).getByRole("button"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Microphone unmuted for Delivery lead."));
+    expect(f.calls[1]!.body).toEqual({ channel: CH, kind: "mute_seat", roleId: "delivery_lead", muted: false });
+  });
+
+  it("pressing twice quickly sends one command", async () => {
+    const f = fakeFetch();
+    f.hold();
+    mount(f);
+    const b = within(rowOf("Sam")).getByRole("button");
+    fireEvent.click(b);
+    fireEvent.click(b);
+    fireEvent.click(within(rowOf("Jo")).getByRole("button"));
+    f.release();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("muted"));
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it("a refused command shows its fixed sentence in the status line and no success text", async () => {
+    for (const [code, sentence] of [["voice_off", MESSAGES.consoleMuteVoiceOff], ["forbidden", MESSAGES.consoleMuteForbidden]] as const) {
+      cleanup();
+      const f = fakeFetch(() => ({ status: 409, body: refused(code, sentence) }));
+      mount(f);
+      fireEvent.click(within(rowOf("Sam")).getByRole("button"));
+      await waitFor(() => expect(screen.getByRole("status").textContent).toBe(sentence));
+      expect(screen.getByRole("status").textContent).not.toMatch(/Microphone (un)?muted/);
+    }
+  });
+
+  it("the speaking state is still outside any live region; only the status line announces", () => {
+    mount(fakeFetch(), [{ roleId: "account_manager", name: "Sam", ...base, voice: "voice", speaking: true }]);
+    expect(liveAncestors(screen.getByText("Speaking", { selector: ".pill" }))).toEqual([]);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+  });
+
+  it("LiveView passes the command context only while the session runs (no buttons without it)", () => {
+    render(<LiveView ui={ui(VOICE_ROSTER)} clock={new FakeClock(T)} />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    cleanup();
+    render(<LiveView ui={ui(VOICE_ROSTER)} clock={new FakeClock(T)} sessionId={SID} />);
+    expect(screen.getAllByRole("button").length).toBe(4);
   });
 });
