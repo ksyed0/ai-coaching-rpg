@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isFileSafeId, isSafeId } from "@acr/events";
-import { REPORT_REFUSALS, type ReportRefusal } from "../lib/messages";
+import { AUDIO_REFUSALS, REPORT_REFUSALS, type ReportRefusal } from "../lib/messages";
 import { readConsoleCookie } from "./console-session";
 import type { ConsoleCaller } from "./console-handlers";
 import { failure, guard, isId, sessionIdOf } from "./console-sessions";
@@ -33,7 +33,7 @@ const CLOSED: ReadonlySet<string> = new Set([
   "stale", "blocked", "not_released", "not_editable", "superseded", "needs_amend", "refused",
 ]);
 
-const priv = (res: Response): Response => {
+export const priv = (res: Response): Response => {
   res.headers.set("Referrer-Policy", "no-referrer");
   return res;
 };
@@ -56,13 +56,18 @@ export function reportFailure(err: unknown): Response {
     case "busy": return say(503, "busy", { headers: { "Retry-After": "2" } });
     case "unavailable": return say(503, "unavailable");
     case "timeout": return say(504, "timeout");
+    // A2b-2: the audio panel's closed reasons (the sentences are in AUDIO_REFUSALS, never control's text)
+    case "session_live": return priv(fail(409, "session_live", AUDIO_REFUSALS.session_live));
+    case "audio_deleted": return priv(fail(410, "audio_deleted", AUDIO_REFUSALS.audio_deleted));
+    case "audit_unavailable": return priv(fail(503, "audit_unavailable", AUDIO_REFUSALS.audit_unavailable));
+    case "store_unsafe": return priv(fail(503, "store_unsafe", AUDIO_REFUSALS.store_unsafe));
     case "failed": return say(502, "generic");
     default: return priv(failure(err));
   }
 }
 
 /** Runs a handler; an unexpected throw is a 500 that logs only the error's name. */
-async function safely(fn: () => Promise<Response>): Promise<Response> {
+export async function safely(fn: () => Promise<Response>): Promise<Response> {
   try {
     return await fn();
   } catch (err) {
@@ -72,7 +77,7 @@ async function safely(fn: () => Promise<Response>): Promise<Response> {
 }
 
 /** Waits for a control call at most CONTROL_TIMEOUT_MS on the injected timer; past that it is a `timeout`. */
-async function timed<T>(deps: Deps, call: Promise<T>): Promise<T> {
+export async function timed<T>(deps: Deps, call: Promise<T>): Promise<T> {
   let cancel = () => {};
   const late = new Promise<never>((_, reject) => { cancel = (deps.setTimer ?? realTimer)(() => reject(new LauncherError("timeout")), CONTROL_TIMEOUT_MS); });
   try {
@@ -135,7 +140,7 @@ type Spec = {
  * cookie) does not reset its budget; for a legacy sign-in, a digest of the console cookie as before.
  */
 const cookieKey = (cookie: string | null | undefined): string => createHash("sha256").update(`cookie\0${cookie ?? ""}`).digest("hex").slice(0, 32);
-const throttleKey = (req: Request, who: ConsoleCaller): string => (who.accountId !== null ? `account\0${who.accountId}` : cookieKey(readConsoleCookie(req)));
+export const throttleKey = (req: Request, who: ConsoleCaller): string => (who.accountId !== null ? `account\0${who.accountId}` : cookieKey(readConsoleCookie(req)));
 
 const SLUG_NAME_MAX = 40;
 const SLUG_ID_HEX = 6;

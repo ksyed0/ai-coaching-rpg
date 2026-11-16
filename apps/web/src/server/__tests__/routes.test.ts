@@ -139,6 +139,9 @@ describe("route files", () => {
     ["console/sessions/[id]/remove", "consoleRemove", "POST"],
     ["console/sessions/[id]/restart", "consoleRestart", "POST"],
     ["console/sessions/[id]/stream", "consoleStream", "GET"],
+    ["console/sessions/[id]/audio", "consoleAudio", "GET"],
+    ["console/sessions/[id]/audio/play", "consoleAudioPlay", "GET"],
+    ["console/sessions/[id]/audio/delete", "consoleAudioDelete", "POST"],
   ];
   const codeOf = (path: string) =>
     readFileSync(fileURLToPath(new URL(`../../app/api/v1/${path}/route.ts`, import.meta.url)), "utf8")

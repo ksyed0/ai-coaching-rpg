@@ -191,6 +191,26 @@ export const REPORT_REFUSALS = {
 } as const;
 export type ReportRefusal = keyof typeof REPORT_REFUSALS;
 
+/**
+ * A2b-2: the audio panel's refusals, one fixed sentence per closed code (control's codes: services/control/src/voice/audio-routes.ts and
+ * transcript.ts, plus the BFF's own). Its own map: `say()` in the report handlers is typed to REPORT_REFUSALS. Control's text never shows.
+ */
+export const AUDIO_REFUSALS = {
+  account_required: "Sign in with your own account to listen to or delete recordings.",
+  session_live: "The session is still running. Recordings can be opened after it ends.",
+  audio_deleted: "That recording was deleted.",
+  audit_unavailable: "The deletion record could not be written, so nothing was changed. Try again.",
+  store_unsafe: "The recording store could not be used safely. Nothing was changed.",
+  delete_pending: "Some recordings could not be deleted yet. Nothing below is marked as deleted until it is confirmed. Try again.",
+  invalid: "That request could not be read.",
+  busy: "The recordings are busy. Try again in a moment.",
+  unavailable: "Recordings are not available right now. Try again.",
+  timeout: "The recording service took too long to answer. Try again.",
+  generic: "That action is not possible right now.",
+  rate_limited: "Too many requests. Wait a minute and try again.",
+} as const;
+export type AudioRefusal = keyof typeof AUDIO_REFUSALS;
+
 /** The facilitator's Report panel (components/console/report): its own fixed sentences. Control's text is never shown. */
 export const REPORT_CONSOLE = {
   nameLabel: "Your name for the review record",

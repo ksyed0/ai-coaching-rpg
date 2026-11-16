@@ -115,6 +115,8 @@ function makeDeps(session: (id: string) => Promise<SessionInfo>) {
     reportThrottle: throttle(),
     reportWriteThrottle: throttle(),
     consoleReportThrottle: throttle(),
+    consoleAudioReadThrottle: throttle(),
+    consoleAudioWriteThrottle: throttle(),
     reportEnterThrottle: throttle(),
     reportReadFailThrottle: throttle(),
     voiceTokenThrottle: throttle(),

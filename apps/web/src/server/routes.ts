@@ -11,6 +11,7 @@ import {
   handleConsoleReportEvaluate, handleConsoleReportOpen, handleConsoleReportOverview, handleConsoleReportSubject,
   handleConsoleReportAmend, handleConsoleReportExport, handleConsoleReportRelease, handleConsoleReportResolve, handleConsoleReportWithdraw,
 } from "./console-report-handlers";
+import { handleConsoleAudioDelete, handleConsoleAudioList, handleConsoleAudioPlay } from "./console-audio-handlers";
 import { handleConsoleCommand, handleConsoleFacts } from "./console-command";
 import { handleConsoleStream } from "./console-stream";
 import {
@@ -44,6 +45,10 @@ const REPORT_WRITE_THROTTLE = { max: 30, windowMs: 60_000, blockMs: 60_000 };
 /** The facilitator's evaluate and review writes per console cookie: more than 60 in 60 s block that cookie's writes for 60 s. */
 const CONSOLE_REPORT_THROTTLE = { max: 60, windowMs: 60_000, blockMs: 60_000 };
 
+/** A2b-2: the facilitator's audio list and play per account (a person may play many clips: 120 per minute), and delete (rare: 10 per minute). */
+const CONSOLE_AUDIO_READ_THROTTLE = { max: 120, windowMs: 60_000, blockMs: 60_000 };
+const CONSOLE_AUDIO_WRITE_THROTTLE = { max: 10, windowMs: 60_000, blockMs: 60_000 };
+
 export function createDeps(env: Record<string, string | undefined>): Deps {
   const config = loadConfig(env);
   const now = () => Date.now();
@@ -69,6 +74,8 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     reportThrottle: new JoinThrottle({ ...REPORT_READ_THROTTLE, now }),
     reportWriteThrottle: new JoinThrottle({ ...REPORT_WRITE_THROTTLE, now }),
     consoleReportThrottle: new JoinThrottle({ ...CONSOLE_REPORT_THROTTLE, now }),
+    consoleAudioReadThrottle: new JoinThrottle({ ...CONSOLE_AUDIO_READ_THROTTLE, now }),
+    consoleAudioWriteThrottle: new JoinThrottle({ ...CONSOLE_AUDIO_WRITE_THROTTLE, now }),
     // Failed report-link tokens: the join's limits, in a table of their own.
     reportEnterThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     // Report cookies that do not unseal (BUG-0025): the join's limits, in a table of their own, so a flood of forged cookies cannot
@@ -243,3 +250,6 @@ export const consoleReportResolvePOST = route(handleConsoleReportResolve);
 export const consoleReportExportPOST = route(handleConsoleReportExport);
 export const consoleReportAmendPOST = route(handleConsoleReportAmend);
 export const consoleReportWithdrawPOST = route(handleConsoleReportWithdraw);
+export const consoleAudioGET = route(handleConsoleAudioList);
+export const consoleAudioPlayGET = route(handleConsoleAudioPlay);
+export const consoleAudioDeletePOST = route(handleConsoleAudioDelete);
