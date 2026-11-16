@@ -163,7 +163,8 @@ export const handleConsoleAudioDelete = (req: Request, deps: Deps): Promise<Resp
       if (a.state === "done") return priv(ok(a));
       if (a.state === "live") return priv(fail(409, "session_live", AUDIO_REFUSALS.session_live, undefined, a));
       const code = worst(a);
-      return say(503, code, { headers: { "Retry-After": "5" } }, a);
+      // The code names the worst reason; the sentence is true of a partial delete (some recordings may already be gone).
+      return priv(fail(503, code, AUDIO_REFUSALS.delete_pending, { headers: { "Retry-After": "5" } }, a));
     } catch (err) {
       return audioFailure(err);
     }

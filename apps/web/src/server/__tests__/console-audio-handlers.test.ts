@@ -313,6 +313,8 @@ describe("delete", () => {
     const body = await json(res);
     expect(body.success).toBe(false);
     expect(body.error?.code).toBe("store_unsafe");
+    expect(body.error?.message).toBe(AUDIO_REFUSALS.delete_pending);
+    expect(body.error?.message).not.toMatch(/nothing was changed/i);
     expect(body.data).toEqual({ state: "pending", deleted: 1, done: 1, pending: [{ reason: "busy" }, { reason: "store_unsafe" }] });
     expect(JSON.stringify(body)).not.toContain("folder-real-name");
     expect(JSON.stringify(body)).not.toContain("TEXT FROM CONTROL");
