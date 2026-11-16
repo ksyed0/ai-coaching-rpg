@@ -1162,6 +1162,10 @@ describe("console session API", () => {
       account_refused: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       weak_password: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       state: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      session_live: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      audio_deleted: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      audit_unavailable: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      store_unsafe: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,
