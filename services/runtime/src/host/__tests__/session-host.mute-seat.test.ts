@@ -273,6 +273,7 @@ describe("mute_seat lifetime and the union with the participant's own mute", () 
     expect(h.host.facilitatorMutedOf("tech_lead")).toBe(true);
     expect(h.host.voiceMutedOf("tech_lead")).toBe(true);
     h.host.muteVoice("tech_lead", "p-tech_lead", true); // a participant mute is still accepted
+    expect(h.host.facilitatorMutedOf("tech_lead")).toBe(true); // the participant's own mute must not clear the facilitator's
     // neither: the facilitator lifts theirs, then the participant their own
     await mute(h, "tech_lead", false);
     h.host.muteVoice("tech_lead", "p-tech_lead", false);

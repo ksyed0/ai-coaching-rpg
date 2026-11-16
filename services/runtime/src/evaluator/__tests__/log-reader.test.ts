@@ -15,6 +15,14 @@ describe("parseSessionLog", () => {
     const lines = text.split("\n"); lines[2] = "{oops";
     expect(() => parseSessionLog(lines.join("\n"))).toThrow(/malformed event at line 3/);
   });
+  it("A3A: reads a log holding facilitator.command mute_seat events without error (spec section 7)", () => {
+    const base = sampleEvents();
+    const mute = (muted: boolean) => ({ type: "facilitator.command", command: "mute_seat", roleId: "alice", muted, ts: base[2]!.ts, sessionId: "sess1" });
+    const evs = [...base.slice(0, 3), mute(true), mute(false), ...base.slice(3)].map((e, i) => ({ ...e, seq: i + 1 }));
+    const parsed = parseSessionLog(jsonl(evs));
+    expect(parsed).toHaveLength(base.length + 2);
+    expect(parsed.filter((e) => e.type === "facilitator.command")).toHaveLength(2);
+  });
   it("rejects an empty log, a gap in seq and a log without session.started", () => {
     expect(() => parseSessionLog("\n")).toThrow(SessionLogError);
     const evs = sampleEvents(); evs.splice(2, 1);
