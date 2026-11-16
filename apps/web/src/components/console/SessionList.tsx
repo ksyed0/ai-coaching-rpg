@@ -74,8 +74,9 @@ export function SessionList({ fetch: fetchImpl, role = "facilitator", legacy = f
   }, [admin, fetchImpl]);
 
   const active = (accounts ?? []).filter((a) => a.status === "active");
+  // A neutral dash until the accounts list is known (or when it could not be read): "Unknown account" only once it is known (final review T9 M3).
   const ownerName = (owner: string | undefined) =>
-    owner === undefined ? "Unassigned" : (accounts?.find((a) => a.id === owner)?.name ?? "Unknown account");
+    owner === undefined ? "Unassigned" : accounts === null ? "—" : (accounts.find((a) => a.id === owner)?.name ?? "Unknown account");
   /** The current owner when it is not an active account (revoked, invited, gone): it stays an option so the select shows the truth. */
   const inactiveOwner = (owner: string | undefined): { id: string; label: string } | null => {
     if (owner === undefined || accounts === null || active.some((a) => a.id === owner)) return null;
@@ -89,6 +90,14 @@ export function SessionList({ fetch: fetchImpl, role = "facilitator", legacy = f
     setAssigning(id);
     setActionError(null);
     const value = choice[id] ?? current ?? "";
+    // Final review T9 M1: an Assign that changes nothing never posts an owner that cannot own sessions (revoked or unknown): it could
+    // only be refused.
+    if (value !== "" && value === current && !(accounts ?? []).some((a) => a.id === value && a.status !== "revoked")) {
+      busy.current = false;
+      setAssigning(null);
+      setActionError("Choose an active account or Unassigned, then Assign.");
+      return;
+    }
     const r = await postJson(
       `/api/v1/console/sessions/${encodeURIComponent(id)}/owner`,
       { owner: value === "" ? null : value },

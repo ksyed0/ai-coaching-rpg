@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ControlConfig } from "../config.js";
 import { OwnerStore } from "../accounts/owners.js";
-import { AI_CONFIG, CODES, FakeChild, READY, flush } from "./fake-child.js";
+import { AI_CONFIG, CODES, FakeChild, READY, flush, sid } from "./fake-child.js";
 import { SessionList } from "../session-list.js";
 import { ControlError, Supervisor, type SetTimer, type SpawnFn } from "../supervisor.js";
 
@@ -98,5 +98,70 @@ describe("session owners", () => {
     const without = await (async () => { const s = make(); const id = await start(s); return { id, text: readFileSync(config.listFile, "utf8") }; })();
     expect(withOwner.text.split(withOwner.id).join("ID")).toBe(without.text.split(without.id).join("ID"));
     expect(withOwner.text).not.toContain("acc-1");
+  });
+  // Final review IMPORTANT 2: the owner rollback of a failed create really runs. On develop the owner is written before the session is
+  // listed, so the list write failing after the owner write is the path that must clear the owner again.
+  it("test_supervisor_owner_a_failed_create_after_the_owner_write_leaves_no_owner", async () => {
+    class FailingList extends SessionList {
+      override upsert(e: Parameters<SessionList["upsert"]>[0]): void { if (e.status === "running") throw new Error("disk full"); super.upsert(e); }
+    }
+    list = new FailingList(config.listFile);
+    spawn = ({ env, logFile }) => { const c = new FakeChild(env, logFile); c.onKill = () => c.exit(137); children.push(c); return c; };
+    const sup = new Supervisor({ config, list, owners, scenarios: async () => [{ id: "friday-escalation", title: "Friday" }], spawn, setTimer, newSessionId: () => sid(5) });
+    const p = sup.create("friday-escalation", "acc-1");
+    await flush();
+    children[0]!.emit({ type: "codes", codes: CODES }); children[0]!.emit(READY);
+    await expect(p).rejects.toMatchObject({ code: "start_failed" });
+    expect(children[0]!.killed).toBeGreaterThan(0);
+    expect(owners.all()).toEqual({});
+    expect(existsSync(config.ownersFile) ? readFileSync(config.ownersFile, "utf8") : "").not.toContain("acc-1");
+    expect(existsSync(config.listFile) ? readFileSync(config.listFile, "utf8") : "").not.toContain(sid(5));
+    expect(sup.list()).toEqual([]);
+  });
+
+  it("test_supervisor_owner_a_failed_owner_write_fails_the_create_with_no_trace", async () => {
+    class FailingOwners extends OwnerStore {
+      override set(sessionId: string, owner: string | null): void { if (owner !== null) throw new Error("disk full"); super.set(sessionId, owner); }
+    }
+    owners = new FailingOwners(config.ownersFile);
+    spawn = ({ env, logFile }) => { const c = new FakeChild(env, logFile); c.onKill = () => c.exit(137); children.push(c); return c; };
+    const sup = new Supervisor({ config, list, owners, scenarios: async () => [{ id: "friday-escalation", title: "Friday" }], spawn, setTimer, newSessionId: () => sid(6) });
+    const p = sup.create("friday-escalation", "acc-1");
+    await flush();
+    children[0]!.emit({ type: "codes", codes: CODES }); children[0]!.emit(READY);
+    await expect(p).rejects.toMatchObject({ code: "start_failed" });
+    expect(children[0]!.killed).toBeGreaterThan(0);
+    expect(list.read()).toEqual([]);
+    expect(existsSync(config.ownersFile) ? readFileSync(config.ownersFile, "utf8") : "").not.toContain("acc-1");
+  });
+
+  // Final review MINOR (T4 M4): a damaged session-owners.json must not break the lookups that do not need the owner (report routes, the
+  // evaluate job, the restart answer), and it is logged with one fixed line per failure episode (not on every call).
+  it("test_supervisor_owner_damaged_owners_file_spares_internal_lookups_and_logs_once_per_episode", async () => {
+    const lines: string[] = [];
+    const sup = new Supervisor({ config, list, owners, scenarios: async () => [{ id: "friday-escalation", title: "Friday" }], spawn, setTimer, log: (l) => lines.push(l) });
+    const id = await start(sup, "acc-1");
+    children[0]!.exit(1);
+    await flush();
+    writeFileSync(config.ownersFile, "{ not json", { mode: 0o600 });
+    expect(sup.getWithoutOwner(id)).toEqual({ sessionId: id, scenarioId: "friday-escalation", status: "stopped" });
+    expect(sup.getWithoutOwner(sid(77))).toBeUndefined();
+    const restarting = sup.restart(id);
+    await flush();
+    children[1]!.emit({ type: "codes", codes: CODES }); children[1]!.emit(READY);
+    expect(await restarting).toMatchObject({ sessionId: id, status: "running" });
+    lines.length = 0;
+    // the owner-carrying lookups refuse (never an owner-less answer that would hide whose session it is)
+    expect(() => sup.get(id)).toThrow();
+    expect(() => sup.list()).toThrow();
+    expect(() => sup.get(id)).toThrow();
+    expect(lines).toEqual(["session owners file is unreadable"]);
+    // a good read ends the episode; the next failure logs again
+    writeFileSync(config.ownersFile, JSON.stringify({ owners: { [id]: "acc-1" } }), { mode: 0o600 });
+    expect(sup.get(id)?.owner).toBe("acc-1");
+    writeFileSync(config.ownersFile, "{ not json", { mode: 0o600 });
+    expect(() => sup.list()).toThrow();
+    expect(lines).toEqual(["session owners file is unreadable", "session owners file is unreadable"]);
+    expect(lines.join("\n")).not.toContain(config.ownersFile);
   });
 });

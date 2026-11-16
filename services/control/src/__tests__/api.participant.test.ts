@@ -17,7 +17,7 @@ const servers: http.Server[] = [];
 async function boot(participantWrites: ParticipantWriteService | undefined, extra: { reports?: unknown } = {}): Promise<number> {
   const handler = createApi({
     config: { serviceToken: TOKEN } as ControlConfig,
-    supervisor: { get: () => ({ sessionId: w.sessionId }) } as never,
+    supervisor: { get: () => ({ sessionId: w.sessionId }), getWithoutOwner: () => ({ sessionId: w.sessionId }) } as never,
     scenarios: () => Promise.resolve([]),
     ...(participantWrites ? { participantWrites } : {}),
     ...(extra.reports ? { reports: extra.reports as never } : {}),

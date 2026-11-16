@@ -78,6 +78,16 @@ describe("account routes", () => {
     expect([r.status, r.json.error.code]).toEqual([401, "login_expired"]);
   });
 
+  it("test_api_accounts_password_route_with_an_expired_temporary_is_login_expired", async () => {
+    const c = await create();
+    const pat = store.file!.accounts.find((a) => a.login === "pat")!;
+    pat.tempExpiresAt = 1;
+    const r = await call("POST", "/accounts/password", { body: { accountId: c.json.data.account.id, epoch: 0, current: "TEMP-PASSWORD-1", next: "a-much-better-pass" } });
+    expect([r.status, r.json.error.code]).toEqual([401, "login_expired"]);
+    const wrong = await call("POST", "/accounts/password", { body: { accountId: c.json.data.account.id, epoch: 0, current: "nope", next: "a-much-better-pass" } });
+    expect([wrong.status, wrong.json.error.code]).toEqual([401, "account_refused"]);
+  });
+
   it("routes_require_service_token", async () => {
     for (const [m, p, body] of [
       ["GET", "/accounts"], ["GET", "/accounts/legacy"], ["POST", "/accounts", { login: "a", name: "b", role: "admin", by: null }],

@@ -18,7 +18,8 @@ let logs: string[];
 const servers: http.Server[] = [];
 
 function sup(sessionId: string): Supervisor {
-  return { get: (id: string) => (id === sessionId ? { sessionId, scenarioId: "s", status: "running", port: 1, modelLabel: "m" } : undefined) } as unknown as Supervisor;
+  const get = (id: string) => (id === sessionId ? { sessionId, scenarioId: "s", status: "running", port: 1, modelLabel: "m" } : undefined);
+  return { get, getWithoutOwner: get } as unknown as Supervisor;
 }
 async function boot(reports: ReportService | undefined, sessionId = w.sessionId): Promise<number> {
   const handler = createApi({

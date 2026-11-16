@@ -76,6 +76,9 @@ export function FacilitatorsPanel({ fetch: fetchImpl }: FacilitatorsPanelProps) 
   const [login, setLogin] = useState("");
   const [role, setRole] = useState<"admin" | "facilitator">("facilitator");
   const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Final review T9 M4 (WCAG 2.4.3): where the focus goes when the credentials panel (which held it) is dismissed.
+  const newHeading = useRef<HTMLHeadingElement>(null);
   const seq = useRef(0); // a new issue never reuses a panel that still holds an older password
   const busy = useRef(false);
 
@@ -124,11 +127,14 @@ export function FacilitatorsPanel({ fetch: fetchImpl }: FacilitatorsPanelProps) 
     busy.current = true;
     setPending(true);
     setFormError(null);
-    const r = await postJson("/api/v1/console/admin/accounts", { login: login.trim(), name: name.trim(), role }, fetchImpl);
+    setNotice(null);
+    const added = name.trim();
+    const r = await postJson("/api/v1/console/admin/accounts", { login: login.trim(), name: added, role }, fetchImpl);
     busy.current = false;
     setPending(false);
     if (!r.ok) return setFormError(adminFailure(r));
-    if (!show(r.data)) setFormError(MESSAGES.generic);
+    // Final review T9 M5: the account exists even when the answer carries no temporary password; Resend issues a new one.
+    if (!show(r.data)) setNotice(`${added} was added. The temporary password could not be shown: use Resend to issue a new one.`);
     setName("");
     setLogin("");
     setRole("facilitator");
@@ -143,12 +149,17 @@ export function FacilitatorsPanel({ fetch: fetchImpl }: FacilitatorsPanelProps) 
           login={shown.login}
           name={shown.name}
           temporaryPassword={shown.password}
-          onDismiss={() => setShown(null)}
+          onDismiss={() => {
+            setShown(null);
+            newHeading.current?.focus();
+          }}
         />
       ) : null}
 
       <form className="card stack" onSubmit={(e) => void create(e)} noValidate>
-        <h2 className="s">New facilitator</h2>
+        <h2 className="s" ref={newHeading} tabIndex={-1}>
+          New facilitator
+        </h2>
         <div className="field">
           <label className="f" htmlFor="new-fac-name">
             Name
@@ -199,6 +210,11 @@ export function FacilitatorsPanel({ fetch: fetchImpl }: FacilitatorsPanelProps) 
         <p className="err" role="alert">
           {formError}
         </p>
+        {notice ? (
+          <p className="small" role="status">
+            {notice}
+          </p>
+        ) : null}
         <div>
           <button className="btn pri" type="submit" disabled={pending}>
             Create facilitator

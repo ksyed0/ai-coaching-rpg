@@ -34,6 +34,10 @@ const toPublic = (a: Account): PublicAccount => {
   return rest;
 };
 const normLogin = (l: string): string => l.trim().toLowerCase();
+const MAX_LOGIN_CODE_POINTS = 120;
+// Inside a new login: control characters, format characters (zero-width, bidi) and any whitespace or separator, so two accounts cannot
+// look the same on the admin screen. Checked on create only: an existing account's login is matched as before.
+const BAD_LOGIN_CHAR = /[\p{Cc}\p{Cf}\p{Z}\s]/u;
 
 /** Facilitator and admin accounts. Passwords exist only as salted hashes; plain text is returned once, as a temporary password. */
 export class AccountService {
@@ -105,10 +109,16 @@ export class AccountService {
     return a && a.status !== "revoked" && a.epoch === epoch ? toPublic(a) : null;
   }
 
-  async changePassword(id: string, epoch: number, current: string, next: string): Promise<{ ok: true; account: PublicAccount } | { ok: false; reason: "refused" | "weak" }> {
+  /**
+   * `expired`: the current password is right but it is a temporary password past its expiry (R4: every temporary password expires after
+   * 72 h; only an admin resend, reset or reinstate helps). A wrong current password stays `refused`, so expiry is told only to someone who
+   * knows the password.
+   */
+  async changePassword(id: string, epoch: number, current: string, next: string): Promise<{ ok: true; account: PublicAccount } | { ok: false; reason: "refused" | "weak" | "expired" }> {
     const a0 = this.load().accounts.find((x) => x.id === id);
     if (!a0 || a0.status === "revoked" || a0.epoch !== epoch) return { ok: false, reason: "refused" };
     if (!(await verifyPassword(current, a0.password))) return { ok: false, reason: "refused" };
+    if (a0.tempExpiresAt !== null && this.o.now() > a0.tempExpiresAt) return { ok: false, reason: "expired" };
     if (next.length < MIN_PASSWORD_LENGTH || next === current) return { ok: false, reason: "weak" };
     const password = await hashPassword(next);
     const f = this.load();
@@ -126,6 +136,7 @@ export class AccountService {
     const login = normLogin(i.login);
     const name = cleanConsoleName(i.name);
     if (login.length === 0) throw new AccountError("invalid", "login is required");
+    if ([...login].length > MAX_LOGIN_CODE_POINTS || BAD_LOGIN_CHAR.test(login)) throw new AccountError("invalid", "that login is not allowed");
     if (name === null) throw new AccountError("invalid", "name is required");
     if (i.role !== "admin" && i.role !== "facilitator") throw new AccountError("invalid", "unknown role");
     if (this.load().accounts.some((a) => a.login === login)) throw new AccountError("conflict", "that login is taken");

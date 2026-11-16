@@ -3951,3 +3951,69 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-13 (Task 11). Owner-run: no email exists (US-0084), so the handover is a human process worth trying once for real.
+TC-0291: An expired temporary password cannot choose a new password, and says so
+Related Story: US-0083
+Related Task: TASK-0135
+Related AC: AC-0508
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.service.test.ts src/__tests__/api.accounts.test.ts`.
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-accounts.login.test.ts src/components/__tests__/ChangePasswordForm.test.tsx`.
+Expected Result: A right but expired temporary password is `expired` in the service and 401 `login_expired` on control's `/accounts/password` (a wrong one stays `refused` / `account_refused`, nothing changes in the file); the web app answers 401 `login_expired` with "This temporary password has expired. Ask an administrator for a new one.", clears the cookie and charges no throttle (seven tries in a row); the change form shows that sentence.
+Actual Result: As expected (2026-11-16, port of the final review fix wave onto develop). RED first on develop: the service CHANGED the password (`expected { ok: true, ... } to deeply equal { ok: false, reason: 'expired' }`) and the web app answered 502; GREEN after the fix.
+Status: [x] Pass
+Defect Raised: None
+Notes: Final review IMPORTANT 3 (R4: every temporary password expires after 72 h).
+TC-0292: Session owners: the account id shape, the failed-create rollback and a damaged owners file at run time
+Related Story: US-0083
+Related Task: TASK-0133
+Related AC: AC-0505
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/supervisor.owner.test.ts src/__tests__/api.test.ts`.
+Expected Result: An owner that is not an account id (`a b`, `../x`, `acc/1`, a non-ASCII or control character) is a 400 on create and on PUT owner and nothing is called; a create whose list write or owner write fails rejects `start_failed`, kills the child and leaves no trace in `sessions.json` or `session-owners.json`; with a damaged owners file `getWithoutOwner`, the restart answer, the report routes work (covered by the owner-free lookup and restart tests and by the stubbed route tests; the evaluate job's lookup in `main.ts` is not exercised end to end), `get` and `list` refuse, and one fixed line "session owners file is unreadable" is logged per failure episode (a good read ends the episode), never the path.
+Actual Result: As expected (2026-11-16). RED on develop: `a b: expected 200 to be 400`; `sup.getWithoutOwner is not a function`. The rollback tests passed at once (the code was right; they were missing); removing the owner rollback line in a scratch edit failed `expected { …(1) } to deeply equal {}`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Final review IMPORTANT 2 and the owner MINORs.
+TC-0293: The admin screens say why and keep the focus
+Related Story: US-0083
+Related Task: TASK-0139
+Related AC: AC-0514
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/SessionList.owner.test.tsx src/components/__tests__/FacilitatorsPanel.test.tsx src/server/__tests__/console-admin-accounts.test.ts`.
+Expected Result: Assign with no change on a revoked or unknown owner posts nothing and asks for an active account or Unassigned; an owned session shows a dash until the accounts list is known (also when it could not be read); dismissing the sign-in details moves the focus to "New facilitator"; a create without a temporary password says to use Resend; the header link reads "Facilitator accounts"; a body `by` on create is a plain 400 and an action refused as invalid has a generic message.
+Actual Result: As expected (2026-11-16); each new test failed on develop first.
+Status: [x] Pass
+Defect Raised: None
+Notes: Final review T7 M1/M2 and T9 M1, M3, M4, M5, M7.
+TC-0294: A new login refuses hidden and space characters and is capped at 120
+Related Story: US-0083
+Related Task: TASK-0132
+Related AC: AC-0503
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.service.test.ts`.
+Expected Result: Create refuses (`invalid`) a login with a zero-width, bidi, control, tab, no-break-space or ordinary space character and a login of 121 characters, and adds no account; it accepts `  Dana@Client.example ` (stored as `dana@client.example`, so plus, dot and @ are allowed) and a 120-letter login of `é` (unicode letters allowed). Sign-in and the store are unchanged: an existing stored login with a space still signs in.
+Actual Result: As expected (2026-11-16): test_accounts_service_create_refuses_a_login_with_hidden_or_space_characters_or_too_long in accounts.service.test.ts passes. The stored-login-with-a-space sign-in is by design (the rule is on create only) and is not a test of its own.
+Status: [x] Pass
+Defect Raised: None
+Notes: Final review gap, commit 45ea07c1. The rule runs on the login after trim and lower-case, the same form the lookup and the throttle key use.
+TC-0295: The Game Master human-line gate counts the scene's human seats
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0474, AC-0476
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/agents/__tests__/game-master.human-gate.test.ts`.
+Expected Result: A scene whose participants include no human player seat (only AI players) is judged as before, its final evaluation runs and no "waits until a human player has spoken" alert is raised; a scene with a human seat still waits for a human line before an exit verdict; a session with no human seat is not gated and a time box still ends a gated scene.
+Actual Result: As expected (2026-11-16): test_game_master_scene_without_a_human_participant_is_not_gated and test_game_master_scene_without_a_human_participant_final_evaluation_runs (the AI-only scene), test_game_master_ai_only_dialogue_is_never_judged_and_never_ends_the_scene and test_game_master_first_human_line_opens_the_gate_at_once (a human seat waits for a human line), test_game_master_session_without_a_human_seat_is_not_gated and test_game_master_time_box_still_ends_a_gated_scene, all in game-master.human-gate.test.ts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Final review fix, commit a2eefb26 (`humanLineGateOpen(state, scene)`). AC-0474 and AC-0476 are the US-0081 ids from docs/superpowers/notes/US-0081-notes.md; they are not filed in this plan yet.

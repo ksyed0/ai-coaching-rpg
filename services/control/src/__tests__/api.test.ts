@@ -21,6 +21,7 @@ function stub(over: Partial<Record<string, (...a: any[]) => unknown>> = {}): { s
   const impl: Record<string, (...a: any[]) => unknown> = {
     create: () => Promise.resolve({ ...info, codes: [{ roleId: "cfo", code: CODE }] }),
     get: (id: string) => (id === ID ? info : undefined),
+    getWithoutOwner: (id: string) => (id === ID ? info : undefined),
     list: () => [info],
     facilitator: (id: string) => (id === ID ? { port: 4321, token: FAC_TOKEN } : undefined),
     reissue: () => Promise.resolve(CODE),
@@ -444,6 +445,18 @@ describe("session owners (US-0083)", () => {
       expect((await call(port, "POST", "/sessions", { body: JSON.stringify({ scenarioId: "friday-escalation", owner }) })).status).toBe(400);
     }
     expect(calls).toHaveLength(1);
+  });
+
+  // Final review MINOR: control accepts only an account id's shape as an owner (the same 1..64 [A-Za-z0-9_-] rule as the BFF).
+  it("test_api_owners_owner_must_be_an_account_id_on_create_and_put", async () => {
+    const { sup, calls } = stub({ setOwner: () => undefined });
+    const port = await boot(sup);
+    for (const owner of ["a b", "../x", "acc/1", "é", "a\u0000"]) {
+      expect((await call(port, "POST", "/sessions", { body: JSON.stringify({ scenarioId: "friday-escalation", owner }) })).status, owner).toBe(400);
+      expect((await call(port, "PUT", `/sessions/${ID}/owner`, { body: JSON.stringify({ owner }) })).status, owner).toBe(400);
+    }
+    expect(calls).toEqual([]);
+    expect((await call(port, "PUT", `/sessions/${ID}/owner`, { body: JSON.stringify({ owner: "Acc_1-" + "x".repeat(58) }) })).status).toBe(200);
   });
 
   it("PUT /sessions/:id/owner assigns and clears, returning the info", async () => {

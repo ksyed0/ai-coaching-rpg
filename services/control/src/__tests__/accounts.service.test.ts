@@ -166,6 +166,19 @@ describe("AccountService", () => {
     expect(s.svc.list().find((a) => a.login === "bob")).toMatchObject({ status: "active", mustChange: false, tempExpiresAt: null });
   });
 
+  // Final review IMPORTANT 3 (R4: every temporary password expires after 72 h): a right but expired temporary password cannot change the
+  // password (it answers `expired`, never `refused`, so the BFF can say so plainly); a wrong one stays `refused` (expiry is told only to
+  // someone who knows the password).
+  it("test_accounts_service_change_password_with_an_expired_temporary_is_expired", async () => {
+    const s = setup();
+    await s.svc.ensureDefaultAdmin();
+    const iss = await s.svc.create({ login: "bob", name: "Bob", role: "facilitator" }, null);
+    s.clock.t += H72 + 1;
+    expect(await s.svc.changePassword(iss.account.id, 0, iss.temporaryPassword, NEWPW)).toEqual({ ok: false, reason: "expired" });
+    expect(await s.svc.changePassword(iss.account.id, 0, "nope", NEWPW)).toEqual({ ok: false, reason: "refused" });
+    expect(s.svc.list().find((a) => a.login === "bob")).toMatchObject({ status: "invited", mustChange: true, epoch: 0 });
+  });
+
   it("change_password_rejects_short_and_same_as_current", async () => {
     const s = setup();
     await s.svc.ensureDefaultAdmin();
@@ -207,6 +220,19 @@ describe("AccountService", () => {
     await s.svc.ensureDefaultAdmin();
     await expect(s.svc.create({ login: "bob", name: "​  ", role: "facilitator" }, null)).rejects.toMatchObject({ code: "invalid" });
     await expect(s.svc.create({ login: "   ", name: "Bob", role: "facilitator" }, null)).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  // Gap on develop (the feature branch refused these): a login holding a control, format (zero-width, bidi) or whitespace character, or
+  // longer than 120 code points, is refused on create, so two accounts cannot look the same on the admin screen ("bob" and "bo\u200bb").
+  it("test_accounts_service_create_refuses_a_login_with_hidden_or_space_characters_or_too_long", async () => {
+    const s = setup();
+    await s.svc.ensureDefaultAdmin();
+    for (const login of ["bo\u200bb", "a b", "a\tb", "a\u0000b", "a\u202eb", "a\u00a0b", "x".repeat(121)]) {
+      await expect(s.svc.create({ login, name: "Bob", role: "facilitator" }, null), JSON.stringify(login)).rejects.toMatchObject({ code: "invalid" });
+    }
+    expect(s.svc.list().map((a) => a.login)).toEqual(["admin"]);
+    expect((await s.svc.create({ login: "  Dana@Client.example ", name: "Dana", role: "facilitator" }, null)).account.login).toBe("dana@client.example");
+    expect((await s.svc.create({ login: "é".repeat(120), name: "E", role: "facilitator" }, null)).account.login).toBe("é".repeat(120));
   });
 
   it("resend_replaces_temporary_and_old_stops_working", async () => {

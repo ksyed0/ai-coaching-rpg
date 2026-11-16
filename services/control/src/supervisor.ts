@@ -134,6 +134,7 @@ export class Supervisor {
   private readonly bots?: BotHost;
   private readonly voice?: VoiceLink;
   private readonly owners: OwnerStore;
+  private ownersUnreadable = false;
 
   constructor(private readonly o: {
     config: ControlConfig; list: SessionList; /** US-0083: who owns each session (default: the file named by config.ownersFile). */ owners?: OwnerStore; scenarios: () => Promise<{ id: string; title: string }[]>; spawn: SpawnFn;
@@ -318,7 +319,24 @@ export class Supervisor {
     } catch { /* no sessions directory yet */ }
   }
 
-  private info(id: string, scenarioId: string, status: SessionStatus, owners: Record<string, string> = this.owners.all()): SessionInfo {
+  /**
+   * The owner map, read once per call (one read serves a whole list). An unreadable (damaged or unsafe) owners file throws: an answer
+   * without the owner would hide whose session it is. It logs one fixed line (never the path or the error) once per failure episode: the
+   * next good read ends the episode (final review: a damaged file must not flood the log).
+   */
+  private ownerMap(): Record<string, string> {
+    try {
+      const owners = this.owners.all();
+      this.ownersUnreadable = false;
+      return owners;
+    } catch (err) {
+      if (!this.ownersUnreadable) this.logFn("session owners file is unreadable");
+      this.ownersUnreadable = true;
+      throw err;
+    }
+  }
+
+  private info(id: string, scenarioId: string, status: SessionStatus, owners: Record<string, string>): SessionInfo {
     const l = this.live.get(id);
     const out: SessionInfo = { sessionId: id, scenarioId, status: l?.status ?? status };
     const owner = owners[id];
@@ -331,11 +349,20 @@ export class Supervisor {
 
   get(id: string): SessionInfo | undefined {
     const e = this.o.list.read().find((x) => x.sessionId === id);
-    return e ? this.info(e.sessionId, e.scenarioId, e.status) : undefined;
+    return e ? this.info(e.sessionId, e.scenarioId, e.status, this.ownerMap()) : undefined;
+  }
+
+  /**
+   * Final review: the same as `get` without the owner, for internal callers that only need to know the session (report routes, the
+   * evaluate job, the restart answer). It never reads the owners file, so a damaged one cannot break them.
+   */
+  getWithoutOwner(id: string): SessionInfo | undefined {
+    const e = this.o.list.read().find((x) => x.sessionId === id);
+    return e ? this.info(e.sessionId, e.scenarioId, e.status, {}) : undefined;
   }
 
   list(): SessionInfo[] {
-    const owners = this.owners.all();
+    const owners = this.ownerMap();
     return this.o.list.read().map((e) => this.info(e.sessionId, e.scenarioId, e.status, owners));
   }
 
@@ -808,7 +835,7 @@ export class Supervisor {
       const captured = { roles: this.aiRolesOf(id), includeInGroup: this.includeInGroupOf(id) };
       const ready = await this.launch(id, e.scenarioId, false);
       const codes = ready.codes || ready.aiRolesReset ? await this.afterCodedLaunch(id, ready, captured) : undefined;
-      const info = this.get(id)!;
+      const info = this.getWithoutOwner(id)!; // owner-free: the BFF never reads the owner of a restart answer
       return codes ? { ...info, codes } : info;
     });
   }

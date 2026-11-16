@@ -34,7 +34,7 @@ describe("accounts safe json file", () => {
     // symlink
     writeFileSync(path.join(d, "real.json"), "{}", { mode: 0o600 });
     symlinkSync(path.join(d, "real.json"), file);
-    expect(() => f.read()).toThrow();
+    expect(() => f.read()).toThrow(/it is a symbolic link/); // final review T1 M3: the refusal itself, not any throw
     reset();
     // hard link
     good(); linkSync(file, path.join(d, "other.json"));

@@ -27,13 +27,15 @@ const COPY = {
   weak: "Choose a longer password that is not easy to guess.",
   throttled: "Too many attempts. Wait a minute and try again.",
   signedOut: "Your sign-in ended. Sign in again to change your password.",
+  // the BFF's LOGIN_EXPIRED_MESSAGE: only an admin's resend, reset or reinstate helps
+  expired: "This temporary password has expired. Ask an administrator for a new one.",
 } as const;
 
 function refusal(r: { status: number; code: string }): string {
   if (r.status === 403 && r.code === "wrong_password") return COPY.wrong;
   if (r.status === 400 && r.code === "weak_password") return COPY.weak;
   if (r.status === 429) return COPY.throttled;
-  if (r.status === 401) return COPY.signedOut;
+  if (r.status === 401) return r.code === "login_expired" ? COPY.expired : COPY.signedOut;
   if (r.status === 502 || r.status === 503 || r.status === 0) return MESSAGES.unavailable;
   return MESSAGES.generic;
 }
