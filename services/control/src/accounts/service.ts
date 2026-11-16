@@ -34,6 +34,10 @@ const toPublic = (a: Account): PublicAccount => {
   return rest;
 };
 const normLogin = (l: string): string => l.trim().toLowerCase();
+const MAX_LOGIN_CODE_POINTS = 120;
+// Inside a new login: control characters, format characters (zero-width, bidi) and any whitespace or separator, so two accounts cannot
+// look the same on the admin screen. Checked on create only: an existing account's login is matched as before.
+const BAD_LOGIN_CHAR = /[\p{Cc}\p{Cf}\p{Z}\s]/u;
 
 /** Facilitator and admin accounts. Passwords exist only as salted hashes; plain text is returned once, as a temporary password. */
 export class AccountService {
@@ -132,6 +136,7 @@ export class AccountService {
     const login = normLogin(i.login);
     const name = cleanConsoleName(i.name);
     if (login.length === 0) throw new AccountError("invalid", "login is required");
+    if ([...login].length > MAX_LOGIN_CODE_POINTS || BAD_LOGIN_CHAR.test(login)) throw new AccountError("invalid", "that login is not allowed");
     if (name === null) throw new AccountError("invalid", "name is required");
     if (i.role !== "admin" && i.role !== "facilitator") throw new AccountError("invalid", "unknown role");
     if (this.load().accounts.some((a) => a.login === login)) throw new AccountError("conflict", "that login is taken");
