@@ -3733,7 +3733,7 @@
         },
         {
           "id": "AC-0558",
-          "text": "the mutation checks (the facilitator set removed from the union, cleared in `release`, cleared in `forgetVoice`, the `muted_by_facilitator` refusal dropped, `by` leaked to a player, the in-mutex guard removed) each fail a named test and are reverted (TC-0330); ticked 2026-11-16: run and recorded in the Task 8 report",
+          "text": "the eight mutation checks each fail a named test and are reverted (TC-0330); ticked 2026-11-16, run in Task 8. Mutation and the tests that failed: (a) the facilitator set removed from `voiceMutedOf` (all three readers): 11 runtime tests (session-host.mute-seat, ws-server.mute-seat) and the control e2e; (a2) removed from `isRecordingHolder` only: 4 (\"Review Focus 1...\", \"a mute while speaking...\", \"appends facilitator.command with by...\", \"the participant's own mute and the facilitator set are independent...\"); (a3) removed from the voice-seat `isMuted` only: 6 and the control e2e (\"Review Focus 2...\", \"a mute takes effect on receipt...\", \"appends facilitator.command with by...\", \"is held in memory, then written after session.started...\", \"release, forgetVoice ... do not clear it\", \"the participant's own mute and the facilitator set are independent...\"); (b1) cleared in `release`: \"release, forgetVoice (reissue), pause, resume and a rejoin do not clear it\" and ws-server.mute-seat \"a fresh join without lastSeq sees it...\"; (b2) cleared in `forgetVoice`: the first of those; (c) the `muted_by_facilitator` refusal dropped: \"the participant's own mute and the facilitator set are independent; the union feeds ...\"; (d) `by` leaked in `commandForPlayer`: player-copies \"A3A: a mute_seat reaches every player as exactly command, roleId and muted (no by, no name)...\" and two ws-server.mute-seat tests (\"other players get the role-label event and nobody gets `by` or the facilitator's name\", \"is accepted without starting and without not_started, shows in the roster, and holds after the start\"); (e) the in-mutex guard removed: \"Review Focus 1: a line that passed the recording check before the mute is refused inside the engine mutex, never appended after it\"",
           "done": true
         },
         {
@@ -10029,9 +10029,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-16T22:43:05.986Z",
-  "commitSha": "01171454",
-  "buildNumber": "592",
+  "generatedAt": "2026-11-16T23:04:57.213Z",
+  "commitSha": "252fb295",
+  "buildNumber": "595",
   "branch": "feature/EPIC-0003-US-0090-voice-audio-panel",
   "sessionTimeline": [
     {
@@ -10287,7 +10287,7 @@
       "2026-11-13T18:05:24.013Z",
       "2026-11-13T22:28:39.904Z",
       "2026-11-16T18:19:57.554Z",
-      "2026-11-16T22:43:06.099Z"
+      "2026-11-16T23:04:57.325Z"
     ],
     "doneCounts": [
       0,
