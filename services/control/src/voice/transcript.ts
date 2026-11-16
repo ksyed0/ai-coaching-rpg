@@ -64,3 +64,48 @@ export function readTranscript(sessionsDir: string, sessionId: string, caps?: { 
     return { kind: "ok", lines };
   } catch { return { kind: "not_found" }; }
 }
+
+export const DEFAULT_MAX_TRANSCRIPTS_IN_FLIGHT = 4;
+export type TranscriptResult = { ok: true; lines: TranscriptLine[] } | { ok: false; code: "not_found" | "session_live" | "too_large" | "busy" };
+
+/**
+ * A2b-2: the transcript read behind control's service token, only for an ended session the voice host no longer holds. Async around
+ * the synchronous reader (as `AudioService.play`) so the in-flight cap is observable; the slot is freed in `finally`. Order: the cap
+ * (busy), the session's status (unknown is not_found), liveness (not ended, still live, or an `isLive` that throws all fail closed as
+ * session_live), then the read. Logs nothing.
+ */
+export class TranscriptService {
+  private inFlight = 0;
+  private readonly maxInFlight: number;
+  private readonly reader: (dir: string, id: string) => TranscriptRead | Promise<TranscriptRead>;
+
+  constructor(private readonly o: {
+    sessionsDir: string;
+    status: (id: string) => "ended" | "not_ended" | "unknown";
+    isLive: (id: string) => boolean;
+    maxInFlight?: number;
+    reader?: (dir: string, id: string) => TranscriptRead | Promise<TranscriptRead>;
+  }) {
+    this.maxInFlight = o.maxInFlight ?? DEFAULT_MAX_TRANSCRIPTS_IN_FLIGHT;
+    this.reader = o.reader ?? ((dir, id) => readTranscript(dir, id));
+  }
+
+  async read(sessionId: string): Promise<TranscriptResult> {
+    if (this.inFlight >= this.maxInFlight) return { ok: false, code: "busy" };
+    this.inFlight++;
+    try {
+      const status = this.o.status(sessionId);
+      if (status === "unknown") return { ok: false, code: "not_found" };
+      if (status !== "ended" || this.liveNow(sessionId)) return { ok: false, code: "session_live" };
+      const r = await this.reader(this.o.sessionsDir, sessionId);
+      if (r.kind === "ok") return { ok: true, lines: r.lines };
+      return { ok: false, code: r.kind };
+    } finally {
+      this.inFlight--;
+    }
+  }
+
+  private liveNow(sessionId: string): boolean {
+    try { return this.o.isLive(sessionId) !== false; } catch { return true; } // a predicate that cannot answer fails closed
+  }
+}

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ParticipantIdSchema, RoleIdSchema } from "./protocol.js";
 import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse, send, sendBytes } from "./http-util.js";
 import { parseBy, type AudioService } from "./voice/audio-routes.js";
+import type { TranscriptService } from "./voice/transcript.js";
 import type { DeleteOutcome, PendingReason } from "./voice/audio-delete.js";
 import { AccountError, type AccountErrorCode, type AccountService } from "./accounts/service.js";
 import type { ControlConfig } from "./config.js";
@@ -31,6 +32,8 @@ const ACCOUNT_STATUS: Record<AccountErrorCode, number> = { not_found: 404, confl
 export { MAX_BODY_BYTES };
 const UNAUTHORIZED = "Unauthorized.";
 const INTERNAL = "Something went wrong.";
+const TRANSCRIPT_BUSY = "Too many transcripts are being read. Try again in a moment.";
+const TRANSCRIPT_TOO_LARGE = "That transcript is too large to show.";
 const NO_AUDIO = "That session has no audio.";
 const REPLAY_BUSY = "Too many recordings are playing. Try again in a moment.";
 const DELETE_BUSY = "Too many deletes are running. Try again in a moment.";
@@ -133,10 +136,12 @@ export function createApi(deps: {
   moderation?: ModerationService;
   /** The facilitator's audio listing and replay (US-0074) and delete (US-0075). Optional: the routes answer 404 when it is absent. */
   audio?: AudioService;
+  /** A2b-2: the ended-session transcript read. Optional: the route answers 404 when it is absent. */
+  transcript?: TranscriptService;
   /** Facilitator and admin accounts (US-0083). Optional: the routes answer 404 when it is absent. */
   accounts?: AccountService;
 }): RequestListener {
-  const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation, audio, accounts } = deps;
+  const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation, audio, transcript, accounts } = deps;
   const log = deps.log ?? (() => {});
 
   /** US-0083. A bad token is 401 `unauthorized` (checked before this); a bad account is 401 `account_refused`. Nothing here logs a body. */
@@ -265,6 +270,16 @@ export function createApi(deps: {
       if (r.code === "audit_unavailable") return failClosed(res, 503, "audit_unavailable"); // not one audio byte leaves unaudited
       // US-0075: an index that cannot be trusted fails closed (no Retry-After: retrying will not make the store safe).
       if (r.code === "store_unsafe") return failClosed(res, 503, "store_unsafe");
+      return notFound();
+    }
+    if (seg[2] === "transcript" && seg.length === 3 && method === "GET") {
+      // A2b-2: facilitator-only, read-only (no X-Acr-By, no audit line). Only an ended session the voice host no longer holds.
+      if (!transcript) return notFound();
+      const r = await transcript.read(id);
+      if (r.ok) return ok(res, { lines: r.lines, truncated: false });
+      if (r.code === "busy") return fail(res, 503, "busy", TRANSCRIPT_BUSY, false, 1);
+      if (r.code === "session_live") return failClosed(res, 409, "session_live");
+      if (r.code === "too_large") return fail(res, 413, "transcript_too_large", TRANSCRIPT_TOO_LARGE);
       return notFound();
     }
     if (seg.length === 2 && method === "GET") {
