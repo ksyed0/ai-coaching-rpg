@@ -116,6 +116,33 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     }
   });
 
+  it("mute, Stop, unmute, opt back in: the live region does not keep saying the seat is muted", async () => {
+    const m = mount();
+    join(m);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.voiceJoin })); });
+    emit(m.es(), "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
+    expect(live()).toContain(SELF_MUTED);
+    // The participant presses Stop while held (frame is text-only and still carries the hold).
+    emit(m.es(), "voice", { state: "text_only", muted: true, mutedBy: "facilitator" });
+    // The facilitator unmutes while the seat is out of voice: nothing is announced, and the stale muted notice is cleared.
+    emit(m.es(), "voice", { state: "text_only", muted: false });
+    expect(live()).toBe("");
+    // Opting in again: no notice either, and the button is usable.
+    emit(m.es(), "voice", { state: "voice", muted: false });
+    expect(live()).toBe("");
+    expect(screen.queryByText(SELF_MUTED)).toBeNull();
+  });
+
+  it("an unmute while still in voice announces 'You can speak again' exactly once", async () => {
+    const m = mount();
+    join(m);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.voiceJoin })); });
+    emit(m.es(), "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
+    emit(m.es(), "voice", { state: "voice", muted: false });
+    expect(live()).toBe(AGAIN);
+    expect(screen.getAllByText(AGAIN)).toHaveLength(1);
+  });
+
   it("a focused Mute button keeps its focus when the mute lands, and a press sends nothing", async () => {
     const m = mount();
     join(m);

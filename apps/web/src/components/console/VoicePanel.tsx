@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useConsoleCommands } from "../../lib/console-commands";
 import { CONSOLE_VOICE, type ConsoleVoiceState } from "../../lib/console-voice";
 import { MESSAGES } from "../../lib/messages";
@@ -32,6 +32,9 @@ export function VoicePanel({ roster, mute }: { roster: readonly VoicePanelEntry[
   const id = useId();
   // One command at a time (the hook's in-flight guard): a second press while one is out sends nothing.
   const [notLive, setNotLive] = useState(false);
+  // The "not sent" notice belongs to the press that caused it: once the view is live again it is spent, so a later drop starts clean.
+  const live = mute?.live === true;
+  useEffect(() => { if (live) setNotLive(false); }, [live]);
   const cmds = useConsoleCommands(mute?.sessionId ?? "", mute?.channel ?? null, mute?.fetch);
   const seats = roster.filter((e): e is VoicePanelEntry & { voice: ConsoleVoiceState } => e.ai !== true && e.voice !== undefined);
   if (seats.length === 0) return null;

@@ -295,10 +295,21 @@ describe("VoicePanel facilitator mute", () => {
     const f = fakeFetch();
     const r = render(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: null, live: false, fetch: f.fetch }} />);
     fireEvent.click(within(rowOf("Sam")).getByRole("button"));
+    expect(screen.getByRole("status").textContent).toBe(MESSAGES.consoleMuteNotLive);
     r.rerender(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: CH, live: true, fetch: f.fetch }} />);
     expect(screen.getByRole("status").textContent).toBe("");
     fireEvent.click(within(rowOf("Sam")).getByRole("button"));
     await waitFor(() => expect(f.calls).toHaveLength(1));
+  });
+
+  it("a later drop does not bring the old not-live notice back without a new press", () => {
+    const f = fakeFetch();
+    const r = render(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: null, live: false, fetch: f.fetch }} />);
+    fireEvent.click(within(rowOf("Sam")).getByRole("button"));
+    expect(screen.getByRole("status").textContent).toBe(MESSAGES.consoleMuteNotLive);
+    r.rerender(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: CH, live: true, fetch: f.fetch }} />);
+    r.rerender(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: null, live: false, fetch: f.fetch }} />);
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("buttons are aria-disabled while a command is in flight (and not otherwise)", async () => {

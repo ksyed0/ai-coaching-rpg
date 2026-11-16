@@ -139,7 +139,11 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       const now = a.voice.state === "voice" && a.voice.mutedBy === "facilitator";
       // Leaving voice (to text or none) is not "You can speak again": the unmute is told only when the new state is voice.
       const announce = s.voice !== null && (now ? !was : was && a.voice.state === "voice");
-      const muteNotice = announce ? { kind: now ? "self_muted" as const : "self_again" as const, n: (s.muteNotice?.n ?? 0) + 1 } : s.muteNotice;
+      // The hold ended in any state (e.g. while the seat was out of voice, which announces nothing): a "muted" notice left in the
+      // slot is stale, so clear it silently. Otherwise the region keeps saying "muted" after the seat opts back in.
+      const holdEnded = s.voice?.mutedBy === "facilitator" && a.voice.mutedBy !== "facilitator";
+      const muteNotice = announce ? { kind: now ? "self_muted" as const : "self_again" as const, n: (s.muteNotice?.n ?? 0) + 1 }
+        : holdEnded && s.muteNotice?.kind === "self_muted" ? null : s.muteNotice;
       return { ...s, voice: a.voice, voiceEvents, muteNotice };
     }
     case "voice_notice": {
