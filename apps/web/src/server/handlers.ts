@@ -25,6 +25,8 @@ export type Deps = {
   consoleReportThrottle: JoinThrottle; reportEnterThrottle: JoinThrottle; reportReadFailThrottle: JoinThrottle;
   /** US-0071: voice token requests, keyed by a digest of the cookie's session, role and participant (VOICE_TOKEN_THROTTLE). */
   voiceTokenThrottle: JoinThrottle;
+  // A2b-2: the facilitator's audio reads (list, play) and delete, per account.
+  consoleAudioReadThrottle: JoinThrottle; consoleAudioWriteThrottle: JoinThrottle;
   hub: StreamHub; facilitatorBudget: FacilitatorBudget; facilitatorHub: FacilitatorHub;
   /** Set when LAUNCHER_URL is: each session's runtime is then looked up through the control service (runtime-lookup.ts). */
   launcher?: LauncherClient;

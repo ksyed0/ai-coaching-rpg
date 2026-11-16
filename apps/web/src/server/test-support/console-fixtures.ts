@@ -129,6 +129,7 @@ export function fakeDeps(
     config: consoleConfig(), now, connect: RuntimeConnection.connect,
     joinThrottle: throttle(now, 5, 60_000, 60_000), consoleThrottle: throttle(now, 5, 60_000, 60_000), consoleGlobalThrottle: throttle(now, 20, 600_000, 300_000), consoleLoginThrottle: throttle(now, 5, 60_000, 60_000),
     reportThrottle: throttle(now, 60, 60_000, 60_000), reportWriteThrottle: throttle(now, 30, 60_000, 60_000), consoleReportThrottle: throttle(now, 60, 60_000, 60_000),
+    consoleAudioReadThrottle: throttle(now, 120, 60_000, 60_000), consoleAudioWriteThrottle: throttle(now, 10, 60_000, 60_000),
     reportEnterThrottle: throttle(now, 5, 60_000, 60_000), reportReadFailThrottle: throttle(now, 5, 60_000, 60_000), voiceTokenThrottle: throttle(now, 20, 60_000, 60_000),
     hub: new StreamHub({ maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10, setTimer: realTimer, now }),
     facilitatorBudget: new FacilitatorBudget(),

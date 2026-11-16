@@ -53,7 +53,12 @@ export type LauncherReason =
   | "account_refused"
   | "weak_password"
   // US-0083: control's AccountError `state` (the account's status does not allow the action).
-  | "state";
+  | "state"
+  // A2b-2: the facilitator's audio and transcript calls (control's /sessions/:id/audio and /transcript), one word each.
+  | "session_live"
+  | "audio_deleted"
+  | "audit_unavailable"
+  | "store_unsafe";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -207,6 +212,10 @@ const BY_CODE: Record<string, LauncherReason> = {
   account_refused: "account_refused",
   weak_password: "weak_password",
   state: "state",
+  session_live: "session_live",
+  audio_deleted: "audio_deleted",
+  audit_unavailable: "audit_unavailable",
+  store_unsafe: "store_unsafe",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -511,6 +520,50 @@ const isJwt = (v: unknown): v is string => {
 /** A participant id as it goes into a body: what the parent channel accepts (1 to CLIENT_ID_MAX_CHARS), with no control character. */
 const isParticipantId = (v: unknown): v is string =>
   typeof v === "string" && v.length >= 1 && v.length <= CLIENT_ID_MAX_CHARS && [...v].every((c) => c.charCodeAt(0) > 0x1f && c.charCodeAt(0) !== 0x7f);
+
+/** A2b-2: one recorded clip as the console sees it. The identity folder name never appears. */
+export type AudioSegment = {
+  role: string;
+  segment: string;
+  participantId: string;
+  startMs: number;
+  endMs: number;
+  status: string;
+  seq?: number;
+  audio: "available" | "deleted" | "missing";
+};
+export type AudioListing = { recordingStopped: boolean; segments: AudioSegment[] };
+export type TranscriptLine = { seq: number; ts: number; roleId: string; text: string };
+export type TranscriptAnswer = { kind: "ok"; lines: TranscriptLine[] } | { kind: "too_large" };
+export type AudioDeleteScope = { kind: "session" } | { kind: "role"; role: string };
+export type AudioDeleteAnswer = {
+  state: "done" | "pending" | "live";
+  deleted: number;
+  done: number;
+  pending: { reason: "busy" | "store_unsafe" | "audit_unavailable" }[];
+};
+/** One WAV segment is at most 512 KiB; a small margin covers a header written by a slightly different encoder. */
+const MAX_AUDIO_BYTES = 512 * 1024 + 4096;
+const AUDIO_STATES: readonly string[] = ["available", "deleted", "missing"];
+const PENDING_REASONS: readonly string[] = ["busy", "store_unsafe", "audit_unavailable"];
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+function toSegment(v: unknown): AudioSegment {
+  if (
+    !isObject(v) || !isText(v.role) || !isFileSafeId(v.role) || !isText(v.segment) || !isFileSafeId(v.segment) ||
+    !isText(v.participantId) || !isNum(v.startMs) || !isNum(v.endMs) || !isText(v.status) ||
+    typeof v.audio !== "string" || !AUDIO_STATES.includes(v.audio) || (v.seq !== undefined && !isNum(v.seq))
+  ) return bad();
+  return {
+    role: v.role, segment: v.segment, participantId: v.participantId, startMs: v.startMs, endMs: v.endMs, status: v.status,
+    ...(v.seq !== undefined && { seq: v.seq }), audio: v.audio as AudioSegment["audio"],
+  };
+}
+function toDeleteAnswer(state: AudioDeleteAnswer["state"], d: unknown): AudioDeleteAnswer {
+  if (!isObject(d) || !isNum(d.deleted) || !Array.isArray(d.identities) || !Array.isArray(d.pending)) return bad();
+  const pending = d.pending.map((p) => (isObject(p) && typeof p.reason === "string" && PENDING_REASONS.includes(p.reason) ? { reason: p.reason as AudioDeleteAnswer["pending"][number]["reason"] } : bad()));
+  return { state, deleted: d.deleted, done: d.identities.length, pending };
+}
 
 export type LauncherOptions = {
   baseUrl: string;
@@ -991,6 +1044,74 @@ export class LauncherClient {
     return `/sessions/${this.id(id)}/report-links/${encodeURIComponent(role)}${leaf}`;
   }
 
+  /** A2b-2: the recorded clips of an ended session (control's facilitator listing). `null` when there is no audio. The identity is dropped. */
+  async audioList(id: string, by: string): Promise<AudioListing | null> {
+    const path = `/sessions/${this.id(id)}/audio`;
+    const { status, e } = await this.exchange("GET", path, undefined, this.timeoutMs, { headers: { "x-acr-by": by }, maxChars: MAX_REPORT_RESPONSE_CHARS });
+    if (status === 404) return null;
+    const d = this.unwrap(status, e);
+    if (!isObject(d) || typeof d.recordingStopped !== "boolean" || !Array.isArray(d.segments)) return bad();
+    return { recordingStopped: d.recordingStopped, segments: d.segments.map(toSegment) };
+  }
+
+  /** A2b-2: the session's transcript lines. Control's 413 is `too_large`; every other refusal is a LauncherError. */
+  async transcript(id: string): Promise<TranscriptAnswer> {
+    const { status, e } = await this.exchange("GET", `/sessions/${this.id(id)}/transcript`, undefined, this.timeoutMs, { maxChars: MAX_REPORT_RESPONSE_CHARS });
+    if (status === 413 && isObject(e?.error) && e.error.code === "transcript_too_large") return { kind: "too_large" };
+    const d = this.unwrap(status, e);
+    if (!isObject(d) || !Array.isArray(d.lines)) return bad();
+    return {
+      kind: "ok",
+      lines: d.lines.map((l) => (isObject(l) && isNum(l.seq) && isNum(l.ts) && typeof l.roleId === "string" && typeof l.text === "string" ? { seq: l.seq, ts: l.ts, roleId: l.roleId, text: l.text } : bad())),
+    };
+  }
+
+  /** A2b-2: one clip's WAV bytes. The only binary answer: read with `arrayBuffer()`, capped, no redirect. */
+  async audioPlay(id: string, role: string, segment: string, by: string): Promise<Uint8Array> {
+    if (!isFileSafeId(role) || !isFileSafeId(segment)) throw new LauncherError("not_found");
+    const path = `/sessions/${this.id(id)}/audio/${encodeURIComponent(role)}/${encodeURIComponent(segment)}`;
+    const signal = AbortSignal.timeout(this.timeoutMs);
+    let status: number;
+    let buf: ArrayBuffer;
+    try {
+      const res = await this.fetchFn(new URL(path, this.base).toString(), {
+        method: "GET",
+        signal,
+        redirect: "error",
+        headers: { "x-service-token": this.token, "x-acr-by": by, Accept: "audio/wav" },
+      });
+      status = res.status;
+      buf = await res.arrayBuffer();
+    } catch {
+      throw new LauncherError(signal.aborted ? "timeout" : "unavailable");
+    }
+    if (status === 200) {
+      if (buf.byteLength === 0 || buf.byteLength > MAX_AUDIO_BYTES) throw new LauncherError("failed");
+      return new Uint8Array(buf);
+    }
+    let env: unknown;
+    try {
+      env = buf.byteLength > MAX_RESPONSE_CHARS ? undefined : JSON.parse(new TextDecoder().decode(buf));
+    } catch {
+      env = undefined;
+    }
+    this.unwrap(status, isObject(env) ? env : undefined);
+    throw new LauncherError("failed");
+  }
+
+  /** A2b-2: the audited delete. Control's partial answers (503 with a body, 409) are read; the identity folder names are dropped. */
+  async audioDelete(id: string, scope: AudioDeleteScope, reason: "facilitator" | "participant_request", by: string): Promise<AudioDeleteAnswer> {
+    const path = `/sessions/${this.id(id)}/audio`;
+    if (scope.kind === "role" && !isFileSafeId(scope.role)) throw new LauncherError("not_found");
+    const body = { scope: scope.kind === "role" ? { kind: "role", role: scope.role } : { kind: "session" }, reason, by };
+    const { status, e } = await this.exchange("DELETE", path, body, Math.max(this.timeoutMs, REPORT_CALL_TIMEOUT_MS), { headers: { "x-acr-by": by } });
+    if (status === 200 && e?.success === true && isObject(e.data)) return toDeleteAnswer("done", e.data);
+    if (status === 503 && e && isObject(e.data)) return toDeleteAnswer("pending", e.data);
+    if (status === 409 && e && isObject(e.data)) return toDeleteAnswer("live", e.data);
+    this.unwrap(status, e);
+    throw new LauncherError("failed");
+  }
+
   /** A session id is checked before it goes into a path, so nothing can change the route. */
   private id(raw: string): string {
     if (!isValidSessionId(raw)) throw new LauncherError("not_found");
@@ -1005,6 +1126,18 @@ export class LauncherClient {
     timeoutMs: number,
     o: { maxChars?: number; detail?: boolean } = {},
   ): Promise<unknown> {
+    const { status, e } = await this.exchange(method, path, body, timeoutMs, o);
+    return this.unwrap(status, e, o.detail);
+  }
+
+  /** The transport half of `call`: one request, the status and the parsed envelope (undefined when unreadable). */
+  private async exchange(
+    method: "GET" | "POST" | "PUT" | "DELETE",
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+    o: { maxChars?: number; headers?: Record<string, string> } = {},
+  ): Promise<{ status: number; e: Record<string, unknown> | undefined }> {
     const signal = AbortSignal.timeout(timeoutMs);
     let status: number;
     let text: string;
@@ -1014,8 +1147,9 @@ export class LauncherClient {
         signal,
         redirect: "error",
         headers: {
-          "x-service-token": this.token,
           Accept: "application/json",
+          ...o.headers,
+          "x-service-token": this.token,
           ...(body !== undefined && { "Content-Type": "application/json" }),
         },
         ...(body !== undefined && { body: JSON.stringify(body) }),
@@ -1032,7 +1166,11 @@ export class LauncherClient {
     } catch {
       env = undefined;
     }
-    const e = isObject(env) ? env : undefined;
+    return { status, e: isObject(env) ? env : undefined };
+  }
+
+  /** The answer half of `call`: a 2xx envelope's `data`, or a LauncherError for everything else. */
+  private unwrap(status: number, e: Record<string, unknown> | undefined, wantDetail?: boolean): unknown {
     if (status >= 200 && status < 300) {
       if (e?.success !== true || e.data === null || e.data === undefined)
         throw new LauncherError("failed");
@@ -1040,7 +1178,7 @@ export class LauncherClient {
     }
     const err = e && isObject(e.error) ? e.error : undefined;
     if (err && typeof err.code === "string") {
-      const detail = o.detail && typeof err.message === "string" && err.message.length <= MAX_DETAIL_CHARS ? err.message : undefined;
+      const detail = wantDetail && typeof err.message === "string" && err.message.length <= MAX_DETAIL_CHARS ? err.message : undefined;
       const reason = Object.hasOwn(BY_CODE, err.code) ? BY_CODE[err.code]! : "failed";
       const blocked = reason === "blocked" ? toBlocked(e?.data) : undefined;
       throw new LauncherError(reason, detail, blocked);

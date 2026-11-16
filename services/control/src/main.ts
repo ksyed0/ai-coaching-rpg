@@ -12,6 +12,7 @@ import { UnusableFileError } from "./accounts/safe-json-file.js";
 import { OwnerStore } from "./accounts/owners.js";
 import { aiRolesFor } from "./ai-roles.js";
 import { createApi } from "./api.js";
+import { TranscriptService } from "./voice/transcript.js";
 import type { EvalSpawnFn } from "./eval-child.js";
 import { ModerationService } from "./moderation.js";
 import { ReportJobService } from "./report-job.js";
@@ -170,6 +171,14 @@ export async function startControl(
   const sweep = startAudioSweep(config, { audit, setTimer: realSetTimer, log, mutex });
   // US-0074: the audio routes, under the same rule (and the same audit log, so a replay's line sits with the sweep's). US-0075: the same mutex.
   const audio = buildAudioService(config, { audit, mutex, isLive: (id) => voiceHost?.isLive(id) ?? false });
+  // A2b-2: the transcript read. `getWithoutOwner` (not `get`, which can throw on an unreadable owners file); a throw counts as not ended.
+  const transcript = new TranscriptService({
+    sessionsDir: config.sessionsDir,
+    status: (id) => {
+      try { const s = supervisor.getWithoutOwner(id); return s === undefined ? "unknown" : s.status === "ended" ? "ended" : "not_ended"; } catch { return "not_ended"; }
+    },
+    isLive: (id) => voiceHost?.isLive(id) ?? false,
+  });
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
   const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
   const secrets = collectSecrets(env);
@@ -210,7 +219,7 @@ export async function startControl(
     throw new Error("the accounts file cannot be used; see the log line above, fix the file or its permissions, and start again");
   }
 
-  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio, accounts }));
+  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio, transcript, accounts }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
   // are at most 64 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default

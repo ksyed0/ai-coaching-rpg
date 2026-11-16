@@ -4017,3 +4017,180 @@ Actual Result: As expected (2026-11-16): test_game_master_scene_without_a_human_
 Status: [x] Pass
 Defect Raised: None
 Notes: Final review fix, commit a2eefb26 (`humanLineGateOpen(state, scene)`). AC-0474 and AC-0476 are the US-0081 ids from docs/superpowers/notes/US-0081-notes.md; they are not filed in this plan yet.
+
+## US-0090: voice audio review and delete panel (EPIC-0003 voice A2b-2)
+
+TC-0310: Control transcript route: one session's utterances, bounded and refused while live
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0540
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice/transcript.test.ts src/__tests__/voice/transcript-route.test.ts src/__tests__/api.test.ts`.
+Expected Result: `GET /sessions/:id/transcript` with the service token returns `{ lines, truncated: false }` holding only `utterance` events of that session in log order (a torn last line, other event types and another session's events skipped); 401 without the token; 404 for an unknown session or missing log; 409 `session_live` while the session is running or the voice host is live or the live check throws; 413 `transcript_too_large` over 8 MiB or over 1,000,000 characters and never a partial list; 503 `busy` with `Retry-After: 1` over 4 reads in flight; no `X-Acr-By` is needed and no audit line is written.
+Actual Result: As expected (`transcript.test.ts` (12 tests: other types, other sessions, torn and blank lines, wrongly typed fields, multi-byte text, both caps through the third argument, a link); `transcript-route.test.ts` (the route: 401, 404, 409 for running, draining and a throwing check, 413 through an injected reader, 503 `busy`, no audit line); `api.test.ts`). Prior evidence from the Task 2 report: two mutation checks (the live check ignored fails two route tests; a partial list over the character cap fails the `too_large` test), each reverted. The case of another user's file is not tested (it needs a second user; the check is the same code as `readHead`). 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0311: Web audio routes: guard, server-built `by`, no identity, throttles
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0541
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-audio-handlers.test.ts src/server/__tests__/launcher-client.audio.test.ts src/server/__tests__/console-ownership.test.ts src/server/__tests__/routes.test.ts`.
+Expected Result: The three routes answer a neutral 404 for another facilitator's session (admin can use any); `by` sent to control is `<accountSlug>-console` and a `by` in the browser's delete body is ignored; a delete body is strict (scope, reason, by only; over 1 KiB is 413); no answer carries an identity folder name, a participant id or a seq (searched as a string); list and play share 120 requests a minute and delete has 10 a minute per account (a new cookie for the same account does not reset the budget), 429 `rate_limited` with `Retry-After`; `LauncherClient` `audioList`, `transcript`, `audioPlay` and `audioDelete` map control's answers (the play path is binary, capped and never follows a redirect; a malformed body is `failed`).
+Actual Result: As expected (`console-audio-handlers.test.ts` (28 tests); `launcher-client.audio.test.ts` (18 tests); `console-ownership.test.ts` and `routes.test.ts` (the three routes joined their tables)). Prior evidence from the Task 4 report: two mutation checks (the body `by` used instead of the server-built one; the join by index) each failed named tests and were reverted. The throttle numbers are a builder choice. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0312: A shared-secret sign-in is refused before any control call
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0542
+Type: Unit and integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-audio-handlers.test.ts src/server/__tests__/console-ownership.test.ts src/server/__tests__/console-audio.e2e.test.ts`.
+Expected Result: A legacy (shared-secret) cookie on the list, play and delete routes is 403 `account_required` with no launcher call at all (no list call either); end to end the control server sees zero `/audio` or `/transcript` requests and no audit line is written.
+Actual Result: As expected (`console-audio-handlers.test.ts` (one cookie, all three routes, no launcher call); `console-ownership.test.ts` (the new `ACCOUNT_ONLY` set asserts 403 instead of "not 403"); `console-audio.e2e.test.ts` (zero control requests seen)). Prior evidence from the Task 4 report: removing the legacy refusal fails the handler test and the ownership test `admin_can_use_any_session`, reverted. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0313: The clip and transcript join
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0543
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-audio-join.test.ts src/server/__tests__/console-audio-handlers.test.ts`.
+Expected Result: A clip gets text only when it is `transcribed`, has a `seq`, a line with that `seq` exists and that line's `roleId` is the clip's role; the join is by `seq` (a reordered log changes nothing); the output keys are exactly role, segment, startMs, endMs, status, audio and text; the transcript is asked for only when a clip is `transcribed` with a `seq`; a transcript failure lists the clips with `textUnavailable`, an over-cap transcript with `tooLongForText`, and `session_live` from the transcript makes the list 409.
+Actual Result: As expected (`console-audio-join.test.ts` (7 tests); `console-audio-handlers.test.ts` (no transcript call for a session with nothing transcribed; the three failure shapes; the different-role line is dropped)). Prior evidence from the Task 4 report: the join by array index mutation fails two join tests, reverted. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0314: AudioPanel: grouping, one clip at a time, confirmation and states
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0544
+Type: Unit (jsdom)
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/AudioPanel.test.tsx src/components/__tests__/SessionConsole.test.tsx src/lib/__tests__/console-api.audio.test.ts`.
+Expected Result: The panel renders nothing while loading and, with no clips, nothing unless the roster has a human voice seat (then "No recordings."); clips are grouped by seat with the text beside each; one clip plays at a time; delete of a seat or of everything asks inline, naming the count and the minutes and seconds and saying it cannot be undone, with a reason (facilitator decision by default, participant asked); the session-still-ending, failed-list, legacy and deleted-clip states each have their sentence; focus returns to the control that opened a confirmation; every button and radio has a name and can take focus; the panel is in the ended block of `SessionConsole` after the report panels.
+Actual Result: As expected (`AudioPanel.test.tsx` (29 tests); `SessionConsole.test.tsx` (4 new tests: wired from the stream's end and from a poll, absent before the end); `console-api.audio.test.ts` (14 tests: the strict list parser, the browser client's three calls)). Prior evidence from the Task 6 report: three mutation checks (the in-flight guard removed; success shown on `pending`; the panel unwired) each failed named tests and were reverted. Tab order is checked as focusability (`tabIndex`, `disabled`, accessible name, `focus()`), not by real Tab traversal (jsdom has none, and no user-event dependency exists). 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0315: A partial delete is never shown as success
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0545
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-audio-handlers.test.ts src/lib/__tests__/console-api.audio.test.ts src/components/__tests__/AudioPanel.test.tsx`.
+Expected Result: Control's 200 is `done` (a count of finished folders, no identity); 409 `session_live` is a refusal with the still-ending sentence; 503 with a partial body is a 503 from the web route with the partial result and the sentence "Some recordings could not be deleted yet" (never "nothing was changed"), the code the worst reason present, `Retry-After: 5`; the browser parses 503 plus a body as `pending` and a malformed 200 as `failed`; the panel reloads the list, shows the unfinished parts in plain words (an unknown reason falls back to "try again later") and offers Retry with the same scope and reason; 503 `busy` with no body is a plain busy.
+Actual Result: As expected (`console-audio-handlers.test.ts` (the partial 503, the worst-reason order, busy only, the sentence asserted not to match /nothing was changed/); `console-api.audio.test.ts`; `AudioPanel.test.tsx` (the partial-delete and unknown-reason tests)). Prior evidence from the Task 4 and 6 reports: the pending-mapped-to-200 mutation and the success-on-pending mutation each failed named tests and were reverted; the Task 4 fix round (commit 7db7dcd4) is covered by the sentence assertion, which fails without the fix. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0316: No caching and the page CSP allows media from a blob
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0546
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-audio-handlers.test.ts src/server/__tests__/headers.test.ts`.
+Expected Result: The list, the play and the delete answers carry `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; the play answer is `audio/wav` with `Accept-Ranges: none` and `X-Content-Type-Options: nosniff`; the page CSP contains `media-src 'self' blob:`.
+Actual Result: As expected (`console-audio-handlers.test.ts` (the four play headers; the `priv` headers on every answer); `headers.test.ts` (`media-src 'self' blob:`)). Prior evidence from the Task 4 and 6 reports: dropping `no-store` and removing `media-src` each failed a named test and were reverted. That a real browser plays the blob under this CSP is not proven here: TC-0321. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0317: One play is one audit line
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0547
+Type: Unit and integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/AudioPanel.test.tsx src/server/__tests__/console-audio.e2e.test.ts`.
+Expected Result: A second click while a clip is still being fetched sends no second request; end to end one play writes exactly one `audio.played` line and the bytes served equal the file on disk; the list and the transcript write none; the clip is served whole (no range).
+Actual Result: As expected (`AudioPanel.test.tsx` (the in-flight guard: one request for two clicks); `console-audio.e2e.test.ts` (one `audio.played` per play, the list adds none, the bytes equal the WAV on disk)). Prior evidence from the Task 6 report: removing the in-flight guard fails the guard test, reverted. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0318: End to end: web handlers, real client, real control, real store
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0548
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-audio.e2e.test.ts`.
+Expected Result: List shows the text beside each clip and no identity; play serves the bytes of the file; deleting one role answers done, the list then shows that role deleted (text unchanged), play of it is 410 `audio_deleted` and the other role still plays; a running session is 409 `session_live` from the list and from the transcript call while an ended session's transcript reads; a legacy cookie is 403 on all three routes with zero control requests and no audit line.
+Actual Result: As expected (`console-audio.e2e.test.ts` (5 tests; real `LauncherClient`, real control `createApi` with `TranscriptService` on a loopback port, real speech `AudioStore` and `AuditLog` through control's `audio-e2e-harness.ts`)). The mutation checks named in AC-0548 were run in Tasks 2, 4 and 6 and each failed a named test and was reverted: prior evidence from those reports, not re-run here. Control's own audio list does not check liveness; the list's 409 for a running session comes from the transcript call, which needs a transcribed clip with a `seq`. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0319: The slice is documented
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0549
+Type: Manual
+Preconditions: The branch checked out.
+Steps:
+  1. Read `docs/THREAT_MODEL.md` "Voice audio review panel, slice A2b-2", `docs/VOICE_RUNBOOK.md` sections 7 and 8 and item 10 of section 11, and `docs/ROLLBACK.md` "US-0090".
+  2. Run `npm run plan:generate` and `npm run plan:test`.
+Expected Result: The threat model covers the browser play path (one fetch, one audit line, no range), the transcript route (facilitator-only, no audit, bounded read), the shared-secret refusal, no identity to the browser and no-store; the runbook explains the panel, `store_unsafe` and `audit_unavailable` pending results with the operator action, and the transcript 413 and 409; the rollback entry says deploy control before web and that no data step is needed; the plan generates and its tests pass.
+Actual Result: As expected (the three documents carry those sections; `npm run plan:generate` and `npm run plan:test` results are in the Task 8 report). Each statement in them was checked against the code (the throttle values, the status codes, the caps) before it was written. 2026-11-16 (macOS arm64; the whole `pnpm -r test` run on this branch: events 102, script 229, adapters 384 (+2 skipped), voice-ops 516 (+1 skipped), runtime 4603 (+1 skipped), speech 483 (+17 skipped), web 1914, control 1721 (+1 skipped), all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8); run and recorded 2026-11-16 in the Task 8 documents pass.
+
+TC-0320: Review and delete on a real recorded session from the console (owner-run)
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0540, AC-0541, AC-0544, AC-0545, AC-0547
+Type: Manual
+Preconditions: The owner's real stack with the room test (`docs/VOICE_RUNBOOK.md` section 11 item 10): a session recorded with the real worker and at least two voice participants, the session ended, a facilitator account (not the shared secret), voice on, and `docs/THREAT_MODEL.md` "Voice audio review panel, slice A2b-2" read.
+Steps:
+  1. Open the ended session in the console. Check that the Recordings panel lists each seat's clips with the transcript line beside each (and "No transcript" for a clip that has none), and that the text is the person's own line.
+  2. Play three clips, one after another, and double-click one. Check `<logIdentity>.audio-audit.jsonl`: one `audio.played` line per fetch, with the account's `<name>-console` name, no text and no path.
+  3. Delete one seat's audio with "Participant asked", read the confirmation first (count, minutes and seconds, cannot be undone), then delete all the rest. Check the panel after each, the `audio.deleted` lines in the audit file (reason, scope, by, op), that the WAVs are gone and the session log is unchanged.
+  4. Make the audit file unwritable once, try a delete and confirm the panel says some recordings could not be deleted, shows Retry and does not mark the clips deleted; restore the file and retry.
+  5. Sign in once with the shared secret and confirm the panel asks for an account and lists nothing.
+Expected Result: The panel matches the audit file line for line; nothing is shown as deleted that is still playable; a failed audit leaves the audio playable and the panel says so; the shared-secret sign-in reaches no audio.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-2. The owner runs it with the room test, after TC-0242.
+
+TC-0321: A real browser plays a clip under the page CSP (owner-run)
+Related Story: US-0090
+Related Task: TASK-0142
+Related AC: AC-0546, AC-0547
+Type: Manual
+Preconditions: The same stack as TC-0320, in each browser the pilot will use (desktop Chrome, Safari and Firefox at least), the web app served with its real headers.
+Steps:
+  1. Open an ended session's Recordings panel and press Play on a clip.
+  2. Watch the browser console and network panel while it plays: there must be no Content Security Policy error for `media-src` or the blob URL, and exactly one request to the play route per press.
+  3. Press Play on a second clip while the first is playing and confirm the first stops and only the second plays. Reload the page, play again, and confirm the browser did not serve the clip from its cache (the response is `no-store`).
+Expected Result: The clip is heard in every browser, with no CSP violation reported, one play request per press and nothing served from the cache.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-16 (Task 8). Not run by the agents: jsdom cannot play audio or enforce a CSP, so the header is asserted in `headers.test.ts` (TC-0316) but a blob URL played under it is unproven. If a browser blocks it, the fix is in `apps/web/src/server/headers.ts` (`media-src`).

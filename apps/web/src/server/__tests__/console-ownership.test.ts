@@ -63,7 +63,9 @@ async function sessionRoutes(): Promise<RouteCase[]> {
 
 /** Fills the path's dynamic segments: the session id, and a well-formed value for every other one. */
 function urlFor(template: string, sid: string): string {
-  return ORIGIN + template.replace("[id]", sid).replace("[roleId]", "alice").replace("[role]", "alice").replace("[subject]", "group");
+  const url = ORIGIN + template.replace("[id]", sid).replace("[roleId]", "alice").replace("[role]", "alice").replace("[subject]", "group");
+  // A2b-2: the play route takes its clip in the query (a request without one is a 404 before control, which would hide the ownership check).
+  return template.endsWith("/audio/play") ? `${url}?role=alice&segment=seg-1` : url;
 }
 function requestFor(c: RouteCase, sid: string, cookie: string): Request {
   const headers = { ...SAME, Accept: "text/event-stream", Cookie: cookie };
@@ -74,6 +76,9 @@ function requestFor(c: RouteCase, sid: string, cookie: string): Request {
 
 /** Routes that are for admins only: a facilitator is refused 403 there whatever the session. */
 const ADMIN_ONLY = new Set(["sessions/[id]/owner"]);
+
+/** A2b-2: routes that name the signed-in account in an audit trail: a legacy (shared secret) sign-in is refused 403 there, before any call. */
+const ACCOUNT_ONLY = new Set(["sessions/[id]/audio", "sessions/[id]/audio/play", "sessions/[id]/audio/delete"]);
 
 // ---- deps whose every side effect is observable ----
 
@@ -138,7 +143,7 @@ describe("console route table", () => {
       "POST sessions/[id]/report/open", "POST sessions/[id]/report/release", "POST sessions/[id]/report/resolve", "GET sessions/[id]/report/subjects/[subject]",
       "POST sessions/[id]/report/subjects/[subject]/accept", "POST sessions/[id]/report/subjects/[subject]/amend", "POST sessions/[id]/report/subjects/[subject]/comment",
       "POST sessions/[id]/report/subjects/[subject]/edit", "POST sessions/[id]/report/subjects/[subject]/edit-summary", "POST sessions/[id]/report/subjects/[subject]/withdraw",
-      "GET sessions/[id]/report-links", "POST sessions/[id]/report-links", "POST sessions/[id]/report-links/[role]", "POST sessions/[id]/owner",
+      "GET sessions/[id]/audio", "GET sessions/[id]/audio/play", "POST sessions/[id]/audio/delete", "GET sessions/[id]/report-links", "POST sessions/[id]/report-links", "POST sessions/[id]/report-links/[role]", "POST sessions/[id]/owner",
     ]) expect(found).toContain(r);
   });
 });
@@ -186,13 +191,17 @@ describe("ownership on every console route that takes a session id", () => {
   it("test_console_ownership_admin_can_use_any_session", async () => {
     for (const c of await sessionRoutes()) {
       const label = `${c.method} ${c.file}`;
-      for (const [cookie, sid] of [[accountCookie(ADMIN), SID_OTHER], [accountCookie(ADMIN), SID_MINE], [legacyCookie("Ann"), SID_OTHER], [legacyCookie("Ann"), SID_UNOWNED]] as const) {
+      for (const [cookie, sid, legacy] of [[accountCookie(ADMIN), SID_OTHER, false], [accountCookie(ADMIN), SID_MINE, false], [legacyCookie("Ann"), SID_OTHER, true], [legacyCookie("Ann"), SID_UNOWNED, true]] as const) {
         const deps = spiedDeps();
         install(deps);
         const res = await c.handler(requestFor(c, sid, cookie));
         expect(res.status, `${label} ${sid}`).not.toBe(404);
         expect(res.status, `${label} ${sid}`).not.toBe(401);
-        expect(res.status, `${label} ${sid}`).not.toBe(403);
+        if (ACCOUNT_ONLY.has(c.file) && legacy) {
+          // a legacy cookie is signed in (not 401), but refused 403 account_required and no audio call is made
+          expect(res.status, `${label} ${sid}`).toBe(403);
+          expect(deps.calls, `${label} ${sid}`).toEqual([]);
+        } else expect(res.status, `${label} ${sid}`).not.toBe(403);
       }
     }
   });

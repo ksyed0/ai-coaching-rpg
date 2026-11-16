@@ -191,6 +191,46 @@ export const REPORT_REFUSALS = {
 } as const;
 export type ReportRefusal = keyof typeof REPORT_REFUSALS;
 
+/**
+ * A2b-2: the audio panel's refusals, one fixed sentence per closed code (control's codes: services/control/src/voice/audio-routes.ts and
+ * transcript.ts, plus the BFF's own). Its own map: `say()` in the report handlers is typed to REPORT_REFUSALS. Control's text never shows.
+ */
+export const AUDIO_REFUSALS = {
+  account_required: "Sign in with your own account to listen to or delete recordings.",
+  session_live: "The session is still running. Recordings can be opened after it ends.",
+  audio_deleted: "That recording was deleted.",
+  audit_unavailable: "The action could not be logged, so nothing was played or deleted. Ask the operator.",
+  store_unsafe: "The recording store could not be used safely, so nothing was played or deleted. Ask the operator.",
+  delete_pending: "Some recordings could not be deleted yet. Nothing below is marked as deleted until it is confirmed. Try again.",
+  invalid: "That request could not be read.",
+  busy: "The recordings are busy. Try again in a moment.",
+  unavailable: "Recordings are not available right now. Try again.",
+  timeout: "The recording service took too long to answer. Try again.",
+  generic: "That action is not possible right now.",
+  rate_limited: "Too many requests. Wait a minute and try again.",
+} as const;
+export type AudioRefusal = keyof typeof AUDIO_REFUSALS;
+
+/** A2b-2: the Recordings panel's own copy (components/console/AudioPanel). Refusals come from AUDIO_REFUSALS. */
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+export const AUDIO_CONSOLE = {
+  heading: "Recordings",
+  logged: "Each play is logged.",
+  none: "No recordings.",
+  stillEnding: "The session is still ending. Try again in a moment.",
+  needsAccount: "Sign in with your own account to hear or delete recordings.",
+  textUnavailable: "Transcripts are unavailable right now.",
+  tooLongForText: "The transcript is too long to show. The clips are still listed.",
+  noTranscript: "No transcript",
+  audioDeleted: "Audio deleted",
+  audioMissing: "Audio missing",
+  confirmSession: (n: number, ms: number) => `This permanently deletes ${plural(n, "clip", "clips")} (${Math.floor(ms / 60000)} min ${Math.floor((ms % 60000) / 1000)} s). It cannot be undone.`,
+  confirmRole: (n: number, ms: number, who: string) => `This permanently deletes ${plural(n, "clip", "clips")} from ${who} (${Math.floor(ms / 60000)} min ${Math.floor((ms % 60000) / 1000)} s). It cannot be undone.`,
+  reasonLabel: { facilitator: "Facilitator decision", participant_request: "Participant asked" },
+  pendingReason: { busy: "try again", store_unsafe: "needs the operator", audit_unavailable: "needs the operator" },
+  deleted: (n: number) => `Deleted ${plural(n, "clip", "clips")}.`,
+} as const;
+
 /** The facilitator's Report panel (components/console/report): its own fixed sentences. Control's text is never shown. */
 export const REPORT_CONSOLE = {
   nameLabel: "Your name for the review record",

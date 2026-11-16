@@ -9,6 +9,7 @@ import { focusFallback } from "./ConfirmDialog";
 import { ConsoleControls } from "./ConsoleControls";
 import { LiveView } from "./LiveView";
 import { Readiness, type SessionStatus } from "./Readiness";
+import { AudioPanel } from "./AudioPanel";
 import { ReportLinksPanel } from "./ReportLinksPanel";
 import { ReportPanel } from "./report/ReportPanel";
 
@@ -83,6 +84,7 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
         <>
           <ReportPanel sessionId={sessionId} fetch={resolved.fetch} {...(deps.setTimer ? { setTimer: deps.setTimer } : {})} />
           <ReportLinksPanel sessionId={sessionId} fetch={resolved.fetch} />
+          <AudioPanel sessionId={sessionId} fetch={resolved.fetch} roster={ui.roster} />
         </>
       ) : null}
       {mode === "live" ? (
