@@ -133,7 +133,9 @@ export const COMMAND_ANSWERS = {
   unknown_fact: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   // A3A: fixed copy shared with the console page (MESSAGES.consoleMuteVoiceOff / consoleMuteForbidden; a test keeps them equal).
   voice_off: { status: 409, code: "voice_off", message: "Voice is not on in this session, so there is nothing to mute." },
-  forbidden: { status: 409, code: "forbidden", message: "Only the facilitator can mute a seat." },
+  // `forbidden` applies to every command kind. For mute_seat it means a seat that is not a person's (an AI or non-human seat); the runtime
+  // also sends it to a non-facilitator socket, which the facilitator hub never is.
+  forbidden: { status: 409, code: "forbidden", message: "That seat is not a person's seat, so it cannot be muted." },
   rate_limited: { status: 429, code: "rate_limited", message: "Too many actions at once. Wait a moment and try again." },
   other: { status: 502, code: "command_failed", message: "The session could not take that action. Check the live view, then try again." },
   unconfirmed: { status: 504, code: "command_unconfirmed", message: "The session did not confirm the action. Check the live view before you try again." },

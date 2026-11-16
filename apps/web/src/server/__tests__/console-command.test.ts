@@ -260,7 +260,7 @@ describe("the command route", () => {
     ["npc_role", { kind: "refused", code: "npc_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["unknown_fact", { kind: "refused", code: "unknown_fact" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["voice_off", { kind: "refused", code: "voice_off" }, 409, "voice_off", "Voice is not on in this session, so there is nothing to mute."],
-    ["forbidden", { kind: "refused", code: "forbidden" }, 409, "forbidden", "Only the facilitator can mute a seat."],
+    ["forbidden", { kind: "refused", code: "forbidden" }, 409, "forbidden", "That seat is not a person's seat, so it cannot be muted."],
     ["not_ai_role", { kind: "refused", code: "not_ai_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["paused", { kind: "refused", code: "paused" }, 409, "paused", "The session is paused. Resume it before you prompt an AI player."],
     ["not_in_scene", { kind: "refused", code: "not_in_scene" }, 409, "not_in_scene", "That AI player is not in the current scene."],
@@ -386,6 +386,12 @@ describe("mute_seat (A3A)", () => {
     expect((await json(await command(body))).error).toEqual({ code: "conflict", message: "That action is not possible in the session's current state." });
     send.mockResolvedValueOnce({ kind: "refused", code: "ended" });
     expect((await json(await command(body))).error).toEqual({ code: "ended", message: "The session has ended." });
+  });
+  it("a runtime rate_limited on mute_seat is 429 with the shared copy, like the other kinds", async () => {
+    send.mockResolvedValueOnce({ kind: "refused", code: "rate_limited" });
+    const res = await command(body);
+    expect(res.status).toBe(429);
+    expect((await json(res)).error).toEqual({ code: "rate_limited", message: COMMAND_ANSWERS.rate_limited.message });
   });
   it("the fixed sentences equal the page's copy", () => {
     expect(COMMAND_ANSWERS.voice_off.message).toBe(MESSAGES.consoleMuteVoiceOff);

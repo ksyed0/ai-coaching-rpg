@@ -667,15 +667,43 @@ describe("StreamHub voice (US-0071)", () => {
     expect(timers.live().filter((t) => t.ms !== 15_000)).toEqual([]);
   });
 
-  it("voice_opt_in resolves with the voice frame, which is not also written to the stream", async () => {
+  it("voice_opt_in resolves with the voice frame, which is also written to the stream (A3A)", async () => {
     const { h, timers } = hub();
     const { conn, rec } = opened(h);
     conn.answer = (m) => (m.type === "voice_opt_in" ? { type: "voice", state: "voice", muted: false } : null);
     const r = await h.send(cookieFor(), { type: "voice_opt_in", noticeVersion: "v3" });
     expect(r).toEqual({ type: "voice", state: "voice", muted: false });
     expect(conn.sent).toEqual([{ type: "voice_opt_in", noticeVersion: "v3" }]);
-    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined", "voice"]);
+    expect(rec.frames()[2]!.data).toEqual({ state: "voice", muted: false });
     expect(timers.live().filter((t) => t.ms !== 15_000)).toEqual([]);
+  });
+
+  it("(a) a facilitator push before the answer to voice_opt_in: both reach the stream in order (A3A)", async () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.answer = (m) => {
+      if (m.type !== "voice_opt_in") return null;
+      conn.emit({ type: "voice", state: "none", muted: true, mutedBy: "facilitator" } as never);
+      return { type: "voice", state: "voice", muted: true, mutedBy: "facilitator" } as never;
+    };
+    await h.send(cookieFor(), { type: "voice_opt_in", noticeVersion: "v3" });
+    expect(rec.frames().slice(2)).toEqual([
+      { event: "voice", data: { state: "none", muted: true, mutedBy: "facilitator" } },
+      { event: "voice", data: { state: "voice", muted: true, mutedBy: "facilitator" } },
+    ]);
+  });
+
+  it("(b) a facilitator unmute push before the answer to voice_mute{false}: both reach the stream in order (A3A)", async () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.answer = (m) => {
+      if (m.type !== "voice_mute") return null;
+      conn.emit({ type: "voice", state: "voice", muted: true } as never);
+      return { type: "voice", state: "voice", muted: false } as never;
+    };
+    await h.send(cookieFor(), { type: "voice_mute", muted: false });
+    expect(rec.frames().slice(2).map((f) => f.data)).toEqual([{ state: "voice", muted: true }, { state: "voice", muted: false }]);
   });
 
   it("voice_opt_out and voice_mute resolve with their voice frame", async () => {

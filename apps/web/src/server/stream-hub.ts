@@ -254,10 +254,11 @@ export class StreamHub {
       if (w && w.accepts.includes(m.code)) { w.done(m); return; }
       this.write(s, sse("error", { code: m.code, message: ERROR_MESSAGE }));
     } else if (m.type === "voice") {
-      // US-0071: the answer to this player's own waiting voice send. A3A: with no voice send waiting it is the runtime's own push (the
-      // facilitator muted or unmuted this seat), forwarded as a named event picked field by field.
+      // A3A: EVERY voice frame is written to the stream, in socket order: each is a full snapshot of this seat's voice, so the SSE `voice`
+      // event is the page's ordered truth. A facilitator's push can land before the answer to a send in flight; if the push were taken as
+      // that answer the page would read an older state. The HTTP answer (a waiting voice send's frame) only confirms or refuses.
       const w = s.waiter;
-      if (w?.voice) { w.done(m); return; }
+      if (w?.voice) w.done(m);
       if (isVoiceState(m.state)) {
         const out: Record<string, unknown> = { state: m.state };
         if (typeof m.muted === "boolean") out.muted = m.muted;

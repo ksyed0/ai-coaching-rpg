@@ -142,7 +142,7 @@ export const MESSAGES = {
   voiceMutedByFacilitator: "The facilitator has muted your microphone.",
   // A3A: equal COMMAND_ANSWERS.voice_off and .forbidden in src/server/console-command.ts (a test keeps them together).
   consoleMuteVoiceOff: "Voice is not on in this session, so there is nothing to mute.",
-  consoleMuteForbidden: "Only the facilitator can mute a seat.",
+  consoleMuteForbidden: "That seat is not a person's seat, so it cannot be muted.",
 } as const;
 
 /**
