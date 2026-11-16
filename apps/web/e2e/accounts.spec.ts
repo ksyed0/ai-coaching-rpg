@@ -92,8 +92,8 @@ async function facilitatorSignedIn(browser: Browser, s: LauncherStack, who: type
   await expectForcedChange(page);
   await changePassword(page, temp, who.password);
   await expect(page.getByText(`Signed in as ${who.name}`)).toBeVisible();
-  // A facilitator sees neither the Admin link nor any owner.
-  await expect(page.getByRole("link", { name: "Admin", exact: true })).toHaveCount(0);
+  // A facilitator sees neither the Facilitator accounts link nor any owner.
+  await expect(page.getByRole("link", { name: "Facilitator accounts", exact: true })).toHaveCount(0);
   await expect(page.getByRole("columnheader", { name: "Owner" })).toHaveCount(0);
   return page;
 }
@@ -173,7 +173,7 @@ test("accounts: the default admin, two facilitators, ownership, a revoke that en
 
   // 1. The default admin signs in with the default password and must change it first.
   const admin = await adminSignedIn(browser, s);
-  await expect(admin.getByRole("link", { name: "Admin", exact: true })).toBeVisible();
+  await expect(admin.getByRole("link", { name: "Facilitator accounts", exact: true })).toBeVisible();
   // The default password no longer works.
   const stale = await newPage(browser);
   await accountSignIn(stale, s.baseUrl, DEFAULT_ADMIN.login, DEFAULT_ADMIN.password);
@@ -192,7 +192,7 @@ test("accounts: the default admin, two facilitators, ownership, a revoke that en
   ).toEqual([]);
 
   // 3. The admin creates two facilitators; each temporary password is shown once.
-  await admin.getByRole("link", { name: "Admin", exact: true }).click();
+  await admin.getByRole("link", { name: "Facilitator accounts", exact: true }).click();
   await admin.waitForURL((u) => u.pathname === "/console/admin");
   const temp1 = await createAccount(admin, FAC1);
   await expect(accountRow(admin, FAC1.name).locator("td").nth(2)).toHaveText("Invited");

@@ -105,6 +105,31 @@ describe("FacilitatorsPanel", () => {
     expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain(PW);
   });
 
+  // Final review T9 M4 (WCAG 2.4.3): the dismissed panel took the focus with it; the focus goes to the "New facilitator" heading.
+  it("test_facilitators_panel_dismiss_moves_focus_to_the_new_facilitator_heading", async () => {
+    mount();
+    await screen.findByText("Aria Active");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Dana Cook" } });
+    fireEvent.change(screen.getByLabelText("Email (their login)"), { target: { value: "dana@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create facilitator" }));
+    await screen.findByText(PW);
+    const done = screen.getByRole("button", { name: "I have shared these" });
+    done.focus();
+    fireEvent.click(done);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "New facilitator" })));
+  });
+
+  // Final review T9 M5: the account was created even when the answer carries no temporary password: say so, and say to use Resend.
+  it("test_facilitators_panel_create_without_a_temporary_password_says_to_use_resend", async () => {
+    mount((url, body) => (url.endsWith("/admin/accounts") && body !== undefined ? { status: 200, body: ok({ account: ACCOUNTS[0] }) } : null));
+    await screen.findByText("Aria Active");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Dana Cook" } });
+    fireEvent.change(screen.getByLabelText("Email (their login)"), { target: { value: "dana@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create facilitator" }));
+    await screen.findByText("Dana Cook was added. The temporary password could not be shown: use Resend to issue a new one.");
+    expect(document.body.textContent).not.toContain("Something went wrong");
+  });
+
   it("can create an Admin, needs a name and an email, and sends nothing when they are missing", async () => {
     const m = mount();
     await screen.findByText("Aria Active");
@@ -172,12 +197,13 @@ describe("console header", () => {
   };
   it("non_admin_never_sees_the_admin_link_or_page", async () => {
     shell("admin");
-    expect(screen.getByRole("link", { name: "Admin" }).getAttribute("href")).toBe("/console/admin");
+    // final review T9 M7: the link says what the page is called
+    expect(screen.getByRole("link", { name: "Facilitator accounts" }).getAttribute("href")).toBe("/console/admin");
     cleanup();
     shell("facilitator");
-    expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Facilitator accounts" })).toBeNull();
     cleanup();
     shell("admin", true); // a legacy shared-secret sign-in: the admin routes refuse it, so no link
-    expect(screen.queryByRole("link", { name: "Admin" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Facilitator accounts" })).toBeNull();
   });
 });

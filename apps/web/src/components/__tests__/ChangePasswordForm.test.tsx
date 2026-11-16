@@ -73,6 +73,8 @@ describe("ChangePasswordForm", () => {
     [400, "weak_password", /longer password/],
     [429, "rate_limited", /Too many attempts/],
     [401, "unauthorized", /sign-in ended/],
+    // final review IMPORTANT 3: a right but expired temporary password says so, not "sign-in ended" or "not right"
+    [401, "login_expired", /^This temporary password has expired\. Ask an administrator for a new one\.$/],
     [502, "launcher_unavailable", /cannot be reached/],
   ])("a %i %s answer reads plainly, clears the fields and does not finish", async (status, code, text) => {
     const f = answering(status, refused(code, "x"));

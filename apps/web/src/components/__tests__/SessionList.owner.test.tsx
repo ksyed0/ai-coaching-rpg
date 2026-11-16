@@ -103,6 +103,41 @@ describe("SessionList owners", () => {
     await waitFor(() => expect(select.options[select.selectedIndex]!.textContent).toBe("Unknown account"));
   });
 
+  // Final review T9 M1: the select still shows a revoked or unknown owner (the truth), but an Assign that changes nothing does not post an
+  // owner that cannot own sessions (that could only be refused 400): it asks for an active account or Unassigned instead.
+  for (const owner of ["acc_old", "acc_gone"]) {
+    it(`test_session_list_owner_assign_without_a_change_never_posts_a_${owner === "acc_old" ? "revoked" : "unknown"}_owner`, async () => {
+      const m = mount("admin", undefined, [{ sessionId: "dddddddd44444444", scenarioId: "x", status: "running", owner }]);
+      const select = (await screen.findByLabelText("Owner of session dddddddd")) as HTMLSelectElement;
+      await waitFor(() => expect(select.value).toBe(owner));
+      fireEvent.click(screen.getByRole("button", { name: "Assign session dddddddd" }));
+      await screen.findByText("Choose an active account or Unassigned, then Assign.");
+      expect(m.f.calls.filter((c) => c.url.endsWith("/owner"))).toHaveLength(0);
+    });
+  }
+
+  // Final review T9 M3: until the accounts list is known (or when it could not be read) an owned session shows a neutral dash, never
+  // "Unknown account".
+  it("test_session_list_owner_shows_a_neutral_dash_until_the_accounts_are_known", async () => {
+    for (const accountsAnswer of [null, { status: 502, body: refused("launcher_unavailable", "x") }] as const) {
+      const f = fakeFetch((url) => {
+        if (url.endsWith("/admin/accounts")) return accountsAnswer ?? { status: 200, body: ok({ accounts: ACCOUNTS }) };
+        return { status: 200, body: ok(SESSIONS) };
+      });
+      // null: the accounts answer never comes (still loading)
+      const fetchImpl = ((input: RequestInfo | URL, init?: RequestInit) =>
+        accountsAnswer === null && String(input).endsWith("/admin/accounts") ? new Promise<Response>(() => {}) : f.fetch(input, init)) as typeof fetch;
+      render(<SessionList fetch={fetchImpl} role="admin" legacy={false} />);
+      await screen.findByText("aaaaaaaa");
+      if (accountsAnswer !== null) await waitFor(() => expect(f.calls.some((c) => c.url.endsWith("/admin/accounts"))).toBe(true));
+      const rows = screen.getAllByRole("row").slice(1);
+      expect(rows[0]!.querySelector("td bdi")?.textContent).toBe("—");
+      expect(rows[1]!.querySelector("td bdi")?.textContent).toBe("Unassigned");
+      expect(document.body.textContent).not.toContain("Unknown account");
+      cleanup();
+    }
+  });
+
   it("a shared-secret (legacy) admin sees no Owner column, no Assign, makes no accounts call and gets no alert", async () => {
     const m = mount("admin", undefined, SESSIONS, true);
     await screen.findByText("aaaaaaaa");
