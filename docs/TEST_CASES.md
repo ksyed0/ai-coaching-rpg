@@ -4335,7 +4335,7 @@ Preconditions: A checkout with dependencies installed.
 Steps:
   1. Read `docs/THREAT_MODEL.md` ("Voice facilitator mute, slice A3a"), `docs/VOICE_RUNBOOK.md` (section 8 "Facilitator mute" and checklist item 11), `docs/ROLLBACK.md` ("US-0091"), `CHANGELOG.md` `[Unreleased]`, `docs/ID_REGISTRY.md`, this plan and `progress.md`.
   2. Run `npm run plan:generate`.
-Expected Result: The threat model names the residuals (a muted person can still talk, a line before the mute stays, a pre-start mute is lost by a restart before the start, no console control before the start), the runbook and rollback say a rolled-back runtime drops every mute, deploy web with or before runtime, `LOG_FORMAT` not bumped, no data step; the registry's next ids are US-0092, TASK-0144, AC-0560, TC-0333.
+Expected Result: The threat model names the residuals (a muted person can still talk, a line before the mute stays, a pre-start mute is lost by a restart before the start, no console control before the start), the runbook and rollback say a rolled-back runtime drops every mute, deploy web with or before runtime, `LOG_FORMAT` not bumped, no data step; the registry's Next row is one above each of these slices' last assigned ids.
 Actual Result: As expected (read through and generated 2026-11-16).
 Status: [x] Pass
 Defect Raised: None
