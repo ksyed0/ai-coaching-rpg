@@ -93,7 +93,7 @@ export type ServerMessage =
       /** US-0054: players only, when the server keeps seats: the notice to agree to and whether this participant has agreed. Never another role's. */
       consent?: { noticeVersion: string; notice: string; given: boolean };
       /** US-0070: players only, when voice is enabled and the server keeps seats, for a human seat: this seat's own voice state. Never another role's. */
-      voice?: { state: VoiceState; muted: boolean };
+      voice?: { state: VoiceState; muted: boolean; /** A3A: present only while the facilitator has muted this seat; never who. */ mutedBy?: "facilitator" };
       /** US-0082: an AI player seat's join only: this runtime takes the bot's `activity` reports (an older one would refuse them). */
       activity?: true }
   | { type: "event"; event: SessionEvent }
@@ -102,7 +102,8 @@ export type ServerMessage =
   | ActivityFrame
   // US-0070: answers an accepted voice_opt_in ("voice") or voice_opt_out ("text_only"), to the sender only. US-0071: an accepted
   // voice_mute answers the seat's current state; F5: every `voice` answer carries the seat's real `muted` (sent whenever voice is on).
-  | { type: "voice"; state: VoiceState; muted?: boolean }
+  // A3A: `mutedBy: "facilitator"` only while the facilitator's mute is on (the holder cannot lift it); never a name.
+  | { type: "voice"; state: VoiceState; muted?: boolean; mutedBy?: "facilitator" }
   // US-0070: why the speaker's last segment did not become a line; to that role's live socket only, never logged, never to anyone else.
   | { type: "voice_notice"; code: VoiceNoticeCode }
   // US-0055: who sits where. Each audience gets only its own frame: the facilitator's shows consent and connection, a player's only who is ready.

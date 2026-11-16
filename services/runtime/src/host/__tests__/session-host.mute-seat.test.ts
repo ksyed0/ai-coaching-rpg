@@ -267,13 +267,15 @@ describe("mute_seat lifetime and the union with the participant's own mute", () 
     expect(h.host.voiceMutedOf("tech_lead")).toBe(true); // the participant's own mute still holds
     expect(h.host.voiceMutedByOf("tech_lead")).toBeUndefined();
     expect(recording(h, "tech_lead")).toBe(false);
-    // participant's own unmute does not touch the facilitator set
+    // A3A Task 3: the participant cannot lift the facilitator's mute (muted_by_facilitator), and the refusal changes nothing
     await mute(h, "tech_lead", true);
-    h.host.muteVoice("tech_lead", "p-tech_lead", false);
+    expect(() => h.host.muteVoice("tech_lead", "p-tech_lead", false)).toThrow(expect.objectContaining({ code: "muted_by_facilitator" }));
     expect(h.host.facilitatorMutedOf("tech_lead")).toBe(true);
     expect(h.host.voiceMutedOf("tech_lead")).toBe(true);
-    // neither
+    h.host.muteVoice("tech_lead", "p-tech_lead", true); // a participant mute is still accepted
+    // neither: the facilitator lifts theirs, then the participant their own
     await mute(h, "tech_lead", false);
+    h.host.muteVoice("tech_lead", "p-tech_lead", false);
     expect(h.host.voiceMutedOf("tech_lead")).toBe(false);
     expect(recording(h, "tech_lead")).toBe(true);
     h.host.onSpeechActivity("tech_lead", true);

@@ -53,4 +53,15 @@ describe("buildRoster (US-0055)", () => {
     expect(after.facilitator[0]).not.toHaveProperty("ai");
     expect(after.peers[0]).not.toHaveProperty("ai");
   });
+
+  it("A3A: facilitatorMuted is on both rosters only when voice gives the lookup, and never says who muted", () => {
+    const voice = { stateOf: () => "voice" as const, speaking: new Set<string>(), facilitatorMuted: (r: string) => r === "b" };
+    const r = buildRoster({ playerRoles: ["a", "b"], assignments: { a: "p-a" }, connected: new Set(["a"]), voice });
+    expect(r.facilitator.map((e) => e.facilitatorMuted)).toEqual([false, true]);
+    expect(r.peers.map((e) => e.facilitatorMuted)).toEqual([false, true]);
+    expect(r.peers[1]).not.toHaveProperty("voice");
+    const off = buildRoster({ playerRoles: ["a"], assignments: {}, connected: new Set() });
+    expect(off.facilitator[0]).not.toHaveProperty("facilitatorMuted");
+    expect(off.peers[0]).not.toHaveProperty("facilitatorMuted");
+  });
 });

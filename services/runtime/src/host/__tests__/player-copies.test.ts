@@ -38,6 +38,7 @@ const TODAYS_PLAYER_SNAPSHOT = {
   ],
   injectsFired: [], npcs: {}, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, aiRoles: [],
   whispers: [], // BUG-0023: the one deliberate addition since the pin was taken; empty without a whisper
+  facilitatorMutedSeats: [], // A3A: role ids only (the same labels the mute_seat event carries to every player); empty without a mute
 };
 
 const events = (engine: SessionEngine): SessionEvent[] => {
@@ -180,5 +181,28 @@ describe("player copies (a new field is denied until it is listed)", () => {
     const cmd = r.events.find((e) => e.type === "facilitator.command");
     expect(Object.keys(cmd!).sort()).toEqual(["command", "seq", "sessionId", "ts", "type"]);
     expect(events(engine).length).toBeGreaterThan(r.events.length - 1);
+  });
+
+  it("A3A: a mute_seat reaches every player as exactly command, roleId and muted (no by, no name), and for either seat", async () => {
+    const { host, engine } = await running();
+    const base = find(engine, "facilitator.command");
+    const mute = { ...base, command: "mute_seat", roleId: "guest", muted: true, by: "Alex", note: "LEAK-N" } as unknown as SessionEvent;
+    for (const who of ["host", "guest"]) {
+      const v = host.viewFor(who, mute);
+      expect(Object.keys(v!).sort()).toEqual(["command", "muted", "roleId", "seq", "sessionId", "ts", "type"]);
+      expect(v).toMatchObject({ command: "mute_seat", roleId: "guest", muted: true });
+      expect(JSON.stringify(v)).not.toMatch(/Alex|LEAK|"by"/);
+    }
+    expect(Object.keys(commandForPlayer({ ...mute, muted: false } as never, "host")!).sort()).toEqual(["command", "muted", "roleId", "seq", "sessionId", "ts", "type"]);
+  });
+
+  it("A3A: the player snapshot lists the muted seats by role id and carries no name", async () => {
+    const { host, engine } = await running();
+    const s = reduce(engine.state, { ...find(engine, "facilitator.command"), seq: engine.state.lastSeq + 1, command: "mute_seat", roleId: "guest", muted: true, by: "Alex" } as unknown as SessionEvent);
+    const snap = snapshotForPlayer(s, "host");
+    expect(snap.facilitatorMutedSeats).toEqual(["guest"]);
+    expect(JSON.stringify(snap)).not.toContain("Alex");
+    expect(host.snapshotFor("host").facilitatorMutedSeats).toEqual([]);
+    expect(Object.hasOwn(initialState(), "facilitatorMutedSeats")).toBe(true);
   });
 });

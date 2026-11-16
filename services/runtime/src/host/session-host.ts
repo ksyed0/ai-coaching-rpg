@@ -32,7 +32,7 @@ export const MAX_REPLAY_BYTES = 256 * 1024;
  */
 export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
 
-export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined" | "starting" | "ai_notice" | "voice_off" | "forbidden" | "voice_notice_required" | "failed";
+export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined" | "starting" | "ai_notice" | "voice_off" | "forbidden" | "voice_notice_required" | "muted_by_facilitator" | "failed";
 
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
@@ -104,6 +104,8 @@ export class SessionHost {
   private lastAnsweredVoiceSeq = 0;
   private readonly voiceTurnListeners = new Set<(open: boolean) => void>();
   private readonly voiceNoticeListeners = new Set<(roleId: string, code: VoiceNoticeCode) => void>();
+  /** A3A: told the role whenever whether the facilitator has muted a seat changes (a mute on receipt, its rollback, an applied unmute). */
+  private readonly facilitatorMuteListeners = new Set<(roleId: string) => void>();
   /** US-0070: when each `role\ncode` notice and each alert code was last sent (host clock), for the rate limits. */
   private readonly noticeSentAt = new Map<string, number>();
   private readonly alertSentAt = new Map<VoiceAlertCode, number>();
@@ -535,6 +537,8 @@ export class SessionHost {
     if (!this.voice.enabled) throw new HostError("voice_off");
     if (this.isAiRole(roleId)) throw new HostError("forbidden");
     if (!this.holds(roleId, participantId) || !this.hasPlayerRole(roleId)) throw new HostError("not_joined");
+    // A3A: only the facilitator lifts the facilitator's mute; the holder may still mute (that can only stop recording).
+    if (!muted && this.facilitatorMutedOf(roleId)) throw new HostError("muted_by_facilitator");
     if (muted) this.voiceMuted.add(roleId); else this.voiceMuted.delete(roleId);
     this.noteVoiceSeats();
   }
@@ -549,6 +553,9 @@ export class SessionHost {
   facilitatorMutedOf(roleId: string): boolean {
     return (this.mutesInFlight.get(roleId) ?? 0) > 0 || this.engine.state.facilitatorMutedSeats.includes(roleId) || (!this.started && this.preStartMutes.has(roleId));
   }
+
+  /** A3A: `fn(roleId)` is called when whether the facilitator has muted that seat changed; the server then sends the holder a `voice` frame. */
+  onFacilitatorMuteChanged(fn: (roleId: string) => void): () => void { this.facilitatorMuteListeners.add(fn); return () => { this.facilitatorMuteListeners.delete(fn); }; }
 
   /** A3A: who muted the seat when the facilitator did (`"facilitator"`), else undefined (the holder's own mute, or none). */
   voiceMutedByOf(roleId: string): "facilitator" | undefined { return this.facilitatorMutedOf(roleId) ? "facilitator" : undefined; }
@@ -1005,7 +1012,8 @@ export class SessionHost {
 
   async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string; by?: string } = {}): Promise<void> {
     const by = cleanFacilitatorLabel(opts.by);
-    if (cmd.command === "mute_seat") return this.muteSeat(cmd, { ...(opts.expectSceneId !== undefined ? { expectSceneId: opts.expectSceneId } : {}), ...(by !== undefined ? { by } : {}) });
+    // A3A (R6): a stale scene ref must never refuse a privacy action, so `expectSceneId` is dropped for a mute.
+    if (cmd.command === "mute_seat") return this.muteSeat(cmd, by !== undefined ? { by } : {});
     await this.engine.command(cmd, { ...(opts.expectSceneId !== undefined ? { expectSceneId: opts.expectSceneId } : {}), ...(by !== undefined ? { by } : {}) });
     if (cmd.command === "resume" && this.pendingAnswer !== null && !this.engine.state.paused) {
       const sceneId = this.pendingAnswer;
@@ -1027,13 +1035,21 @@ export class SessionHost {
    * if it is refused or its append fails; an unmute applies only once its append succeeded. C6: before the start it is held in memory and
    * written after session.started. C9: no Game Master tick follows (a mute is not a game turn).
    */
-  private async muteSeat(cmd: StartMute["cmd"], opts: { expectSceneId?: string; by?: string }): Promise<void> {
+  private async muteSeat(cmd: StartMute["cmd"], opts: { by?: string }): Promise<void> {
     const { roleId, muted } = cmd;
     if (!this.voice.enabled) throw new HostError("voice_off");
     if (!Object.hasOwn(this.scenario.roles, roleId)) throw new HostError("unknown_role");
     if (!this.hasPlayerRole(roleId) || this.isAiRole(roleId)) throw new HostError("forbidden");
     if (this.engine.state.status === "ended") throw new EngineError("ended");
-    if (muted) { this.mutesInFlight.set(roleId, (this.mutesInFlight.get(roleId) ?? 0) + 1); this.noteVoiceSeats(); }
+    // The holder is told (a `voice` frame) only when whether the seat is facilitator-muted really changes.
+    let told = this.facilitatorMutedOf(roleId);
+    const tell = (): void => {
+      const now = this.facilitatorMutedOf(roleId);
+      if (now === told) return;
+      told = now;
+      for (const fn of this.facilitatorMuteListeners) { try { fn(roleId); } catch (err) { this.safeLog(`facilitator mute listener: ${errorName(err)}`); } }
+    };
+    if (muted) { this.mutesInFlight.set(roleId, (this.mutesInFlight.get(roleId) ?? 0) + 1); this.noteVoiceSeats(); tell(); }
     try {
       // A start in flight decides which path this takes: once session.started is on disk the log records the command.
       if (this.starting !== null) await this.starting.catch(() => undefined);
@@ -1046,6 +1062,7 @@ export class SessionHost {
     } finally {
       if (muted) { const n = (this.mutesInFlight.get(roleId) ?? 1) - 1; if (n > 0) this.mutesInFlight.set(roleId, n); else this.mutesInFlight.delete(roleId); }
       this.noteVoiceSeats(); // the applied unmute, or a rolled-back mute, is reported again (coalesced; never throws)
+      tell();
     }
   }
 

@@ -54,8 +54,8 @@ export type SessionState = {
   facilitatorMutedSeats: string[];
 };
 
-/** A snapshot a player may hold: everything but the facilitator-only fields (TODO(A3A Task 3): facilitatorMutedSeats is omitted for now, Task 3 projects it); `whispers` is the player's own list. */
-export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers" | "whisperFloor" | "facilitatorMutedSeats"> & { whispers: Whisper[] };
+/** A snapshot a player may hold: everything but the facilitator-only fields; facilitatorMutedSeats is role ids only, the labels the mute_seat event gives every player; `whispers` is the player's own list. */
+export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers" | "whisperFloor"> & { whispers: Whisper[] };
 
 /** Reads with Object.hasOwn and returns a new record, so a role id such as "__proto__" or "constructor" is an ordinary own key (a computed key defines, it never sets the prototype). */
 function withTalk(talk: SessionState["talk"], roleId: string, text: string): SessionState["talk"] {
