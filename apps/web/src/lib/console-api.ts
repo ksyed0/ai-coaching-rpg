@@ -1,7 +1,7 @@
 import { REPORT_SENTENCES, isFileSafeId } from "@acr/events";
 import { getJson, postForFile, postJson, type ApiResult } from "./api";
 import { pickVoice } from "./console-voice";
-import { MESSAGES, REPORT_CONSOLE, REPORT_REFUSALS, type ReportRefusal } from "./messages";
+import { AUDIO_REFUSALS, MESSAGES, REPORT_CONSOLE, REPORT_REFUSALS, type AudioRefusal, type ReportRefusal } from "./messages";
 
 // What the console pages know about the BFF's answers. Everything from the network is untrusted: shapes are checked here and text is
 // shown as text. The server's own message is never shown; every failure maps to one of these sentences.
@@ -499,3 +499,88 @@ export const resolveDispute = (sessionId: string, b: { seq: number; outcome: Res
 /** The export is a POST (it records the export first); the answer is the Markdown text to save, never to render. */
 export const exportReport = (sessionId: string, b: { subject: string; audience: "facilitator" | `participant:${string}`; by: string }, f?: typeof fetch) =>
   postForFile(`${reportPath(sessionId)}/export`, b, f);
+
+// ---- A2b-2: the Recordings panel's calls. The browser needs no identity, participant id or seq: a clip is addressed by role and segment. ----
+
+export type ClipView = { role: string; segment: string; startMs: number; endMs: number; status: string; audio: "available" | "deleted" | "missing"; text?: string };
+export type AudioListView = { recordingStopped: boolean; clips: ClipView[]; textUnavailable: boolean; tooLongForText: boolean };
+export type AudioFailed = { ok: false; code: string };
+export type DeleteView = { state: "done" | "pending" | "live" | "refused" | "failed"; deleted: number; pending: { reason: string }[]; code?: string };
+export type DeleteScope = { kind: "session" } | { kind: "role"; role: string };
+
+const audioPath = (sessionId: string) => `/api/v1/console/sessions/${encodeURIComponent(sessionId)}/audio`;
+
+function parseClip(v: unknown): ClipView | null {
+  const o = obj(v);
+  const audio = pick(["available", "deleted", "missing"] as const, o?.audio);
+  if (!o || !str(o.role) || !str(o.segment) || !count(o.startMs) || !count(o.endMs) || !str(o.status) || !audio || !(o.text === undefined || str(o.text))) return null;
+  return { role: o.role, segment: o.segment, startMs: o.startMs, endMs: o.endMs, status: o.status, audio, ...(o.text !== undefined ? { text: o.text } : {}) };
+}
+
+export function parseAudioList(v: unknown): AudioListView | null {
+  const o = obj(v);
+  if (!o || typeof o.recordingStopped !== "boolean") return null;
+  const clips = each(o.clips, parseClip);
+  const flag = (x: unknown) => x === undefined || typeof x === "boolean";
+  if (!clips || !flag(o.textUnavailable) || !flag(o.tooLongForText)) return null;
+  return { recordingStopped: o.recordingStopped, clips, textUnavailable: o.textUnavailable === true, tooLongForText: o.tooLongForText === true };
+}
+
+/** A network failure and an unknown answer alike are "unavailable"; the BFF's own closed code otherwise. */
+const codeOf = (r: Extract<ApiResult, { ok: false }>): string => (r.status === 0 ? "unavailable" : r.code);
+
+export async function fetchAudioList(f: typeof fetch, sessionId: string): Promise<{ ok: true; data: AudioListView } | AudioFailed> {
+  const r = await getJson(audioPath(sessionId), f);
+  if (!r.ok) return { ok: false, code: codeOf(r) };
+  const data = parseAudioList(r.data);
+  return data ? { ok: true, data } : { ok: false, code: "invalid" };
+}
+
+/** The clip's WAV as a Blob. Not JSON: a success must be `audio/wav`; a failure is the usual envelope. */
+export async function playClip(f: typeof fetch, sessionId: string, role: string, segment: string): Promise<{ ok: true; blob: Blob } | AudioFailed> {
+  let res: Response;
+  try {
+    res = await f(`${audioPath(sessionId)}/play?role=${encodeURIComponent(role)}&segment=${encodeURIComponent(segment)}`, { method: "GET", cache: "no-store", credentials: "same-origin" });
+  } catch {
+    return { ok: false, code: "unavailable" };
+  }
+  if (res.ok) {
+    if ((res.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase() !== "audio/wav") return { ok: false, code: "invalid" };
+    try { return { ok: true, blob: new Blob([await res.arrayBuffer()], { type: "audio/wav" }) }; } catch { return { ok: false, code: "unavailable" }; }
+  }
+  let code = "unknown";
+  try {
+    const e = obj(await res.json());
+    const c = obj(e?.error)?.code;
+    if (str(c)) code = c;
+  } catch { /* not an envelope */ }
+  return { ok: false, code };
+}
+
+function parseDeleteBody(v: unknown): { deleted: number; pending: { reason: string }[] } | null {
+  const o = obj(v);
+  if (!o || !count(o.deleted)) return null;
+  const pending = each(o.pending, (x) => { const p = obj(x); return p && str(p.reason) ? { reason: p.reason } : null; });
+  return pending ? { deleted: o.deleted, pending } : null;
+}
+
+/** The audited delete. A 503 or 409 that carries the partial result is a state (`pending`, `live`), never an error: what was not deleted is shown. */
+export async function deleteAudio(f: typeof fetch, sessionId: string, scope: DeleteScope, reason: "facilitator" | "participant_request"): Promise<DeleteView> {
+  const r = await postJson(`${audioPath(sessionId)}/delete`, { scope, reason }, f);
+  if (r.ok) {
+    const b = parseDeleteBody(r.data);
+    const state = obj(r.data)?.state;
+    return b && state === "done" ? { state: "done", ...b } : { state: "failed", deleted: 0, pending: [], code: "invalid" };
+  }
+  const code = codeOf(r);
+  const b = parseDeleteBody(r.data);
+  if (b && r.status === 503) return { state: "pending", ...b, code };
+  if (b && r.status === 409) return { state: "live", ...b, code };
+  const state = r.status === 401 || r.status === 403 ? "refused" : "failed";
+  return { state, deleted: 0, pending: [], code };
+}
+
+/** A failed audio call as one fixed sentence by the BFF's closed code; anything else is the generic one. */
+export function audioFailureText(code: string): string {
+  return Object.hasOwn(AUDIO_REFUSALS, code) ? AUDIO_REFUSALS[code as AudioRefusal] : AUDIO_REFUSALS.generic;
+}
