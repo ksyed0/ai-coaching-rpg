@@ -1,11 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { RosterEntry as ConsoleApiRosterEntry } from "../../lib/console-api";
 import type { SessionState } from "@acr/events";
-import { COMMAND_TIMEOUT_MS, FacilitatorHub } from "../facilitator-hub";
+import { COMMAND_TIMEOUT_MS, FacilitatorHub, outageCheckLimit, type RecheckResult } from "../facilitator-hub";
 import type { FacilitatorJoin } from "../facilitator-socket";
 import type { FacilitatorRosterEntry, JoinedFrame, ServerMessage } from "../wire";
 import type { FacilitatorRosterEntry as ClientEntry } from "../../lib/use-console-stream";
-import { sseBody } from "../sse";
+import { HEARTBEAT_MS, sseBody } from "../sse";
 import { asConn, FakeConn, manualTimers, parseSse, sseRecorder } from "./fakes";
 
 const state = (lastSeq = 5): SessionState => ({
@@ -579,5 +579,95 @@ describe("client and server roster types", () => {
     expectTypeOf<ConsoleApiRosterEntry>().toEqualTypeOf<FacilitatorRosterEntry>();
     expectTypeOf<ConsoleApiRosterEntry["ai"]>().toEqualTypeOf<true | undefined>();
     expectTypeOf<FacilitatorRosterEntry["ai"]>().toEqualTypeOf<true | undefined>();
+  });
+});
+
+describe("FacilitatorHub outage window (US-0083)", () => {
+  type Step = RecheckResult | "reject";
+  /** A hub whose re-check answers from a script, one answer per beat. */
+  function outage(limit: number | undefined) {
+    const timers = manualTimers();
+    const steps: Step[] = [];
+    const recheck = async (): Promise<RecheckResult> => { const s = steps.shift() ?? "ok"; if (s === "reject") throw new Error("down"); return s; };
+    const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0, newChannelId: () => "ch-1", recheck, ...(limit !== undefined && { outageLimit: limit }) });
+    const conn = new FakeConn(); const rec = sseRecorder();
+    h.open({ sessionId: "s1", accountId: "acc", epoch: 1, expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: rec.out });
+    const beat = async (...answers: Step[]) => {
+      for (const a of answers) { steps.push(a); timers.fire(HEARTBEAT_MS); for (let i = 0; i < 5; i++) await Promise.resolve(); }
+    };
+    const finals = () => rec.frames().map((f) => f.event).filter((e) => e === "reconnecting" || e === "expired");
+    return { h, beat, finals, conn };
+  }
+
+  it("test_facilitator_hub_outage_limit_derives_from_the_setting", () => {
+    expect(outageCheckLimit(180_000)).toBe(12);
+    expect(outageCheckLimit(30_000)).toBe(2);
+    expect(outageCheckLimit(45_000)).toBe(3);
+    expect(outageCheckLimit(900_000)).toBe(60);
+    expect(outageCheckLimit(1)).toBe(2);
+    expect(outageCheckLimit(HEARTBEAT_MS + 1)).toBe(2);
+  });
+
+  it("test_facilitator_hub_fewer_failed_checks_than_the_limit_keep_the_stream_open", async () => {
+    const t = outage(3);
+    await t.beat("unavailable", "reject");
+    expect(t.finals()).toEqual([]);
+    expect(t.h.size()).toBe(1);
+  });
+
+  it("test_facilitator_hub_reaching_the_limit_ends_the_stream_with_reconnecting", async () => {
+    const t = outage(3);
+    await t.beat("unavailable", "reject", "unavailable");
+    expect(t.finals()).toEqual(["reconnecting"]);
+    expect(t.h.size()).toBe(0);
+    expect(t.conn.closed).toBeGreaterThan(0);
+  });
+
+  it("test_facilitator_hub_a_default_limit_of_twelve_applies_without_an_option", async () => {
+    const t = outage(undefined);
+    await t.beat(...Array<Step>(11).fill("unavailable"));
+    expect(t.finals()).toEqual([]);
+    await t.beat("unavailable");
+    expect(t.finals()).toEqual(["reconnecting"]);
+  });
+
+  it("test_facilitator_hub_a_success_between_failures_resets_the_count", async () => {
+    const t = outage(3);
+    await t.beat("unavailable", "unavailable", "ok", "unavailable", "unavailable");
+    expect(t.finals()).toEqual([]);
+    await t.beat("unavailable");
+    expect(t.finals()).toEqual(["reconnecting"]);
+  });
+
+  it("test_facilitator_hub_a_gone_answer_ends_the_stream_at_once_with_reconnecting", async () => {
+    const t = outage(3);
+    await t.beat("unavailable", "unavailable", "gone");
+    expect(t.finals()).toEqual(["reconnecting"]);
+  });
+
+  it("test_facilitator_hub_a_refusal_ends_the_stream_at_once_with_expired", async () => {
+    const t = outage(3);
+    await t.beat("unavailable", "refused");
+    expect(t.finals()).toEqual(["expired"]);
+    expect(t.h.size()).toBe(0);
+  });
+
+  it("test_facilitator_hub_the_setting_changes_the_limit", async () => {
+    for (const [ms, limit] of [[30_000, 2], [45_000, 3]] as const) {
+      const t = outage(outageCheckLimit(ms));
+      await t.beat(...Array<Step>(limit - 1).fill("unavailable"));
+      expect(t.finals()).toEqual([]);
+      await t.beat("unavailable");
+      expect(t.finals()).toEqual(["reconnecting"]);
+    }
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, 1, -5, 2.5])("test_facilitator_hub_an_invalid_outage_limit_%s_falls_back_to_the_default_of_twelve", async (bad) => {
+    const t = outage(bad);
+    expect(t.h.outageLimit).toBe(12);
+    await t.beat(...Array<Step>(11).fill("unavailable"));
+    expect(t.finals()).toEqual([]);
+    await t.beat("unavailable");
+    expect(t.finals()).toEqual(["reconnecting"]);
   });
 });

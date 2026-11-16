@@ -357,6 +357,7 @@ All settings are environment variables (read from `.env` at the repository root;
 | `WEB_MAX_STREAMS` | `200` | Live event streams in total, `1` to `10000`; over it the stream answers 503 |
 | `WEB_MAX_STREAMS_PER_SESSION` | `64` | Live event streams per session, `1` to `1000` |
 | `WEB_MAX_STREAMS_PER_ADDRESS` | `16` | Live event streams per client address, `1` to `1000`; players behind one office address share it |
+| `CONSOLE_STREAM_OUTAGE_MS` | `180000` | How long the control service may be unreachable before an open console stream is closed (the console reconnects by itself), `30000` to `900000` ms; checked every 15 s, so rounded up to whole checks (at least 2). No "never" value |
 
 With a missing or bad value the API answers 500 and the web server logs a message that names the variable and the rule, never the value. Size the runtime's `WS_MAX_CONNECTIONS` to at least the web app's streams plus the facilitators.
 

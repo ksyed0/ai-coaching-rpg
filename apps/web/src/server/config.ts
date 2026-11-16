@@ -8,6 +8,8 @@ export type Config = {
   maxStreams: number;
   maxStreamsPerSession: number;
   maxStreamsPerAddress: number;
+  /** US-0083: how long (ms) the control service may go without answering before an open console stream is ended (CONSOLE_STREAM_OUTAGE_MS, default 180000); loadConfig always sets it, hand-built test configs may omit it. */
+  consoleStreamOutageMs?: number;
   /**
    * The facilitator console is usable when LAUNCHER_URL and LAUNCHER_TOKEN are set (see missingConsoleVars): accounts live in the control
    * service. US-0083: FACILITATOR_SECRET is optional and serves the legacy shared-secret sign-in only, until control's latch closes.
@@ -123,6 +125,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const maxStreamsPerSession = int(env, "WEB_MAX_STREAMS_PER_SESSION", 64, 1, 1000, problems);
   const maxStreamsPerAddress = int(env, "WEB_MAX_STREAMS_PER_ADDRESS", 16, 1, 1000, problems);
 
+  const consoleStreamOutageMs = int(env, "CONSOLE_STREAM_OUTAGE_MS", 180_000, 30_000, 900_000, problems);
+
   const livekitRaw = env.LIVEKIT_URL === "" ? undefined : env.LIVEKIT_URL;
   const livekitUrl = liveKitOrigin(livekitRaw);
   if (livekitRaw !== undefined && livekitUrl === undefined) {
@@ -131,7 +135,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 
   if (problems.length > 0) throw new Error(`Invalid web configuration: ${problems.join("; ")}`);
   return {
-    runtimeUrl: env.RUNTIME_URL ?? "", publicOrigin: env.PUBLIC_ORIGIN!, cookieKeys, cookieMaxAgeHours, maxStreams, maxStreamsPerSession, maxStreamsPerAddress,
+    runtimeUrl: env.RUNTIME_URL ?? "", publicOrigin: env.PUBLIC_ORIGIN!, cookieKeys, cookieMaxAgeHours, maxStreams, maxStreamsPerSession, maxStreamsPerAddress, consoleStreamOutageMs,
     ...(facilitatorSecret !== undefined && { facilitatorSecret }), ...(launcherUrl !== undefined && { launcherUrl }), ...(launcherToken !== undefined && { launcherToken }),
     ...(livekitUrl !== undefined && { livekitUrl }),
   };

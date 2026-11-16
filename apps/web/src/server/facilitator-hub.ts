@@ -4,7 +4,7 @@ import { consoleCharacters, isRecord, strings, consoleEvent, consoleFactTexts, c
 import type { FacilitatorJoin } from "./facilitator-socket";
 import { LauncherError, type LauncherClient } from "./launcher-client";
 import type { RuntimeConnection, SetTimer } from "./runtime-connection";
-import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
+import { DEFAULT_MAX_PENDING_BYTES, HEARTBEAT_MS, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
 import type { CommandMessage, ServerMessage } from "./wire";
 import type { SessionState } from "@acr/events";
 
@@ -45,7 +45,8 @@ export type StreamOwner = { accountId: string | null; epoch: number | null };
 /**
  * The heartbeat's re-check: "refused" (the sign-in no longer holds) ends the stream with `expired`; "gone" (the caller may no longer use
  * this session: another owner, or control no longer knows it) ends it with `reconnecting`, like closeSession, so the browser reconnects
- * and the route's ownership check answers; "unavailable" (control unreachable) keeps it and asks again next beat.
+ * and the route's ownership check answers; "unavailable" (control unreachable: no answer) keeps it and asks again next beat, until
+ * `outageLimit` checks in a row have had no answer (see outageCheckLimit).
  */
 export type RecheckResult = "ok" | "refused" | "gone" | "unavailable";
 export type StreamRecheck = (who: StreamOwner, sessionId: string) => Promise<RecheckResult>;
@@ -76,8 +77,15 @@ export function consoleRecheck(launcher: Pick<LauncherClient, "accountCheck" | "
   };
 }
 
+/** The default CONSOLE_STREAM_OUTAGE_MS (3 minutes); config.ts validates the setting to 30 s .. 15 min. */
+export const DEFAULT_CONSOLE_STREAM_OUTAGE_MS = 180_000;
+/** US-0083: how many consecutive heartbeat re-checks may get no answer before the stream ends: the outage window in beats, at least 2. */
+export function outageCheckLimit(outageMs: number): number {
+  return Math.max(2, Math.ceil(outageMs / HEARTBEAT_MS));
+}
+
 type Pending = { ref: string; type: CommandMessage["type"]; resolve: (o: CommandOutcome) => void; cancelTimer: () => void };
-type Stream = { channel: string; sessionId: string; pending: Pending | null; expiresAt: number; owner: StreamOwner; checking: boolean; conn: RuntimeConnection; out: SseOut; writer: SseWriter; ended: boolean; skip: number;
+type Stream = { channel: string; sessionId: string; pending: Pending | null; expiresAt: number; owner: StreamOwner; checking: boolean; failedChecks: number; conn: RuntimeConnection; out: SseOut; writer: SseWriter; ended: boolean; skip: number;
   /** Hidden-fact text and each AI character's last goals and released texts. Memory only: fact text never leaves except through `factsFor`. */
   facts: ConsoleFactText[]; hidden: Record<string, string[]>; npcs: Map<string, { goals: string[]; released: string[] }>; cancelHeartbeat: () => void; detach: () => void };
 
@@ -86,6 +94,8 @@ export type FacilitatorHubOptions = {
   commandTimeoutMs?: number; newRef?: () => string;
   /** US-0083: run at every heartbeat; absent, nothing is re-checked (single mode has no control service). */
   recheck?: StreamRecheck;
+  /** US-0083: consecutive re-checks with no answer (control unreachable) after which a stream ends with `reconnecting`; default from DEFAULT_CONSOLE_STREAM_OUTAGE_MS. */
+  outageLimit?: number;
 };
 
 export class FacilitatorHub {
@@ -95,6 +105,8 @@ export class FacilitatorHub {
   private readonly newChannelId: () => string;
   private readonly commandTimeoutMs: number;
   private readonly newRef: () => string;
+  /** Consecutive re-checks without an answer after which an open stream ends. */
+  readonly outageLimit: number;
 
   constructor(private readonly o: FacilitatorHubOptions) {
     this.maxStreams = o.maxStreams ?? MAX_FACILITATOR_STREAMS;
@@ -102,6 +114,8 @@ export class FacilitatorHub {
     this.newChannelId = o.newChannelId ?? randomUUID;
     this.commandTimeoutMs = o.commandTimeoutMs ?? COMMAND_TIMEOUT_MS;
     this.newRef = o.newRef ?? randomUUID;
+    // Only a whole number of at least 2 is used; NaN, Infinity, 0, 1, a negative or a fraction would fail open or close too soon.
+    this.outageLimit = o.outageLimit !== undefined && Number.isInteger(o.outageLimit) && o.outageLimit >= 2 ? o.outageLimit : outageCheckLimit(DEFAULT_CONSOLE_STREAM_OUTAGE_MS);
   }
 
   size(): number { return this.streams.size; }
@@ -115,7 +129,7 @@ export class FacilitatorHub {
       return "capacity";
     }
     const channel = this.newChannelId();
-    const s: Stream = { channel, sessionId: a.sessionId, pending: null, expiresAt: a.expiresAt, owner: { accountId: a.accountId, epoch: a.epoch }, checking: false, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, facts: [], hidden: {}, npcs: new Map(), cancelHeartbeat: () => {}, detach: () => {} };
+    const s: Stream = { channel, sessionId: a.sessionId, pending: null, expiresAt: a.expiresAt, owner: { accountId: a.accountId, epoch: a.epoch }, checking: false, failedChecks: 0, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, facts: [], hidden: {}, npcs: new Map(), cancelHeartbeat: () => {}, detach: () => {} };
     this.streams.set(channel, s);
     s.writer.beginOpening();
     try {
@@ -178,17 +192,31 @@ export class FacilitatorHub {
     return n;
   }
 
-  /** One re-check at a time per stream; a refusal ends it, anything else (control unreachable included) leaves it open. */
+  /**
+   * One re-check at a time per stream. A refusal ends it with `expired`, "gone" with `reconnecting`. No answer (the check rejected, threw
+   * or reported "unavailable") keeps it open until `outageLimit` such checks in a row; any answer resets the count.
+   */
   private recheck(s: Stream): void {
     const check = this.o.recheck;
     if (!check || s.checking) return;
     s.checking = true;
     let pending: Promise<RecheckResult>;
-    try { pending = check(s.owner, s.sessionId); } catch { s.checking = false; return; }
+    try { pending = check(s.owner, s.sessionId); } catch { s.checking = false; this.noAnswer(s); return; }
     pending.then(
-      (r) => { s.checking = false; if (r === "refused") this.finish(s, "expired"); else if (r === "gone") this.finish(s, "reconnecting"); },
-      () => { s.checking = false; },
+      (r) => {
+        s.checking = false;
+        if (r === "unavailable") { this.noAnswer(s); return; }
+        s.failedChecks = 0;
+        if (r === "refused") this.finish(s, "expired"); else if (r === "gone") this.finish(s, "reconnecting");
+      },
+      () => { s.checking = false; this.noAnswer(s); },
     );
+  }
+
+  private noAnswer(s: Stream): void {
+    if (s.ended) return;
+    s.failedChecks++;
+    if (s.failedChecks >= this.outageLimit) this.finish(s, "reconnecting");
   }
 
   /** The hidden-fact text of this session's channel, or null: the channel is unknown, ended or another session's. */
