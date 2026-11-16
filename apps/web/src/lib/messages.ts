@@ -144,8 +144,15 @@ export const MESSAGES = {
   consoleMuteVoiceOff: "Voice is not on in this session, so there is nothing to mute.",
   // A3A: a mute pressed while the live view is not connected is not sent; said in the status line.
   consoleMuteNotLive: "Reconnecting; mute not sent. Wait until the live view is back, then try again.",
+  // A3A: the participant's page (MuteNotices). Role labels only; never a person's name or the facilitator's name.
+  muteSelf: "The facilitator has muted your microphone",
+  muteSelfAgain: "You can speak again",
+  rosterMutedByFacilitator: "Muted by facilitator",
   consoleMuteForbidden: "That seat is not a person's seat, so it cannot be muted.",
 } as const;
+
+/** A3A: the status line every participant sees when a seat's microphone is muted or switched on again, by role label. */
+export const seatMuteLine = (label: string, muted: boolean): string => (muted ? `The ${label} microphone has been muted by the facilitator` : `The ${label} microphone is on again`);
 
 /**
  * US-0071 (A1b Task 14): the private voice notices, one fixed sentence per code. The keys are this page's own copy of the runtime's

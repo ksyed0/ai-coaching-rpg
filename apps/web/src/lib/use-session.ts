@@ -23,14 +23,16 @@ export type EventSourceLike = {
 export type EventSourceCtor = new (url: string) => EventSourceLike;
 export type SessionDeps = { EventSource: EventSourceCtor; fetch: typeof fetch };
 
-export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; ai?: true };
+export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; ai?: true; /** A3A: the facilitator has muted this seat. */ facilitatorMuted?: true };
 export type Consent = { noticeVersion: string; notice: string; given: boolean };
 /** The joined fields the page uses (the BFF already picked them; the credential never reaches the browser). */
 export type Joined = { roleId: string; brief?: string; privateFacts?: string[]; consent?: Consent; scenes: PlayerScene[]; logIdentity?: string; voice?: SeatVoice };
 
 /** US-0071: this seat's voice state as the runtime sends it (`joined.voice`, a `voice` answer). */
 export type VoiceState = "none" | "voice" | "text_only" | "off";
-export type SeatVoice = { state: VoiceState; muted: boolean };
+export type SeatVoice = { state: VoiceState; muted: boolean; /** A3A: the facilitator holds this seat muted (the participant cannot unmute). */ mutedBy?: "facilitator" };
+/** A3A: the latest mute announcement, one slot (the live region shows it): this seat's own, or another seat by role. `n` counts up so a repeat is announced again. */
+export type MuteNotice = { kind: "self_muted" | "self_again" } | { kind: "seat"; roleId: string; muted: boolean };
 export type VoiceChoiceValue = "voice" | "text_only";
 
 export type FinalKind = "superseded" | "signed_out" | "removed" | "ended" | "expired" | "left" | "closed" | "ai_filled";
@@ -48,6 +50,14 @@ export type SessionUi = {
   voiceNotice: { code: VoiceNoticeCode; n: number } | null;
   /** The latest of voice_unavailable / voice_available: whether the runtime can capture speech at all (state, not a toast). */
   voiceUnavailable: boolean;
+  /** A3A: the latest mute announcement, only ever from a change that arrived live (never from a join snapshot or a replay). */
+  muteNotice: (MuteNotice & { n: number }) | null;
+  /** A3A: role ids the facilitator holds muted, from the join snapshot, then from live `mute_seat` events. */
+  mutedSeats: string[];
+  /** A3A: `lastSeq` of the latest join snapshot: an event at or below it is a replay of the past, never announced. */
+  joinedSeq: number;
+  /** A3A: counts the SSE `voice` events, so an HTTP answer sent before one can tell it is no longer the latest word. */
+  voiceEvents: number;
   /** US-0071: counts the `joined` frames (each one is a fresh runtime connection): the voice client reconnects and re-posts its mute on each. */
   joins: number;
   /** US-0082: who is composing a reply (the transient `activity` events), per role; never stored, cleared on a fresh joined. */
@@ -76,11 +86,12 @@ type Action =
   | { type: "dropped" }
   | { type: "final"; kind: FinalKind }
   | { type: "consented" }
-  | { type: "voice"; voice: SeatVoice }
+  /** `since`: an HTTP answer carries the `voiceEvents` count from when it was sent; it is dropped when a stream `voice` event came after. */
+  | { type: "voice"; voice: SeatVoice; since?: number }
   | { type: "voice_notice"; code: VoiceNoticeCode }
   | { type: "activity"; roleId: string; state: "thinking" | "idle"; at: number };
 
-export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null, voice: null, voiceNotice: null, voiceUnavailable: false, joins: 0, activity: {} };
+export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null, voice: null, voiceNotice: null, voiceUnavailable: false, muteNotice: null, mutedSeats: [], joinedSeq: 0, voiceEvents: 0, joins: 0, activity: {} };
 
 const capped = (v: PlayerView): PlayerView => (v.transcript.length > MAX_TRANSCRIPT_LINES ? { ...v, transcript: v.transcript.slice(-MAX_TRANSCRIPT_LINES) } : v);
 
@@ -97,13 +108,14 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       const sameLog = s.joined !== null && s.joined.logIdentity === a.joined.logIdentity;
       const view = s.view !== null && sameLog ? s.view : capped(initPlayerView(a.state));
       // US-0082: a fresh connection starts with no indicator (the runtime re-sends who is thinking right after joined).
-      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false, joins: s.joins + 1, activity: {} };
+      // A3A: a fresh join shows the mute state but announces nothing: the notice slot is cleared and the snapshot is the new baseline.
+      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false, muteNotice: null, mutedSeats: mutedSeatsOf(a.state), joinedSeq: a.state.lastSeq, joins: s.joins + 1, activity: {} };
     }
     case "reset":
       return { ...s, conn: "live", view: capped(a.view), notice: null };
     case "event":
       // The stream moved on: a server error notice from before is stale.
-      return s.view === null ? s : { ...s, view: capped(applyPlayerEvent(s.view, a.event)), notice: null, activity: activityAfterEvent(s.activity, a.event) };
+      return s.view === null ? s : { ...s, view: capped(applyPlayerEvent(s.view, a.event)), notice: null, activity: activityAfterEvent(s.activity, a.event), ...muteAfterEvent(s, a.event) };
     case "activity":
       return { ...s, activity: applyActivity(s.activity, { roleId: a.roleId, state: a.state }, a.at) };
     case "roster":
@@ -116,13 +128,43 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       return s.final ? s : { ...s, final: { kind: a.kind, message: FINAL_MESSAGES[a.kind] } };
     case "consented":
       return s.joined?.consent ? { ...s, joined: { ...s.joined, consent: { ...s.joined.consent, given: true } } } : s;
-    case "voice":
-      return { ...s, voice: a.voice };
+    case "voice": {
+      // R7: the stream's `voice` event is the ordered truth; an HTTP answer sent before a later stream event must not overwrite it.
+      if (a.since !== undefined && a.since !== s.voiceEvents) return s;
+      const voiceEvents = a.since === undefined ? s.voiceEvents + 1 : s.voiceEvents;
+      // A change of the facilitator's hold is announced, but only once a voice state is already known (never the first frame of a join)
+      // and only to a seat that chose voice. The text/none seat shows nothing personal.
+      const was = s.voice?.mutedBy === "facilitator";
+      const now = a.voice.mutedBy === "facilitator";
+      const announce = s.voice !== null && was !== now && a.voice.state === "voice";
+      const muteNotice = announce ? { kind: now ? "self_muted" as const : "self_again" as const, n: (s.muteNotice?.n ?? 0) + 1 } : s.muteNotice;
+      return { ...s, voice: a.voice, voiceEvents, muteNotice };
+    }
     case "voice_notice": {
       const voiceUnavailable = a.code === "voice_unavailable" ? true : a.code === "voice_available" ? false : s.voiceUnavailable;
       return { ...s, voiceNotice: { code: a.code, n: (s.voiceNotice?.n ?? 0) + 1 }, voiceUnavailable };
     }
   }
+}
+
+/** A3A: the seats a join snapshot holds muted (role ids only; an older runtime sends none). */
+const mutedSeatsOf = (st: PlayerSnapshot): string[] => { const v = (st as { facilitatorMutedSeats?: unknown }).facilitatorMutedSeats; return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []; };
+
+/**
+ * A3A: what a `mute_seat` event changes on the page. Only a LIVE event counts: its seq is above both the view's and the join snapshot's
+ * (a replay after a rejoin is at or below the snapshot, which is already the baseline). Only a real change is announced, and this
+ * seat's own mute is told by the personal notice (from the `voice` event), never as a role line.
+ */
+function muteAfterEvent(s: SessionUi, e: SessionEvent): Partial<SessionUi> {
+  const x = e as { type?: unknown; command?: unknown; roleId?: unknown; muted?: unknown; seq?: unknown };
+  if (x.type !== "facilitator.command" || x.command !== "mute_seat" || typeof x.roleId !== "string" || typeof x.muted !== "boolean") return {};
+  const seq = x.seq;
+  if (typeof seq !== "number" || !Number.isSafeInteger(seq) || seq <= (s.view?.lastSeq ?? 0) || seq <= s.joinedSeq) return {};
+  const roleId = x.roleId; const muted = x.muted;
+  if (s.mutedSeats.includes(roleId) === muted) return {};
+  const mutedSeats = muted ? [...s.mutedSeats, roleId] : s.mutedSeats.filter((r) => r !== roleId);
+  if (roleId === s.joined?.roleId) return { mutedSeats };
+  return { mutedSeats, muteNotice: { kind: "seat", roleId, muted, n: (s.muteNotice?.n ?? 0) + 1 } };
 }
 
 // ---- parsing what the stream sends (the BFF is trusted for shape, but the page must not crash on a bad frame) ----
@@ -139,7 +181,7 @@ const VOICE_STATES: readonly string[] = ["none", "voice", "text_only", "off"] sa
 /** Only the four states; `muted` only when it is a boolean (false otherwise). Anything else gives no voice: the page shows no voice UI. */
 function toVoice(v: unknown): SeatVoice | null {
   if (!isObj(v) || typeof v.state !== "string" || !VOICE_STATES.includes(v.state)) return null;
-  return { state: v.state as VoiceState, muted: v.muted === true };
+  return { state: v.state as VoiceState, muted: v.muted === true, ...(v.mutedBy === "facilitator" ? { mutedBy: "facilitator" as const } : {}) };
 }
 
 /** US-0080: the runtime never sends a longer rule (`MAX_ENDS_WHEN_CHARS` in @acr/script); a longer one is dropped, not shown. */
@@ -182,6 +224,7 @@ const toRoster = (d: unknown): PeerRosterEntry[] | null =>
       roleId: e.roleId as string, ready: e.ready as boolean,
       ...(e.name !== undefined ? { name: e.name as string } : {}),
       ...(e.ai === true ? { ai: true as const } : {}),
+      ...(e.facilitatorMuted === true ? { facilitatorMuted: true as const } : {}),
     })) : null;
 
 /** A 409 `no_stream` means the stream is between connections (the browser is reconnecting): say that, not "open the page first". */
@@ -223,6 +266,8 @@ export function useSession(sessionId: string, deps: SessionDeps) {
     on("error", (d) => { if (isObj(d)) dispatch({ type: "notice", text: MESSAGES.serverError }); });
     // The BFF ends a stream with `reconnecting` when the runtime is away: the browser comes back after `retry` by itself.
     on("reconnecting", () => dispatch({ type: "dropped" }));
+    // A3A: this seat's voice state, a full snapshot, pushed on every change and with every answer: the page's ordered source of truth.
+    on("voice", (d) => { const v = toVoice(d); if (v) dispatch({ type: "voice", voice: v }); });
     // US-0071: this player's private voice notice; only the page's own known codes (an unknown one is never shown).
     on("voice_notice", (d) => { if (isObj(d) && isVoiceNoticeCode(d.code)) dispatch({ type: "voice_notice", code: d.code }); });
     // US-0082: who is composing a reply (transient; the page clears it itself after ACTIVITY_EXPIRY_MS).
@@ -269,10 +314,11 @@ export function useSession(sessionId: string, deps: SessionDeps) {
   }, [fetchImpl, closeWith]);
 
   const voicePost = useCallback(async (body: Record<string, unknown>): Promise<ActionResult> => {
+    const since = uiRef.current.voiceEvents;
     const r = await postJson("/api/v1/voice", body, fetchImpl);
     if (r.ok) {
       const v = toVoice(r.data);
-      if (v) dispatch({ type: "voice", voice: v });
+      if (v) dispatch({ type: "voice", voice: v, since });
     }
     return actionResult(r);
   }, [fetchImpl]);

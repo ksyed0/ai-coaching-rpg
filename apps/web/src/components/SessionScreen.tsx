@@ -21,6 +21,7 @@ import type { StatusKind } from "./StatusChip";
 import { TitleBlock } from "./TitleBlock";
 import { Transcript } from "./Transcript";
 import { VoiceChoice } from "./VoiceChoice";
+import { MuteNotices } from "./MuteNotices";
 import { VoiceNotices } from "./VoiceNotices";
 
 // The participant's page for one session: lobby (consent and the room), then the scene, then the end. It opens the stream first;
@@ -81,6 +82,8 @@ export function SessionScreen({ sessionId, voiceTransport = false, deps = {} }: 
       <main className="page">
         {/* US-0071: one polite region for the private voice notices, mounted once for the page (lobby, scene and end alike). */}
         {s.state.voice ? <VoiceNotices notice={s.state.voiceNotice} /> : null}
+        {/* A3A: the facilitator-mute notices (this seat's own, and every other seat by role label), one polite region for the page. */}
+        {s.state.voice || s.state.muteNotice ? <MuteNotices voice={s.state.voice} notice={s.state.muteNotice} /> : null}
         {/* The end keeps what was said readable (Scene shows the end notice above the transcript); other finals replace the page. */}
         {final && (final.kind === "ended" && joined && view) ? (
           <Scene state={s.state} clock={resolved.clock} onSay={s.say} voice={voiceUi} exitDialog={exitDialog} />
@@ -192,7 +195,7 @@ function VoiceArea({ v, lobby }: { v: VoiceUi; lobby: boolean }) {
       {usable && lobby && idle ? <MicCheck deps={v.deps} register={v.registerCheck} /> : null}
       {usable ? (
         <MicButton client={v.client} started={view !== null && view.status !== "idle"} paused={view?.paused ?? false} inScene={!!view?.scene}
-          unavailable={v.ui.voiceUnavailable} serverMuted={voice.muted} onJoin={v.onJoin}
+          unavailable={v.ui.voiceUnavailable} serverMuted={voice.muted} facilitatorMuted={voice.mutedBy === "facilitator"} onJoin={v.onJoin}
           // The Stop button disappears with the opt-out: the focus goes to the choice that is now saved.
           onOptOut={async () => { const r = await v.onOptOut(); if (r.ok) textRef.current?.focus(); return r; }} />
       ) : null}

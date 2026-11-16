@@ -38,6 +38,8 @@ export type MicButtonProps = {
   unavailable: boolean;
   /** The runtime holds this seat muted (`joined.voice.muted`, a `voice` answer). */
   serverMuted: boolean;
+  /** A3A: the facilitator holds this seat muted: the participant cannot unmute, so the Mute button is disabled. */
+  facilitatorMuted: boolean;
   /** Stops the mic check, then joins (SessionScreen). */
   onJoin: () => Promise<ActionResult>;
   /** Posts the opt-out; called only after the room was left. */
@@ -46,7 +48,7 @@ export type MicButtonProps = {
 
 const ICON: Record<string, string> = { [MESSAGES.micRecording]: "●", [MESSAGES.micMuted]: "×", [MESSAGES.micNotConnected]: "○" };
 
-export function MicButton({ client, started, paused, inScene, unavailable, serverMuted, onJoin, onOptOut }: MicButtonProps) {
+export function MicButton({ client, started, paused, inScene, unavailable, serverMuted, facilitatorMuted, onJoin, onOptOut }: MicButtonProps) {
   const state = useVoiceClientState(client);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
@@ -93,7 +95,7 @@ export function MicButton({ client, started, paused, inScene, unavailable, serve
       <p className="mic-state"><span aria-hidden="true">{`${ICON[words] ?? "◐"} `}</span>{words}</p>
       {connected ? (
         <div className="actions">
-          <button ref={muteRef} className="btn" type="button" aria-pressed={muted} onClick={toggleMute}>{MESSAGES.voiceMute}</button>
+          <button ref={muteRef} className="btn" type="button" aria-pressed={muted} disabled={facilitatorMuted} onClick={toggleMute}>{MESSAGES.voiceMute}</button>
           <button className="btn" type="button" onClick={stop}>{MESSAGES.voiceStop}</button>
         </div>
       ) : client.voiceOff ? null : (
