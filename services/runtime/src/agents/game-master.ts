@@ -17,15 +17,16 @@ export const MAX_EARNED_CHECKS_PER_ROUND = 2;
 export const GM_HUMAN_LINE_ALERT = "GM: this scene is not judged yet: the Game Master waits until a human player has spoken in it";
 
 /**
- * US-0081 (AC-0474): whether the Game Master may judge `sceneId`. In a session with at least one HUMAN player seat (a player role that is not
- * in `aiRoles`) only once one of those seats has spoken in the scene; a session without a human seat is never gated. Lines of AI players and
- * AI characters do not count. Pure.
+ * US-0081 (AC-0474): whether the Game Master may judge `scene`. When the scene has at least one HUMAN player seat among its participants (a
+ * player role that is not in `aiRoles`) only once one of those seats has spoken in the scene; a scene without a human participant (also a
+ * session without any human seat) is never gated, so it is judged as before (final review: counting the session's human seats left a scene
+ * whose only players are AI players waiting for good). Lines of AI players and AI characters do not count. Pure.
  */
-export function humanLineGateOpen(state: Pick<SessionState, "roles" | "aiRoles" | "transcript">, sceneId: string): boolean {
+export function humanLineGateOpen(state: Pick<SessionState, "roles" | "aiRoles" | "transcript">, scene: { id: string; participants: readonly string[] }): boolean {
   const ai = new Set(state.aiRoles ?? []);
-  const humans = new Set(Object.keys(state.roles).filter((id) => state.roles[id]!.kind === "player" && !ai.has(id)));
+  const humans = new Set(scene.participants.filter((id) => state.roles[id]?.kind === "player" && !ai.has(id)));
   if (humans.size === 0) return true;
-  return state.transcript.some((u) => u.sceneId === sceneId && humans.has(u.roleId));
+  return state.transcript.some((u) => u.sceneId === scene.id && humans.has(u.roleId));
 }
 
 /** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
@@ -120,7 +121,7 @@ export class GameMaster {
     const count = this.units(this.engine.state.transcript.filter((u) => u.sceneId === scene.id));
     if (count === 0 || count - this.evaluatedCount < this.everyN) return;
     // US-0081: no human line in this scene yet: nothing is judged and nothing counts as evaluated (the first human line is judged at once)
-    if (!humanLineGateOpen(this.engine.state, scene.id)) { await this.alertGateOnce(scene.id); return; }
+    if (!humanLineGateOpen(this.engine.state, scene)) { await this.alertGateOnce(scene.id); return; }
     this.evaluatedCount = count;
     this.evaluating = true;
     try {
@@ -151,7 +152,7 @@ export class GameMaster {
     if (expectSceneId !== undefined && scene.id !== expectSceneId) return false; // the scene changed since the caller looked
     if (scene.id !== this.lastSceneId || this.evaluatedCount === 0) return false;
     if (this.hold()) return false; // US-0070: a voice turn is open
-    if (!humanLineGateOpen(this.engine.state, scene.id)) return false; // US-0081
+    if (!humanLineGateOpen(this.engine.state, scene)) return false; // US-0081
     const count = this.units(this.engine.state.transcript.filter((u) => u.sceneId === scene.id));
     if (count <= this.evaluatedCount) return false;
     this.evaluatedCount = count;

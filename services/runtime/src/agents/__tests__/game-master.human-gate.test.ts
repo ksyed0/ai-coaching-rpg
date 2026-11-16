@@ -86,6 +86,38 @@ describe("GameMaster human-line gate (US-0081)", () => {
     expect(provider.calls).toHaveLength(1);
   });
 
+  // Final review IMPORTANT 1: the gate counts the human seats of the SCENE, not of the session. Friday scene 2 (s2_client_call:
+  // delivery_lead, account_manager, client_sponsor) has no human seat when delivery_lead and account_manager are AI players and only
+  // tech_lead is human: it is judged as before and raises no gate note (it would otherwise wait for a line that can never come).
+  it("test_game_master_scene_without_a_human_participant_is_not_gated", async () => {
+    const { engine, provider, gm, alerts } = await friday(["delivery_lead", "account_manager"]);
+    await engine.command({ command: "advance" });
+    await engine.tick(); // the advance takes effect at the next tick
+    const scene = engine.currentScene()!;
+    expect(scene.participants).not.toContain("tech_lead");
+    await engine.say("delivery_lead", "a");
+    await engine.say("account_manager", "b");
+    await gm.tick();
+    expect(provider.calls).toHaveLength(1);
+    expect(await alerts()).toHaveLength(0);
+    await gm.tick();
+    expect(engine.state.currentScene?.id).not.toBe(scene.id); // the true verdict ended the scene
+  });
+
+  it("test_game_master_scene_without_a_human_participant_final_evaluation_runs", async () => {
+    const { engine, provider, gm } = await friday(["delivery_lead", "account_manager"]);
+    provider.defaultReply = '{"reasoning": "no", "verdict": false}';
+    await engine.command({ command: "advance" });
+    await engine.tick(); // the advance takes effect at the next tick
+    await engine.say("delivery_lead", "a");
+    await engine.say("account_manager", "b");
+    await gm.tick();
+    const before = provider.calls.length;
+    await engine.say("delivery_lead", "c");
+    expect(await gm.finalEvaluation()).toBe(true);
+    expect(provider.calls.length).toBeGreaterThan(before);
+  });
+
   it("test_game_master_time_box_still_ends_a_gated_scene", async () => {
     const { engine, gm, clock } = await friday(["delivery_lead", "tech_lead"]);
     const scene = engine.currentScene()!;
