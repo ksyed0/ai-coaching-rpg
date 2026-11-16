@@ -187,7 +187,8 @@ function peerKeys(frames: { type: string; data: string }[]): Set<string> {
   }
   return keys;
 }
-const PEER_KEYS = ["roleId", "name", "ready", "ai"];
+// A3A: `facilitatorMuted` is a deliberate peer key (a mute is visible to the room by role label; no name, no `by`).
+const PEER_KEYS = ["roleId", "name", "ready", "ai", "facilitatorMuted"];
 
 // =====================================================================================================================================
 

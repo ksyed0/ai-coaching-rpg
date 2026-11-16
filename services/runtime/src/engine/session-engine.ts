@@ -76,6 +76,8 @@ export type SessionStartExtra = {
   /** US-0061: whether AI players count toward group scores; written (default true) only with aiRoles. A defined non-boolean is EngineError("bad_ai_roles"). */
   includeInGroup?: boolean;
 };
+/** A3A (C6): a facilitator mute held before the start, appended straight after session.started. */
+export type StartMute = { cmd: Extract<FacilitatorCommand, { command: "mute_seat" }>; by?: string };
 /** What markResumed reports for the operator. */
 export type ResumeNotes = { downSecs: number; clockBehindSecs: number; repairs: string[] };
 export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number } | { kind: "running"; info: ResumeInfo };
@@ -84,6 +86,8 @@ export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number
 const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
 
 export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity" | "bad_ai_roles" | "not_started" | "starting" | "not_ai_role";
+/** What `say` takes besides the line (see `say`). */
+export type SayOpts = { expectSceneId?: string; fallback?: true; to?: string; guard?: () => void };
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -182,9 +186,13 @@ export class SessionEngine {
   /** True between session.started and the last step of the opening: a start was begun and a second `start` completes it. */
   get startIncomplete(): boolean { return this.opening !== null; }
 
-  /** `assignments` and `extra` are used only by the first attempt: once session.started is recorded the log is the record, and a retry ignores them. */
-  start(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> { return this.mutex.run(() => this.doStart(assignments, extra)); }
-  private async doStart(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> {
+  /**
+   * `assignments` and `extra` are used only by the first attempt: once session.started is recorded the log is the record, and a retry ignores them.
+   * A3A (C6): `mutes` are facilitator `mute_seat` commands the host held before the start; each is appended as a `facilitator.command`
+   * (with its `by`) straight after session.started, as the first steps of the opening (so a retry finishes them like any other step).
+   */
+  start(assignments: Record<string, string>, extra?: SessionStartExtra, mutes: readonly StartMute[] = []): Promise<void> { return this.mutex.run(() => this.doStart(assignments, extra, mutes)); }
+  private async doStart(assignments: Record<string, string>, extra: SessionStartExtra | undefined, mutes: readonly StartMute[]): Promise<void> {
     if (this.opening === null) {
       // The same rule as PlayerCredentials: anything else would be written, ignored on restore and bypass the identity binding.
       if (extra?.logIdentity !== undefined && !/^[0-9a-f]{32}$/.test(extra.logIdentity)) throw new EngineError("bad_identity", "the log identity must be 32 lowercase hex characters");
@@ -204,7 +212,9 @@ export class SessionEngine {
         // Only what was given: an absent field and an empty one must not both appear in the log.
         ...(extra?.consents && Object.keys(extra.consents).length > 0 ? { consents: extra.consents } : {}), ...(extra?.names && Object.keys(extra.names).length > 0 ? { names: extra.names } : {}), ...(extra?.logIdentity ? { logIdentity: extra.logIdentity } : {}),
         ...(aiRoles.length > 0 ? { aiRoles, includeInGroup: extra?.includeInGroup ?? true } : {}) });
-      this.opening = this.openingSteps();
+      this.opening = [...mutes.map((m) => async () => {
+        if (own(this.state.roles, m.cmd.roleId)) await this.emit({ type: "facilitator.command", ...m.cmd, ...(m.by !== undefined ? { by: m.by } : {}) });
+      }), ...this.openingSteps()];
     }
     while (this.opening.length > 0) {
       await this.opening[0]();
@@ -263,10 +273,12 @@ export class SessionEngine {
   /**
    * `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed. `opts.to` (US-0082): the role the
    * line is directed at; recorded only when it is ANOTHER role of the speaker's current scene (checked here, inside the mutex), else
-   * dropped silently (the line itself is still recorded). Never trusted from a client.
+   * dropped silently (the line itself is still recorded). Never trusted from a client. `opts.guard` (A3A, C7): run first inside the mutex;
+   * a throw refuses the line (nothing appended) and is passed on as is, so a check the caller made before queueing holds at the append.
    */
-  say(roleId: string, text: string, channel: Channel = "text", opts: { expectSceneId?: string; fallback?: true; to?: string } = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
-  private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string; fallback?: true; to?: string }): Promise<SessionEvent> {
+  say(roleId: string, text: string, channel: Channel = "text", opts: SayOpts = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
+  private async doSay(roleId: string, text: string, channel: Channel, opts: SayOpts): Promise<SessionEvent> {
+    opts.guard?.();
     if (this.state.status === "ended") throw new EngineError("ended");
     // Participation first: a role outside the current scene must not be able to probe the scene id through the guard.
     if (opts.expectSceneId !== undefined && own(this.state.roles, roleId)) {
@@ -307,6 +319,8 @@ export class SessionEngine {
       const cur = this.currentScene();
       if (!cur || !cur.participants.includes(cmd.roleId)) throw new EngineError("not_in_scene", `${cmd.roleId} is not in the current scene`);
     }
+    // A3A: only the seat check is the engine's; voice_off and forbidden are the host's, and no Game Master tick follows (host-only).
+    if (cmd.command === "mute_seat" && !own(this.state.roles, cmd.roleId)) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
     if (cmd.command === "set_npc_stance" && !own(this.state.npcs, cmd.roleId)) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
     let release: { roleId: string; npc: SessionState["npcs"][string]; text: string } | null = null;
     if (cmd.command === "release_hidden") {

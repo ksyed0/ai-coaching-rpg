@@ -9,6 +9,8 @@ export const CONSOLE_VOICE = {
   caption: "Each participant's voice choice. Speaking is shown as it happens and is not announced.",
   speaking: "Speaking",
   quiet: "Quiet",
+  // A3A: the one label for a facilitator-muted seat (the roster has no `by`).
+  mutedByFacilitator: "Muted by facilitator",
   states: { voice: "Voice on", text_only: "Text only", none: "Not chosen", off: "Voice off" } satisfies Record<ConsoleVoiceState, string>,
 } as const;
 
@@ -16,7 +18,9 @@ const STATES: readonly string[] = ["none", "voice", "text_only", "off"] satisfie
 export const isConsoleVoiceState = (v: unknown): v is ConsoleVoiceState => typeof v === "string" && STATES.includes(v);
 
 /** The voice fields of one roster entry, picked: `voice` only when it is one of the four states, `speaking` only as the literal true. */
-export const pickVoice = (r: Record<string, unknown>): { voice?: ConsoleVoiceState; speaking?: true } => ({
+export const pickVoice = (r: Record<string, unknown>): { voice?: ConsoleVoiceState; speaking?: true; facilitatorMuted?: boolean } => ({
   ...(isConsoleVoiceState(r.voice) && { voice: r.voice }),
   ...(r.speaking === true && { speaking: true as const }),
+  // A3A: whether the facilitator muted this seat, only as a boolean.
+  ...(typeof r.facilitatorMuted === "boolean" && { facilitatorMuted: r.facilitatorMuted }),
 });

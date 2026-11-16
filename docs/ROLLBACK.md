@@ -698,3 +698,29 @@ The panel only opens for an ended session and the control change only adds a rou
 ### Rolling forward again
 
 Redeploy control, then web. Nothing to migrate.
+
+## US-0091: facilitator mute (EPIC-0003 voice slice A3a)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0090-voice-audio-panel)
+Date: not deployed
+Rollback trigger: a mute that does not stop a seat being recorded, a mute that cannot be lifted, a notice that shows a person's name or the facilitator's name, a console that misbehaves on the new event, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No data step and no new setting.** One new event shape in the session log: `facilitator.command` with `command: "mute_seat"`, `roleId`, `muted` and `by`. It is written only when a facilitator presses Mute or Unmute. **`LOG_FORMAT` is not bumped**: it is fixed at `session.started`, so a bump would stop every voice session being rolled back; the cost is the second gap below. No file, folder or audit format changes; the audio store and its audit are untouched. Dark behind `VOICE_ENABLED` (the command is refused with voice off).
+
+### Deploy order
+
+**Web with or before runtime.** The new web server forwards the new event and an unsolicited `voice` frame, and its console reads `mute_seat`. An old web console that receives a `mute_seat` event has no case for it and returns an undefined value into its stream. So deploy web first, or together with the runtime, never the runtime alone. A web ahead of the runtime is harmless: an older runtime refuses the unknown command and the console shows its fixed refusal sentence.
+
+### Rolling back
+
+- **Roll back the runtime:** a runtime older than A3a **keeps working but drops every facilitator mute** when it next reads a log that holds them: its reducer ignores an unknown command, so the seat records again. **Mute the seats again after a rollback** and tell the facilitator. Lines recorded while a seat was muted are not in the log (the mute stopped them), and nothing is lost or corrupted: the old runtime reads the new log (the engine returns the state unchanged for an unknown command; the log reader checks only the event type; control's log tail, report jobs and evaluator transcript do not read commands).
+- **Roll back web:** the Mute button, the participant notices and the forwarded frame go. A seat already muted stays muted in the runtime (the runtime still refuses its lines); the facilitator then has no button to lift it, so unmute first, or end the session. A rolled-back web console with a newer runtime still mishandles `mute_seat` events (the deploy-order note above).
+- **No data step is needed.** There is nothing to undo on disk. `facilitator.command` lines already written stay in the sealed log; they are harmless to every reader.
+
+### Rolling forward again
+
+Redeploy web, then runtime. Nothing to migrate. A resumed session rebuilds every facilitator mute from its log, so **check each seat after the roll forward**: a mute that the facilitator thought a rollback had dropped applies again if its line is still the last command for the seat.

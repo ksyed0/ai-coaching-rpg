@@ -92,8 +92,10 @@ describe("StreamHub voice against the real runtime (VOICE_ENABLED=1)", () => {
     expect(await hub.send(s.cookie, { type: "voice_opt_in", noticeVersion: "v3" })).toEqual({ type: "voice", state: "voice", muted: false });
     expect(await hub.send(s.cookie, { type: "voice_mute", muted: true })).toEqual({ type: "voice", state: "voice", muted: true });
     expect(await hub.send(s.cookie, { type: "voice_opt_out" })).toEqual({ type: "voice", state: "text_only", muted: true });
-    // The answers went to the waiting sends, never to the page as frames.
-    expect(s.rec.frames().filter((f) => f.event === "voice")).toEqual([]);
+    // A3A: each answer is also written to the stream, in order (the page's ordered source of truth).
+    expect(s.rec.frames().filter((f) => f.event === "voice").map((f) => f.data)).toEqual([
+      { state: "voice", muted: false }, { state: "voice", muted: true }, { state: "text_only", muted: true },
+    ]);
   });
 
   it("a refused opt-in (an old notice version) is the send's error answer", async () => {

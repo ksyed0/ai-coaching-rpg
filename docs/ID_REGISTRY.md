@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0091               | US-0090           |
-| TASK         | TASK-0143             | TASK-0142         |
-| AC           | AC-0550               | AC-0549           |
-| TC           | TC-0322               | TC-0321           |
+| US           | US-0092               | US-0091           |
+| TASK         | TASK-0144             | TASK-0143         |
+| AC           | AC-0560               | AC-0559           |
+| TC           | TC-0333               | TC-0332           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0044                | L-0043            |
 
@@ -121,3 +121,5 @@ Reserved blocks (2026-11-13, facilitator accounts, feature/EPIC-0002-US-0083-fac
 Assigned 2026-11-13 (facilitator accounts close-out, Task 11): the ids above were filed in `docs/RELEASE_PLAN.md` and `docs/TEST_CASES.md`. Reconciliation: the voice slices on this line stopped at US-0075, TASK-0111, AC-0450, TC-0242 (the registry's earlier Next row). The client-demo branch (`feature/EPIC-0002-demo-feedback-fixes`) used, in `docs/superpowers/notes/US-0080-notes.md`, `US-0081-notes.md` and `US-0082-notes.md`, US-0080..US-0082, TASK-0120..TASK-0122, AC-0460..AC-0499 and TC-0243..TC-0269; those ids are NOT filed in this registry or in the plan files yet (only in the notes), and US-0076..US-0079, TASK-0112..TASK-0119 and TASK-0123..TASK-0129 are not filed here either. The accounts blocks sit above all of them (no collision), so when that branch's stories are filed they fit below the Next row. When the branches merge, keep the maximum of every row and every reserved block, then run `npm run plan:generate`. The next US is US-0090, the next AC is AC-0540, the next TC is TC-0310, the next TASK is TASK-0142, the next BUG is BUG-0035, the next L is L-0044.
 
 Assigned 2026-11-16 (voice slice A2b-2, the facilitator audio review and delete panel, feature/EPIC-0003-US-0090-voice-audio-panel): US-0090 (EPIC-0003); TASK-0142 (one task for the whole slice; the plan's Tasks 1 to 8 are its commits); AC-0540..AC-0549 (one per concern: AC-0540 the control transcript route, AC-0541 the three web routes, AC-0542 the shared-secret refusal, AC-0543 the clip and transcript join, AC-0544 the panel states, AC-0545 a partial delete, AC-0546 no caching, AC-0547 one play is one audit line, AC-0548 end to end, AC-0549 documented); TC-0310..TC-0321 (TC-0310..TC-0319 one per AC in order, TC-0320 the owner-run real-room review and delete, TC-0321 the owner-run real browser playing a clip; both Not Run). The next US is US-0091, the next TASK is TASK-0143, the next AC is AC-0550, the next TC is TC-0322, the next BUG is BUG-0035, the next L is L-0044. Nothing else changed: the facilitator accounts blocks above and the client-demo ids still sit below the Next row, so keep the maximum of every row when branches merge.
+
+Assigned 2026-11-16 (voice slice A3a, the facilitator mute of a participant's microphone, same branch feature/EPIC-0003-US-0090-voice-audio-panel): US-0091 (EPIC-0003); TASK-0143 (one task for the whole slice; the plan's Tasks 1 to 8 are its commits); AC-0550..AC-0559 (one per concern: AC-0550 the command and the reducer state, AC-0551 the host ordering, AC-0552 the union and the seat's lifetime, AC-0553 players, roster and bots, AC-0554 the web command and stream, AC-0555 the console button, AC-0556 the participant notices, AC-0557 end to end, AC-0558 the mutation checks, AC-0559 documented); TC-0322..TC-0332 (TC-0322..TC-0331 one per AC in order, TC-0332 the owner-run real-room mute with a real browser, Not Run). The next US is US-0092, the next TASK is TASK-0144, the next AC is AC-0560, the next TC is TC-0333, the next BUG is BUG-0035, the next L is L-0044. Nothing else changed: keep the maximum of every row and every reserved block when branches merge.

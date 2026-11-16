@@ -84,6 +84,10 @@ describe("timelineText", () => {
     expect(c(undefined, { command: "set_npc_stance", roleId: "n", goals: [] })).toBe("Stance of <n> changed by the facilitator");
     expect(c("Ann", { command: "prompt_ai", roleId: "a" })).toBe("AI player for <a> prompted by Ann");
     expect(c(undefined, { command: "prompt_ai", roleId: "a" })).toBe("AI player for <a> prompted by the facilitator");
+    // A3A: a mute and an unmute read differently, with the role label and the by.
+    expect(c("Ann", { command: "mute_seat", roleId: "a", muted: true })).toBe("Microphone of <a> muted by Ann");
+    expect(c("Ann", { command: "mute_seat", roleId: "a", muted: false })).toBe("Microphone of <a> unmuted by Ann");
+    expect(c(undefined, { command: "mute_seat", roleId: "a", muted: true })).toBe("Microphone of <a> muted by the facilitator");
   });
 
   it("the timeline reads \"AI player for Tech lead prompted by Sam\", from the role label and never a participant name", () => {

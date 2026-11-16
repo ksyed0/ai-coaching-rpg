@@ -21,12 +21,12 @@ function mount(o: { token?: () => TokenAnswer; failConnect?: boolean; props?: Pa
     postMute: async (muted) => { log.push(`post mute ${muted}`); return { ok: true }; },
   });
   const onOptOut = vi.fn(async (): Promise<ActionResult> => { log.push("opt out"); return { ok: true }; });
-  const props: MicButtonProps = { client, started: true, paused: false, inScene: true, unavailable: false, serverMuted: false, onJoin: () => client.join(), onOptOut, ...o.props };
+  const props: MicButtonProps = { client, started: true, paused: false, inScene: true, unavailable: false, serverMuted: false, facilitatorMuted: false, onJoin: () => client.join(), onOptOut, ...o.props };
   const r = render(<MicButton {...props} />);
   return { ...r, client, log, onOptOut, props, room: () => FakeRoom.made.at(-1)! };
 }
 const join = () => screen.getByRole("button", { name: MESSAGES.voiceJoin });
-const mute = () => screen.getByRole("button", { name: MESSAGES.voiceMute });
+const mute = () => screen.getByRole("button", { name: MESSAGES.voiceMute }) as HTMLButtonElement;
 const press = async (b: HTMLElement) => { await act(async () => { b.focus(); fireEvent.click(b); }); };
 
 describe("MicButton", () => {
@@ -142,5 +142,16 @@ describe("MicButton", () => {
     await act(async () => { fireEvent.click(join()); fireEvent.click(join()); });
     expect(FakeRoom.made).toHaveLength(1);
     expect(m.client.state).toBe("live");
+  });
+
+  it("the Mute button is disabled while the facilitator holds the seat muted, and enabled again after (A3A)", async () => {
+    const m = mount();
+    await press(join());
+    expect(mute().getAttribute("aria-disabled")).toBeNull();
+    m.rerender(<MicButton {...m.props} serverMuted facilitatorMuted />);
+    expect(mute().getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText(MESSAGES.micMuted)).toBeTruthy();
+    m.rerender(<MicButton {...m.props} serverMuted={false} facilitatorMuted={false} />);
+    expect(mute().getAttribute("aria-disabled")).toBeNull();
   });
 });

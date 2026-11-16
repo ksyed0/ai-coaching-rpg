@@ -1,3 +1,4 @@
+import type { SessionEvent } from "@acr/events";
 import { describe, expect, it } from "vitest";
 import { buildTranscript, formatClock, normText, renderTranscript } from "../transcript.js";
 import { build, sampleEvents, sampleScenario, U } from "./fixtures.js";
@@ -198,5 +199,22 @@ describe("AI players", () => {
       [2, { type: "facilitator.alert", level: "info", message: "AI player for bob: x" }],
     ] as never);
     expect(buildTranscript(evs, sampleScenario()).entries).toEqual([]);
+  });
+});
+
+describe("A3A: an old or new log with a mute_seat command (spec section 7)", () => {
+  it("a facilitator.command mute_seat is not a player utterance, changes no counts, and does not crash the transcript", () => {
+    const plain = buildTranscript(sampleEvents(), sampleScenario());
+    const base = sampleEvents();
+    const mute = (muted: boolean, by?: string) => ({ type: "facilitator.command", command: "mute_seat", roleId: "alice", muted, ...(by ? { by } : {}), ts: base[2]!.ts, sessionId: "sess1" });
+    const withMutes = [...base.slice(0, 3), mute(true, "Facilitator Fay"), mute(false), ...base.slice(3)].map((e, i) => ({ ...e, seq: i + 1 })) as unknown as SessionEvent[];
+    const t = buildTranscript(withMutes, sampleScenario());
+    expect(t.utterances.size).toBe(plain.utterances.size);
+    expect(t.counts).toEqual(plain.counts);
+    expect(t.entries.filter((e) => e.kind === "utterance")).toHaveLength(7);
+    const text = renderTranscript(t, 100_000).text;
+    expect(text).not.toContain("mute_seat");
+    expect(text).not.toContain("Facilitator Fay");
+    expect(t.complete).toBe(true);
   });
 });

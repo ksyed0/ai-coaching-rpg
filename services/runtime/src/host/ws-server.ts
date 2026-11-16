@@ -29,6 +29,8 @@ const BEYOND_HEAD = "lastSeq: after the last event of this session";
 export const playerScope = (known: boolean, roleId: string): string => (known ? `player:${roleId}` : "player:*");
 /** US-0053: the failed-login scope of a refused credential, bounded the same way. */
 export const credentialScope = (known: boolean, roleId: string): string => (known ? `cred:${roleId}` : "cred:*");
+/** A3A: `mutedBy: "facilitator"` while the facilitator's mute is on, else nothing (never a name). */
+const mutedBy = (h: SessionHost, roleId: string): { mutedBy?: "facilitator" } => { const by = h.voiceMutedByOf(roleId); return by !== undefined ? { mutedBy: by } : {}; };
 const beyondHead = (h: SessionHost, lastSeq: number | undefined): boolean => lastSeq !== undefined && lastSeq > h.engine.state.lastSeq;
 const summary = (r: Replay): { replay: ReplaySummary } => ({ replay: { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events.length, complete: r.complete } });
 export const MAX_BUFFERED_BYTES = 1024 * 1024; // a client this far behind is dropped rather than buffered forever
@@ -209,7 +211,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     const playerRoles = h.playerRoleIds();
     const connected = new Set<string>();
     for (const role of playerRoles) { const held = holders.get(`${sessionId}:${role}`); if (held && held.ws.readyState === held.ws.OPEN) connected.add(role); }
-    const voice = (h as Partial<SessionHost>).voiceEnabled === true ? { stateOf: (r: string) => h.voiceStateOf(r), speaking: h.speakingRoles() } : undefined;
+    const voice = (h as Partial<SessionHost>).voiceEnabled === true ? { stateOf: (r: string) => h.voiceStateOf(r), speaking: h.speakingRoles(), facilitatorMuted: (r: string) => h.facilitatorMutedOf(r) } : undefined;
     const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats, aiRoles: new Set(h.aiRoleIds()), ...(voice ? { voice } : {}) });
     for (const c of only === undefined || only === "facilitator" ? live : [only]) {
       if (only === "facilitator" && !c.facilitator) continue;
@@ -217,6 +219,18 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       c.send(c.facilitator ? { type: "roster", audience: "facilitator", entries: roster.facilitator } : { type: "roster", audience: "peers", entries: roster.peers });
     }
   };
+  // A3A: when the facilitator's mute of a seat changes, its holder's socket is sent a `voice` frame (never to anyone else; an AI seat cannot be
+  // muted, so it never gets one) and every roster is sent afresh. The other players learn from the role-label mute_seat event.
+  const unsubscribeMute = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).onFacilitatorMuteChanged?.((roleId) => {
+    const held = holders.get(`${sessionId}:${roleId}`);
+    if (held) {
+      for (const c of live) {
+        if (c.h !== h || c.facilitator || c.ws !== held.ws || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
+        c.send({ type: "voice", state: h.voiceStateOf(roleId), muted: h.voiceMutedOf(roleId), ...mutedBy(h, roleId) });
+      }
+    }
+    broadcastRoster(sessionId, h);
+  }) ?? (() => undefined));
   const rosterChanged = (role: string, state: "joined" | "consented" | "connected" | "left" | "withdrew") => log(`roster: ${role} ${state}`);
   // The end of the session revokes every credential (and so every name) inside the host; the room is told once that has happened.
   const unsubscribeEnd = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).subscribe?.((e) => { if (e.type === "session.ended") broadcastRoster(sessionId, h); }) ?? (() => undefined));
@@ -408,7 +422,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
               // US-0070: only this seat's own voice state, only while voice is on (a text-only session's joined is unchanged). US-0071
               // (F5): with its mute state (kept when the same holder rebinds without a release, e.g. a superseded socket).
-              ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId), muted: h.voiceMutedOf(m.roleId) } } : {}),
+              ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId), muted: h.voiceMutedOf(m.roleId), ...mutedBy(h, m.roleId) } } : {}),
               // US-0082: tells an AI player's bot that this runtime takes its `activity` reports (an older runtime sends no flag).
               ...((h as Partial<SessionHost>).isAiRole?.(m.roleId) === true ? { activity: true as const } : {}), // (a stand-in host in a test may not offer it)
             });
@@ -471,7 +485,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           if (m.type === "voice_opt_in") host.optInVoice(who, participantId, m.noticeVersion);
           else host.optOutVoice(who, participantId);
           // To this socket only. US-0071 (F5): every `voice` answer carries the seat's real mute state (it outlives an opt-out).
-          send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only", muted: host.voiceMutedOf(who) });
+          send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only", muted: host.voiceMutedOf(who), ...mutedBy(host, who) });
           // US-0071 (K7, F3): an opt-in while voice is unavailable is told so right after its answer (a no-op unless unavailable).
           if (m.type === "voice_opt_in") (host as Partial<SessionHost>).noteVoiceBound?.(who, participantId);
           broadcastRoster(liveEntry!.sessionId, host, "facilitator"); // US-0071 (K6): the console's voice column
@@ -481,7 +495,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           // US-0071 (K5): refusals (voice_off, forbidden, not_joined) come back as HostError below. In memory only, never logged.
           if (isFacilitator || !participantId) return fail("forbidden", "only a player may mute their own voice");
           host.muteVoice(who, participantId, m.muted);
-          send({ type: "voice", state: host.voiceStateOf(who), muted: host.voiceMutedOf(who) }); // to this socket only
+          send({ type: "voice", state: host.voiceStateOf(who), muted: host.voiceMutedOf(who), ...mutedBy(host, who) }); // to this socket only
           return;
         }
         if (m.type === "activity") {
@@ -504,7 +518,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         } else if (m.type === "command") {
           if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands", ref);
           // A command with a ref never starts the session (the console starts it explicitly); without one the terminal's auto-start stays.
-          if (!host.hasStarted) {
+          // A3A (R4): a mute before the start is held by the host and written after session.started; it neither starts the session nor is refused.
+          if (!host.hasStarted && m.command.command !== "mute_seat") {
             if (ref !== undefined) { const code = host.isStarting ? "starting" : "not_started"; return fail(code, code, ref); }
             await host.start();
           }
@@ -575,6 +590,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       for (const u of unsubscribeFatal) u();
       for (const u of unsubscribeEnd) u();
       for (const u of unsubscribeNotice) u();
+      for (const u of unsubscribeMute) u();
       for (const u of unsubscribeSpeaking) u();
       for (const u of unsubscribeActivity) u();
       clearInterval(heartbeat);

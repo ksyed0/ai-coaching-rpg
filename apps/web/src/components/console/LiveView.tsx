@@ -15,9 +15,10 @@ import { WordsSpoken } from "./WordsSpoken";
 // The facilitator's read-only live view of a session: status, scene and timer, the transcript with notices and alerts, and words spoken.
 // It sends nothing itself; the facilitator controls are passed in as `controls` and sit right after the status card. All runtime text below is rendered as text children only.
 
-export type LiveViewProps = { ui: ConsoleStreamUi; clock: Clock; /** The facilitator controls, placed right after the status card. */ controls?: ReactNode };
+export type LiveViewProps = { ui: ConsoleStreamUi; clock: Clock; /** The facilitator controls, placed right after the status card. */ controls?: ReactNode;
+  /** A3A: set while the session can take commands; the voice panel then has Mute/Unmute buttons and its status line. */ sessionId?: string; fetch?: typeof fetch };
 
-export function LiveView({ ui, clock, controls }: LiveViewProps) {
+export function LiveView({ ui, clock, controls, sessionId, fetch: fetchImpl }: LiveViewProps) {
   const id = useId();
   const { view } = ui;
   const state = view?.state ?? null;
@@ -62,8 +63,8 @@ export function LiveView({ ui, clock, controls }: LiveViewProps) {
         <SceneStatus scene={index >= 0 ? ui.scenes[index] : undefined} index={index} count={ui.scenes.length} view={sceneView} clock={clock} />
       </section>
       {controls}
-      {/* US-0071: who uses voice and who speaks now; absent in a text-only session; not a live region. */}
-      <VoicePanel roster={ui.roster} />
+      {/* US-0071: who uses voice and who speaks now; absent in a text-only session; speaking is not a live region (the mute status line is). */}
+      <VoicePanel roster={ui.roster} {...(sessionId !== undefined ? { mute: { sessionId, channel: ui.channel, live: ui.conn === "live" && ui.channel !== null, ...(fetchImpl ? { fetch: fetchImpl } : {}) } } : {})} />
       <div>
         <h2 className="s">Transcript and notices</h2>
         <ConsoleTimeline entries={view?.timeline ?? []} names={names} playerRoles={playerRoles} aiPlayers={aiPlayers} />

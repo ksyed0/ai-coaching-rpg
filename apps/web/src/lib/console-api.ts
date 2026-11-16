@@ -18,6 +18,8 @@ export type RosterEntry = {
   /** US-0071: with voice on, the seat's voice state and whether it speaks now (the BFF picks both; parseReadiness keeps valid values only). */
   voice?: "none" | "voice" | "text_only" | "off";
   speaking?: true;
+  /** A3A: with voice on, whether the facilitator has muted this seat. */
+  facilitatorMuted?: boolean;
 };
 export type Readiness = {
   launcherStatus: "running" | "stopped" | "ended";
