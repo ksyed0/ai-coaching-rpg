@@ -3973,7 +3973,7 @@ Type: Unit
 Preconditions: A checkout with dependencies installed.
 Steps:
   1. From `services/control`: `pnpm exec vitest run src/__tests__/supervisor.owner.test.ts src/__tests__/api.test.ts`.
-Expected Result: An owner that is not an account id (`a b`, `../x`, `acc/1`, a non-ASCII or control character) is a 400 on create and on PUT owner and nothing is called; a create whose list write or owner write fails rejects `start_failed`, kills the child and leaves no trace in `sessions.json` or `session-owners.json`; with a damaged owners file `getWithoutOwner`, the restart answer, the report routes and the evaluate job keep working, `get` and `list` refuse, and one fixed line "session owners file is unreadable" is logged per failure episode (a good read ends the episode), never the path.
+Expected Result: An owner that is not an account id (`a b`, `../x`, `acc/1`, a non-ASCII or control character) is a 400 on create and on PUT owner and nothing is called; a create whose list write or owner write fails rejects `start_failed`, kills the child and leaves no trace in `sessions.json` or `session-owners.json`; with a damaged owners file `getWithoutOwner`, the restart answer, the report routes work (covered by the owner-free lookup and restart tests and by the stubbed route tests; the evaluate job's lookup in `main.ts` is not exercised end to end), `get` and `list` refuse, and one fixed line "session owners file is unreadable" is logged per failure episode (a good read ends the episode), never the path.
 Actual Result: As expected (2026-11-16). RED on develop: `a b: expected 200 to be 400`; `sup.getWithoutOwner is not a function`. The rollback tests passed at once (the code was right; they were missing); removing the owner rollback line in a scratch edit failed `expected { …(1) } to deeply equal {}`.
 Status: [x] Pass
 Defect Raised: None
@@ -3991,3 +3991,29 @@ Actual Result: As expected (2026-11-16); each new test failed on develop first.
 Status: [x] Pass
 Defect Raised: None
 Notes: Final review T7 M1/M2 and T9 M1, M3, M4, M5, M7.
+TC-0294: A new login refuses hidden and space characters and is capped at 120
+Related Story: US-0083
+Related Task: TASK-0132
+Related AC: AC-0503
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/accounts.service.test.ts`.
+Expected Result: Create refuses (`invalid`) a login with a zero-width, bidi, control, tab, no-break-space or ordinary space character and a login of 121 characters, and adds no account; it accepts `  Dana@Client.example ` (stored as `dana@client.example`, so plus, dot and @ are allowed) and a 120-letter login of `é` (unicode letters allowed). Sign-in and the store are unchanged: an existing stored login with a space still signs in.
+Actual Result: As expected (2026-11-16): test_accounts_service_create_refuses_a_login_with_hidden_or_space_characters_or_too_long in accounts.service.test.ts passes. The stored-login-with-a-space sign-in is by design (the rule is on create only) and is not a test of its own.
+Status: [x] Pass
+Defect Raised: None
+Notes: Final review gap, commit 45ea07c1. The rule runs on the login after trim and lower-case, the same form the lookup and the throttle key use.
+TC-0295: The Game Master human-line gate counts the scene's human seats
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0474, AC-0476
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/agents/__tests__/game-master.human-gate.test.ts`.
+Expected Result: A scene whose participants include no human player seat (only AI players) is judged as before, its final evaluation runs and no "waits until a human player has spoken" alert is raised; a scene with a human seat still waits for a human line before an exit verdict; a session with no human seat is not gated and a time box still ends a gated scene.
+Actual Result: As expected (2026-11-16): test_game_master_scene_without_a_human_participant_is_not_gated and test_game_master_scene_without_a_human_participant_final_evaluation_runs (the AI-only scene), test_game_master_ai_only_dialogue_is_never_judged_and_never_ends_the_scene and test_game_master_first_human_line_opens_the_gate_at_once (a human seat waits for a human line), test_game_master_session_without_a_human_seat_is_not_gated and test_game_master_time_box_still_ends_a_gated_scene, all in game-master.human-gate.test.ts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Final review fix, commit a2eefb26 (`humanLineGateOpen(state, scene)`). AC-0474 and AC-0476 are the US-0081 ids from docs/superpowers/notes/US-0081-notes.md; they are not filed in this plan yet.

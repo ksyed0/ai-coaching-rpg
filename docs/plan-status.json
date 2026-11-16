@@ -7449,6 +7449,26 @@
       "type": "Unit",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0294",
+      "title": "A new login refuses hidden and space characters and is capped at 120",
+      "relatedStory": "US-0083",
+      "relatedTask": "TASK-0132",
+      "relatedAC": "AC-0503",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0295",
+      "title": "The Game Master human-line gate counts the scene's human seats",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0474, AC-0476",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -9601,9 +9621,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-16T14:58:31.330Z",
-  "commitSha": "418210a1",
-  "buildNumber": "568",
+  "generatedAt": "2026-11-16T15:19:21.920Z",
+  "commitSha": "45ea07c1",
+  "buildNumber": "570",
   "branch": "feature/US-0083-final-review-fixes",
   "sessionTimeline": [
     {
@@ -9882,7 +9902,8 @@
       "2026-11-09T20:23:03.700Z",
       "2026-11-09T21:18:44.573Z",
       "2026-11-13T22:38:37.274Z",
-      "2026-11-16T14:58:31.473Z"
+      "2026-11-16T14:58:31.473Z",
+      "2026-11-16T15:19:21.994Z"
     ],
     "doneCounts": [
       0,
@@ -9894,6 +9915,7 @@
       4,
       4,
       4,
+      6,
       6,
       6,
       6,
@@ -9952,6 +9974,7 @@
       72,
       72,
       84,
+      82,
       82
     ],
     "aiCosts": [
@@ -9987,9 +10010,11 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -10057,6 +10082,7 @@
       29,
       29,
       29,
+      29,
       29
     ],
     "openBugs": [
@@ -10092,9 +10118,11 @@
       1,
       1,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -10162,10 +10190,12 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -10232,6 +10262,7 @@
       1.1363636363636365,
       1.1363636363636365,
       1.134615384615384,
+      1.135526315789473,
       1.135526315789473
     ],
     "velocityByWeek": {
