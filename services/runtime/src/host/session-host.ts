@@ -3,7 +3,7 @@ import { commandForPlayer, endedForPlayer, snapshotForPlayer, startedForPlayer }
 import { sceneEndsWhen, type NpcRole, type Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
-import { EngineError, type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
+import { EngineError, type ResumeInfo, type SessionEngine, type SessionStartExtra, type StartMute } from "../engine/session-engine.js";
 import { VOICE_ALERT_CODES, type VoiceAlertCode, type VoiceRefusal } from "./parent-channel.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
@@ -113,6 +113,13 @@ export class SessionHost {
   private voiceKnownFrom = 0;
   /** US-0071 (K5): the seats whose holder muted, in memory only (never written, never audited); cleared when the holder is released. */
   private readonly voiceMuted = new Set<string>();
+  /**
+   * A3A (C7): facilitator mutes received whose append has not finished (a count per seat): the seat is muted on receipt and the mute is
+   * rolled back if the command is refused or its append fails. The appended state is `engine.state.facilitatorMutedSeats`.
+   */
+  private readonly mutesInFlight = new Map<string, number>();
+  /** A3A (C6): facilitator mutes held before the start (seat to `by`), written straight after session.started. Memory only: a restart before the start keeps nothing. */
+  private readonly preStartMutes = new Map<string, string | undefined>();
   /**
    * US-0071 (A1b Task 5, R7): human seats whose last holder gave them up (leave, withdrawal, a reissue or removal) and that nobody has
    * bound since; in memory only. They are left out of `voice_seats.open`, so control removes the old LiveKit identity from the seat's
@@ -532,8 +539,19 @@ export class SessionHost {
     this.noteVoiceSeats();
   }
 
-  /** US-0071: whether the seat's holder has muted. */
-  voiceMutedOf(roleId: string): boolean { return this.voiceMuted.has(roleId); }
+  /** US-0071, A3A: whether the seat is muted: by its holder (their own mute) or by the facilitator (the union every reader of the mute uses). */
+  voiceMutedOf(roleId: string): boolean { return this.voiceMuted.has(roleId) || this.facilitatorMutedOf(roleId); }
+
+  /**
+   * A3A: whether the facilitator has muted the seat: appended (the log's state), received and still being appended (C7), or held before
+   * the start (C6). Independent of the holder's own mute; cleared only by a `mute_seat` with `muted: false`.
+   */
+  facilitatorMutedOf(roleId: string): boolean {
+    return (this.mutesInFlight.get(roleId) ?? 0) > 0 || this.engine.state.facilitatorMutedSeats.includes(roleId) || (!this.started && this.preStartMutes.has(roleId));
+  }
+
+  /** A3A: who muted the seat when the facilitator did (`"facilitator"`), else undefined (the holder's own mute, or none). */
+  voiceMutedByOf(roleId: string): "facilitator" | undefined { return this.facilitatorMutedOf(roleId) ? "facilitator" : undefined; }
 
   /**
    * US-0071 (K7): control's view of whether voice can work for this session. Applied FIRST, with no rate limit and also before the
@@ -609,7 +627,7 @@ export class SessionHost {
     return buildVoiceSeats({
       playerRoles: this.playerRoleIds(), holderOf: (r) => this.holderOf(r), isAi: (r) => this.isAiRole(r), stateOf: (r) => this.voiceStateOf(r),
       paused: this.engine.state.paused, ended: this.engine.state.status === "ended",
-      started: this.started, isMuted: (r) => this.voiceMuted.has(r), unavailable: this.voiceUnavailable, isVacated: (r) => this.voiceVacated.has(r),
+      started: this.started, isMuted: (r) => this.voiceMutedOf(r), unavailable: this.voiceUnavailable, isVacated: (r) => this.voiceVacated.has(r),
     });
   }
 
@@ -716,10 +734,13 @@ export class SessionHost {
       // BUG-0015: not for the retry of a start interrupted after session.started: the log already records who started, and a
       // seat that changed since must not stop the opening from finishing.
       const extra = this.engine.startIncomplete ? undefined : this.startGate();
+      // A3A (C6): the mutes held before the start, for human seats only (the seat file decides until session.started records it).
+      const mutes: StartMute[] = [...this.preStartMutes].filter(([r]) => this.hasPlayerRole(r) && !this.isAiRole(r))
+        .map(([roleId, by]) => ({ cmd: { command: "mute_seat", roleId, muted: true }, ...(by !== undefined ? { by } : {}) }));
       // A copy: the gate checked these seats, so a release while the engine waits for its mutex must not change what is recorded.
-      this.starting = this.engine.start({ ...this.assignments }, extra)
+      this.starting = this.engine.start({ ...this.assignments }, extra, mutes)
         // US-0071 (R8): recording needs the start, which counts only from here: the seats are reported again.
-        .then(() => { this.started = true; this.noteVoiceSeats(); this.flushPendingAlerts(); })
+        .then(() => { this.preStartMutes.clear(); this.started = true; this.noteVoiceSeats(); this.flushPendingAlerts(); })
         .finally(() => { this.starting = null; });
     }
     await this.starting;
@@ -806,10 +827,12 @@ export class SessionHost {
     // US-0071 (K4): muted or voice unavailable is not recording either; a line still in flight when the mute came is refused.
     if (!this.isRecordingHolder(roleId)) throw new VoiceRefusedError("not_recording");
     let event: SessionEvent;
-    const said = this.engine.say(roleId, text, "voice");
+    // A3A (C7): the recording check again, inside the engine mutex: a line queued when a mute arrived is refused, never appended after it.
+    const said = this.engine.say(roleId, text, "voice", { guard: () => { if (!this.isRecordingHolder(roleId)) throw new VoiceRefusedError("not_recording"); } });
     this.voiceChain = this.voiceChain.then((prev) => said.then((e) => Math.max(prev, e.seq), () => prev));
     try { event = await said; }
     catch (err) {
+      if (err instanceof VoiceRefusedError) throw err; // the in-mutex guard
       if (err instanceof EngineError) {
         if (err.code === "paused") throw new VoiceRefusedError("paused");
         if (err.code === "not_in_scene" || err.code === "stale_scene") throw new VoiceRefusedError("not_in_scene");
@@ -905,9 +928,9 @@ export class SessionHost {
   /** US-0070: `fn` gets every open and close of a voice turn (for the control service's AI players, `voice_turn`). */
   onVoiceTurn(fn: (open: boolean) => void): () => void { this.voiceTurnListeners.add(fn); return () => { this.voiceTurnListeners.delete(fn); }; }
 
-  /** A human seat whose current holder chose voice (and is not pinned off), has not muted, while voice is available (US-0071, K4). */
+  /** A human seat whose current holder chose voice (and is not pinned off), is not muted (own or facilitator, A3A), while voice is available (US-0071, K4). */
   private isRecordingHolder(roleId: string): boolean {
-    return this.holderOf(roleId) !== undefined && this.voiceStateOf(roleId) === "voice" && !this.voiceMuted.has(roleId) && !this.voiceUnavailable;
+    return this.holderOf(roleId) !== undefined && this.voiceStateOf(roleId) === "voice" && !this.voiceMutedOf(roleId) && !this.voiceUnavailable;
   }
 
   /**
@@ -982,6 +1005,7 @@ export class SessionHost {
 
   async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string; by?: string } = {}): Promise<void> {
     const by = cleanFacilitatorLabel(opts.by);
+    if (cmd.command === "mute_seat") return this.muteSeat(cmd, { ...(opts.expectSceneId !== undefined ? { expectSceneId: opts.expectSceneId } : {}), ...(by !== undefined ? { by } : {}) });
     await this.engine.command(cmd, { ...(opts.expectSceneId !== undefined ? { expectSceneId: opts.expectSceneId } : {}), ...(by !== undefined ? { by } : {}) });
     if (cmd.command === "resume" && this.pendingAnswer !== null && !this.engine.state.paused) {
       const sceneId = this.pendingAnswer;
@@ -994,6 +1018,35 @@ export class SessionHost {
       }
     }
     this.schedule("gm tick", () => this.gm.tick());
+  }
+
+  /**
+   * A3A: the facilitator mutes or unmutes a seat. Refusals, in order: voice_off (disabled), unknown_role (not a role of this session),
+   * forbidden (an AI character or an AI player seat), ended (by the engine too). Allowed while paused; a seat with no holder or a
+   * text-only holder is accepted (a mute can only stop recording). C7: a mute applies on receipt (`voice_state` re-sent) and is rolled back
+   * if it is refused or its append fails; an unmute applies only once its append succeeded. C6: before the start it is held in memory and
+   * written after session.started. C9: no Game Master tick follows (a mute is not a game turn).
+   */
+  private async muteSeat(cmd: StartMute["cmd"], opts: { expectSceneId?: string; by?: string }): Promise<void> {
+    const { roleId, muted } = cmd;
+    if (!this.voice.enabled) throw new HostError("voice_off");
+    if (!Object.hasOwn(this.scenario.roles, roleId)) throw new HostError("unknown_role");
+    if (!this.hasPlayerRole(roleId) || this.isAiRole(roleId)) throw new HostError("forbidden");
+    if (this.engine.state.status === "ended") throw new EngineError("ended");
+    if (muted) { this.mutesInFlight.set(roleId, (this.mutesInFlight.get(roleId) ?? 0) + 1); this.noteVoiceSeats(); }
+    try {
+      // A start in flight decides which path this takes: once session.started is on disk the log records the command.
+      if (this.starting !== null) await this.starting.catch(() => undefined);
+      if (this.engine.state.status === "idle") {
+        if (muted) this.preStartMutes.set(roleId, opts.by); else this.preStartMutes.delete(roleId);
+        return;
+      }
+      if (!muted) this.preStartMutes.delete(roleId); // an interrupted start (BUG-0015): the log decides from here
+      await this.engine.command(cmd, opts);
+    } finally {
+      if (muted) { const n = (this.mutesInFlight.get(roleId) ?? 1) - 1; if (n > 0) this.mutesInFlight.set(roleId, n); else this.mutesInFlight.delete(roleId); }
+      this.noteVoiceSeats(); // the applied unmute, or a rolled-back mute, is reported again (coalesced; never throws)
+    }
   }
 
   /**

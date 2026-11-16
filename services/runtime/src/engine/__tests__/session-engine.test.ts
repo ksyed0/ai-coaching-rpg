@@ -719,3 +719,34 @@ describe("the mute_seat command (A3A)", () => {
     expect(b.state.facilitatorMutedSeats).toEqual([]);
   });
 });
+
+describe("say's guard and the start's held mutes (A3A Task 2)", () => {
+  it("a guard that throws inside the mutex refuses the line, appends nothing, and passes its error on as is", async () => {
+    const before = (await log.all()).length;
+    const boom = new Error("not_recording");
+    await expect(engine.say("host", "hello", "voice", { guard: () => { throw boom; } })).rejects.toBe(boom);
+    expect((await log.all()).length).toBe(before);
+    await expect(engine.say("host", "hello", "voice", { guard: () => {} })).resolves.toMatchObject({ type: "utterance" });
+  });
+  it("the guard runs when the line reaches the mutex, not when it is queued", async () => {
+    let allowed = true;
+    const busy = engine.alert("first in the mutex", "info");
+    const line = engine.say("host", "late", "voice", { guard: () => { if (!allowed) throw new Error("refused"); } });
+    allowed = false;
+    await busy;
+    await expect(line).rejects.toThrow("refused");
+    expect((await log.all()).some((e) => e.type === "utterance" && e.text === "late")).toBe(false);
+  });
+  it("start writes each held mute straight after session.started, with its by; a role that is no seat is skipped", async () => {
+    const l2 = new MemoryEventLog("sess-2");
+    const e2 = new SessionEngine({ scenario, log: l2, clock });
+    await e2.start({ host: "participant-1" }, undefined, [{ cmd: { command: "mute_seat", roleId: "host", muted: true }, by: "Sam" }, { cmd: { command: "mute_seat", roleId: "ghost", muted: true } }]);
+    const evs = await l2.all();
+    expect(evs[0]!.type).toBe("session.started");
+    const { seq: _s, ts: _t, sessionId: _i, ...rest } = evs[1]!;
+    expect(rest).toEqual({ type: "facilitator.command", command: "mute_seat", roleId: "host", muted: true, by: "Sam" });
+    expect(evs.filter((e) => e.type === "facilitator.command").length).toBe(1);
+    expect(e2.state.facilitatorMutedSeats).toEqual(["host"]);
+    expect(e2.state.currentScene?.id).toBe("s1_open"); // the rest of the opening follows
+  });
+});
