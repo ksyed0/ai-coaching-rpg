@@ -1,6 +1,7 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useConsoleCommands } from "../../lib/console-commands";
 import { CONSOLE_VOICE, type ConsoleVoiceState } from "../../lib/console-voice";
+import { MESSAGES } from "../../lib/messages";
 import { roleLabel } from "../../lib/names";
 import { SpeakingIndicator } from "./SpeakingIndicator";
 
@@ -13,7 +14,7 @@ import { SpeakingIndicator } from "./SpeakingIndicator";
 export type VoicePanelEntry = { roleId: string; name?: string; ai?: true; voice?: ConsoleVoiceState; speaking?: true; /** A3A: the facilitator has muted this seat. */ facilitatorMuted?: boolean };
 
 /** What the panel needs to send a mute command; absent (an ended session) means no buttons and no status line. */
-export type VoiceMuteContext = { sessionId: string; channel: string | null; fetch?: typeof fetch };
+export type VoiceMuteContext = { sessionId: string; channel: string | null; /** The live view is connected (conn live and a channel). Not live: a press sends nothing and says so. */ live: boolean; fetch?: typeof fetch };
 
 export function VoiceStateWords({ voice }: { voice: ConsoleVoiceState }) {
   const on = voice === "voice";
@@ -30,6 +31,7 @@ const seatName = (e: VoicePanelEntry) => (e.name !== undefined && e.name !== "" 
 export function VoicePanel({ roster, mute }: { roster: readonly VoicePanelEntry[]; mute?: VoiceMuteContext }) {
   const id = useId();
   // One command at a time (the hook's in-flight guard): a second press while one is out sends nothing.
+  const [notLive, setNotLive] = useState(false);
   const cmds = useConsoleCommands(mute?.sessionId ?? "", mute?.channel ?? null, mute?.fetch);
   const seats = roster.filter((e): e is VoicePanelEntry & { voice: ConsoleVoiceState } => e.ai !== true && e.voice !== undefined);
   if (seats.length === 0) return null;
@@ -62,8 +64,13 @@ export function VoicePanel({ roster, mute }: { roster: readonly VoicePanelEntry[
                     <> <button
                       className="btn"
                       type="button"
+                      aria-disabled={mute.live && !cmds.pending ? undefined : true}
                       aria-label={`${e.facilitatorMuted === true ? "Unmute" : "Mute"} microphone, ${seatName(e)}`}
-                      onClick={() => void cmds.run({ kind: "mute_seat", roleId: e.roleId, muted: e.facilitatorMuted !== true })}
+                      onClick={() => {
+                        if (!mute.live) { setNotLive(true); return; }
+                        setNotLive(false);
+                        void cmds.run({ kind: "mute_seat", roleId: e.roleId, muted: e.facilitatorMuted !== true });
+                      }}
                     >
                       {e.facilitatorMuted === true ? "Unmute" : "Mute"}
                     </button></>
@@ -77,8 +84,9 @@ export function VoicePanel({ roster, mute }: { roster: readonly VoicePanelEntry[
       </div>
       {mute ? (
         <div role="status" aria-live="polite">
-          {cmds.status ? <p className="banner ok">{cmds.status}</p> : null}
-          {cmds.error ? <p className="err">{cmds.error}</p> : null}
+          {notLive && !mute.live ? <p className="err">{MESSAGES.consoleMuteNotLive}</p> : null}
+          {!(notLive && !mute.live) && cmds.status ? <p className="banner ok">{cmds.status}</p> : null}
+          {!(notLive && !mute.live) && cmds.error ? <p className="err">{cmds.error}</p> : null}
         </div>
       ) : null}
     </section>

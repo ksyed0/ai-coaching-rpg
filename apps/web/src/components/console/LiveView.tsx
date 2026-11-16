@@ -64,7 +64,7 @@ export function LiveView({ ui, clock, controls, sessionId, fetch: fetchImpl }: L
       </section>
       {controls}
       {/* US-0071: who uses voice and who speaks now; absent in a text-only session; speaking is not a live region (the mute status line is). */}
-      <VoicePanel roster={ui.roster} {...(sessionId !== undefined ? { mute: { sessionId, channel: ui.channel, ...(fetchImpl ? { fetch: fetchImpl } : {}) } } : {})} />
+      <VoicePanel roster={ui.roster} {...(sessionId !== undefined ? { mute: { sessionId, channel: ui.channel, live: ui.conn === "live" && ui.channel !== null, ...(fetchImpl ? { fetch: fetchImpl } : {}) } } : {})} />
       <div>
         <h2 className="s">Transcript and notices</h2>
         <ConsoleTimeline entries={view?.timeline ?? []} names={names} playerRoles={playerRoles} aiPlayers={aiPlayers} />

@@ -196,7 +196,7 @@ describe("VoicePanel facilitator mute", () => {
     { roleId: "ai_seat", name: "Bot", ...base, ai: true, voice: "voice" },
   ];
   const mount = (f: ReturnType<typeof fakeFetch>, roster = ROSTER) =>
-    render(<VoicePanel roster={roster} mute={{ sessionId: SID, channel: CH, fetch: f.fetch }} />);
+    render(<VoicePanel roster={roster} mute={{ sessionId: SID, channel: CH, live: true, fetch: f.fetch }} />);
   const rowOf = (name: string) => screen.getAllByRole("row").find((r) => within(r).queryByRole("rowheader")?.textContent?.includes(name))!;
 
   it("a human seat with a voice state has a native button whose name names the seat; the label follows the state", () => {
@@ -278,5 +278,38 @@ describe("VoicePanel facilitator mute", () => {
     cleanup();
     render(<LiveView ui={ui(VOICE_ROSTER)} clock={new FakeClock(T)} sessionId={SID} />);
     expect(screen.getAllByRole("button").length).toBe(4);
+  });
+
+  it("while the live view is not connected a press sends nothing and the status line says so; buttons are aria-disabled, still focusable", () => {
+    const f = fakeFetch();
+    render(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: null, live: false, fetch: f.fetch }} />);
+    const b = within(rowOf("Sam")).getByRole("button");
+    expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect((b as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(b);
+    expect(screen.getByRole("status").textContent).toBe(MESSAGES.consoleMuteNotLive);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("the not-live notice goes once the view is live again, and a press then sends", async () => {
+    const f = fakeFetch();
+    const r = render(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: null, live: false, fetch: f.fetch }} />);
+    fireEvent.click(within(rowOf("Sam")).getByRole("button"));
+    r.rerender(<VoicePanel roster={ROSTER} mute={{ sessionId: SID, channel: CH, live: true, fetch: f.fetch }} />);
+    expect(screen.getByRole("status").textContent).toBe("");
+    fireEvent.click(within(rowOf("Sam")).getByRole("button"));
+    await waitFor(() => expect(f.calls).toHaveLength(1));
+  });
+
+  it("buttons are aria-disabled while a command is in flight (and not otherwise)", async () => {
+    const f = fakeFetch();
+    f.hold();
+    mount(f);
+    const b = within(rowOf("Sam")).getByRole("button");
+    expect(b.hasAttribute("aria-disabled")).toBe(false);
+    fireEvent.click(b);
+    await waitFor(() => expect(b.getAttribute("aria-disabled")).toBe("true"));
+    f.release();
+    await waitFor(() => expect(b.hasAttribute("aria-disabled")).toBe(false));
   });
 });

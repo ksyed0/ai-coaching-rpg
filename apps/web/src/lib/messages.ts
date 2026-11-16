@@ -142,6 +142,8 @@ export const MESSAGES = {
   voiceMutedByFacilitator: "The facilitator has muted your microphone.",
   // A3A: equal COMMAND_ANSWERS.voice_off and .forbidden in src/server/console-command.ts (a test keeps them together).
   consoleMuteVoiceOff: "Voice is not on in this session, so there is nothing to mute.",
+  // A3A: a mute pressed while the live view is not connected is not sent; said in the status line.
+  consoleMuteNotLive: "Reconnecting; mute not sent. Wait until the live view is back, then try again.",
   consoleMuteForbidden: "That seat is not a person's seat, so it cannot be muted.",
 } as const;
 
