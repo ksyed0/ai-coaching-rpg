@@ -18,7 +18,7 @@ export class NoStreamError extends Error {
 }
 
 /** US-0070/US-0071: what the runtime can refuse a voice_opt_in, voice_opt_out or voice_mute with. */
-const VOICE_SEND_ERRORS = ["voice_off", "forbidden", "not_joined", "consent_version", "voice_notice_required", "failed", "bad_message", "bad_json", "rate_limited", "internal"] as const;
+const VOICE_SEND_ERRORS = ["voice_off", "forbidden", "muted_by_facilitator", "not_joined", "consent_version", "voice_notice_required", "failed", "bad_message", "bad_json", "rate_limited", "internal"] as const;
 
 /** The messages a player sends through `send`, and the runtime error codes each one can produce (ws-server.ts, session-host.ts, session-engine.ts). */
 const SEND_ERRORS = {
@@ -82,6 +82,8 @@ export const peerEntryOf = (e: PeerRosterEntry): PeerRosterEntry => {
   const out: PeerRosterEntry = { roleId: e.roleId, ready: e.ready === true };
   if (typeof e.name === "string") out.name = [...e.name].slice(0, 60).join("");
   if (e.ai === true) out.ai = true;
+  // A3A: whether the facilitator muted this peer, only as a boolean.
+  if (typeof e.facilitatorMuted === "boolean") out.facilitatorMuted = e.facilitatorMuted;
   return out;
 };
 
@@ -97,7 +99,10 @@ function playerJoined(j: JoinedFrame) {
   const v: unknown = j.voice;
   if (typeof v === "object" && v !== null && isVoiceState((v as { state?: unknown }).state)) {
     const muted = (v as { muted?: unknown }).muted;
-    out.voice = typeof muted === "boolean" ? { state: (v as { state: VoiceState }).state, muted } : { state: (v as { state: VoiceState }).state };
+    const state = (v as { state: VoiceState }).state;
+    out.voice = typeof muted === "boolean" ? { state, muted } : { state };
+    // A3A: only the literal "facilitator" marks a facilitator mute.
+    if ((v as { mutedBy?: unknown }).mutedBy === "facilitator") (out.voice as Record<string, unknown>).mutedBy = "facilitator";
   }
   return out;
 }
@@ -249,9 +254,17 @@ export class StreamHub {
       if (w && w.accepts.includes(m.code)) { w.done(m); return; }
       this.write(s, sse("error", { code: m.code, message: ERROR_MESSAGE }));
     } else if (m.type === "voice") {
-      // US-0071: only ever the answer to this player's own waiting voice send; a stray one (late, or unasked) is dropped.
+      // A3A: EVERY voice frame is written to the stream, in socket order: each is a full snapshot of this seat's voice, so the SSE `voice`
+      // event is the page's ordered truth. A facilitator's push can land before the answer to a send in flight; if the push were taken as
+      // that answer the page would read an older state. The HTTP answer (a waiting voice send's frame) only confirms or refuses.
       const w = s.waiter;
       if (w?.voice) w.done(m);
+      if (isVoiceState(m.state)) {
+        const out: Record<string, unknown> = { state: m.state };
+        if (typeof m.muted === "boolean") out.muted = m.muted;
+        if (m.mutedBy === "facilitator") out.mutedBy = "facilitator";
+        this.write(s, sse("voice", out));
+      }
     } else if (m.type === "voice_notice") {
       // US-0071 (AC-0414): to this player's page only, as a named event with the code alone; a code outside the allowlist is dropped.
       if (isNoticeCode(m.code)) this.write(s, sse("voice_notice", { code: m.code }));

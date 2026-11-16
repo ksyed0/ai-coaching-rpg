@@ -76,6 +76,8 @@ describe("useConsoleCommands", () => {
       [{ kind: "whisper", roleId: "r", text: "t" }, "Whisper sent."],
       [{ kind: "release_hidden", roleId: "r", fact: 1 }, "Fact released."],
       [{ kind: "set_npc_stance", roleId: "r", goals: ["g"] }, "Stance changed."],
+      [{ kind: "mute_seat", roleId: "tech_lead", muted: true }, "Microphone muted for Tech lead."],
+      [{ kind: "mute_seat", roleId: "tech_lead", muted: false }, "Microphone unmuted for Tech lead."],
       [{ kind: "end_now" }, null],
     ];
     const f = fakeFetch();

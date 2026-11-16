@@ -38,6 +38,7 @@ export const PLAYER_SNAPSHOT: { [K in keyof SessionState]: PlayerField<K> } = {
   // BUG-0023: ONLY the whispers addressed to this player, three fields each (seq, scene, text). Never the record of all roles, `by`, a ref or an ack.
   whispers: (s, who) => (Object.hasOwn(s.whispers, who) ? s.whispers[who]!.filter((w) => w.seq > (Object.hasOwn(s.whisperFloor, who) ? s.whisperFloor[who]! : 0)).map((w) => ({ seq: w.seq, sceneId: w.sceneId, text: w.text })) : []),
   whisperFloor: "omit", // BUG-0023: bookkeeping for the whispers filter above
+  facilitatorMutedSeats: (s) => [...s.facilitatorMutedSeats], // A3A: role ids only, the labels the mute_seat event already gives every player (never who muted)
   talk: "omit", // US-0059: words spoken are for the facilitator console only
 };
 
@@ -69,12 +70,14 @@ export function startedForPlayer(e: StartedEvent, who: string): StartedEvent {
 }
 
 /**
- * Players learn of pause and resume, and of a whisper addressed to them. Everything else (advance, inject, NPC stance, release, prompt_ai) stays
+ * Players learn of pause and resume, of a whisper addressed to them, and of a seat's facilitator mute (role label only). Everything else (advance, inject, NPC stance, release, prompt_ai) stays
  * private. Only the listed keys are copied, so `by` and any later field never reach a player.
  */
 export function commandForPlayer(e: CommandEvent, who: string): CommandEvent | null {
   if (e.command === "pause" || e.command === "resume") return { type: e.type, seq: e.seq, ts: e.ts, sessionId: e.sessionId, command: e.command };
   if (e.command === "whisper" && e.roleId === who) return { type: e.type, seq: e.seq, ts: e.ts, sessionId: e.sessionId, command: e.command, roleId: e.roleId, text: e.text };
+  // A3A: every player learns that a seat was muted or unmuted, by role label only: never `by` or a name (default-deny key by key).
+  if (e.command === "mute_seat") return { type: e.type, seq: e.seq, ts: e.ts, sessionId: e.sessionId, command: e.command, roleId: e.roleId, muted: e.muted };
   return null;
 }
 

@@ -81,6 +81,8 @@ const SEND_ANSWERS: Record<string, Answer> = {
 export const VOICE_ANSWERS: Record<string, Answer> = {
   voice_notice_required: { status: 409, code: "voice_notice_required", message: "Voice needs the current consent notice, which you did not agree to before the start. You can take part by text." },
   voice_off: { status: 409, code: "voice_off", message: "Voice is not available in this session." },
+  // A3A: the participant tried to unmute while the facilitator has muted them. The fixed sentence lives in MESSAGES (voiceMutedByFacilitator).
+  muted_by_facilitator: { status: 409, code: "muted_by_facilitator", message: "The facilitator has muted your microphone." },
 };
 const UNCONFIRMED: Answer = { status: 504, code: "unconfirmed", message: "Your choice was not confirmed. Reload the page to see it." };
 /** US-0071: the token route's answers. Control's text, a room and an identity never reach the page. */
@@ -370,7 +372,10 @@ export async function handleVoice(req: Request, deps: Deps): Promise<Response> {
     return answer(Object.hasOwn(VOICE_ANSWERS, code) ? VOICE_ANSWERS[code]! : Object.hasOwn(SEND_ANSWERS, code) ? SEND_ANSWERS[code]! : A.refused);
   }
   if (reply?.type !== "voice" || !isVoiceState(reply.state)) return answer(UNCONFIRMED);
-  return ok(typeof reply.muted === "boolean" ? { state: reply.state, muted: reply.muted } : { state: reply.state });
+  const out: { state: typeof reply.state; muted?: boolean; mutedBy?: "facilitator" } = { state: reply.state };
+  if (typeof reply.muted === "boolean") out.muted = reply.muted;
+  if (reply.mutedBy === "facilitator") out.mutedBy = "facilitator";
+  return ok(out);
 }
 
 function voiceMessage(b: Record<string, unknown> | null): ClientMessage | null {

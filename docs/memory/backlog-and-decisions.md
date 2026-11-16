@@ -134,6 +134,12 @@ Deferred from the US-0036 reviews (carried into US-0037/US-0038/US-0039, see the
 - **Deferred minors** from the task reviews are listed in the SDD ledger (`.superpowers/sdd/2026-11-16-voice-a2b2-audio-panel/progress.md`); the final whole-branch review will triage them.
 - **Next:** A3 (facilitator voice tools) is still not filed. Voice must not go live before the deferred compliance items.
 
+## Voice A3a: the facilitator mutes a participant's microphone (EPIC-0003, US-0091, 2026-11-16)
+- **Filed and built** 2026-11-16 as US-0091 (TASK-0143, AC-0550 to AC-0559, TC-0322 to TC-0332) on `feature/EPIC-0003-US-0090-voice-audio-panel` (spec `docs/superpowers/specs/2026-11-16-voice-a3a-facilitator-mute-design.md`, plan `docs/superpowers/plans/2026-11-16-voice-a3a-facilitator-mute.md`); **A3a is DONE** (mute only); the story stays In Progress until the whole-branch review passes; no PR yet. Details: `docs/THREAT_MODEL.md` "Voice facilitator mute, slice A3a", `docs/VOICE_RUNBOOK.md` section 8, `docs/ROLLBACK.md` "US-0091".
+- **Owner decisions (2026-11-16):** a mute is per seat, instant and reversible; a line transcribed before it stays; A3 is split (A3a mute, A3b live partials); a facilitator mute ends only on the facilitator's unmute; every participant sees it by role label.
+- **Open owner items:** TC-0332 (a real mute in a live voice session with a real browser). Optional: a Mute control in the lobby (before the start); a strike or hide tool for an already-transcribed line.
+- **Next:** A3b (live partial transcripts for the facilitator) is a separate later slice; it needs a capacity decision that the 4-to-8 talker room test should inform. Voice must not go live before the deferred compliance items.
+
 ## Facilitator accounts (EPIC-0002, US-0083, 2026-11-13)
 - **Filed and built** 2026-11-13 as US-0083 (TASK-0130 to TASK-0141, AC-0500 to AC-0518, TC-0270 to TC-0290; In Progress until the full gates and the whole-branch review pass) on `feature/EPIC-0002-US-0083-facilitator-accounts` (spec `docs/superpowers/specs/2026-11-13-facilitator-accounts-design.md`, plan `docs/superpowers/plans/2026-11-13-facilitator-accounts.md`); not pushed, no PR. Backlog filed Planned: US-0084 email sending, US-0085 database store, US-0086 SSO or OIDC, US-0087 separate auth service, US-0088 password rules, US-0089 per-client admins (EPIC-0008).
 - **Owner decisions (2026-11-13):** a default admin with a fixed documented password (`admin` / `ChangeMe-Admin-1`) and a forced change at first sign-in; no email (the temporary password is shown once on screen); a local file store behind an interface; a facilitator sees only their own sessions, the admin sees all; approach B (accounts in the control service). Owner go-ahead "go ahead with us-0083".
@@ -150,7 +156,7 @@ Owner decision (2026-11-08): **legal, HR and other compliance tasks are deferred
 - [ ] **Remove the notice v3 draft marker and pin its SHA-256** (the first line of `consent/notice-v3.md` and its test), at the release gate, after A2 and the sign-off above.
 - [ ] **The legal and HR briefing document** (draft from `consent/notice-v3.md` and spec section 6: what is recorded, who hears it, retention, deletion, bystanders, backups). Deferred by the owner; not drafted.
 - [ ] Any **privacy or regulatory review** (for example a data protection impact assessment) and the **backups wording sign-off**.
-- [ ] **Release gate:** voice is enabled for outside participants only after A1a to A2 are built, the room test passed, and the items above are done (A1a, A1b, A1c, A2a, A2b-1a and A2b-1b merged or built; A2b-2, the console panel, built on its branch, PR pending; A3 not started).
+- [ ] **Release gate:** voice is enabled for outside participants only after A1a to A2 are built, the room test passed, and the items above are done (A1a, A1b, A1c, A2a, A2b-1a and A2b-1b merged or built; A2b-2, the console panel, and A3a, the facilitator mute, built on their branch, PR pending; A3b not started).
 
 ### Operational go-live (engineering and owner tasks; still needed before a pilot with real participants)
 - [ ] **Domain and certificate** for the LAN pilot hostname (US-0048; an owner-supplied certificate, or Caddy with a DNS token; certificates expire after 90 days). Needed for the microphone (secure context).

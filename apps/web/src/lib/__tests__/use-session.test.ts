@@ -451,3 +451,17 @@ describe("useSession: actions", () => {
     expect(f.calls[0]!.body).toEqual({ text: "Hello <b>there</b>", expectSceneId: "s2" });
   });
 });
+
+describe("useSession: a stale voice answer (A3A)", () => {
+  it("an answer sent before a drop does not overwrite the voice state a later joined delivered", async () => {
+    const f = fakeFetch(() => ({ status: 200, body: ok({ state: "voice", muted: false }) }));
+    const { hook, es } = start({ fetch: f.fetch });
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: false } }));
+    f.hold();
+    let sent!: Promise<unknown>;
+    act(() => { sent = hook.result.current.setMuted(false); });
+    emit(es(), "joined", joinedFrame({ voice: { state: "voice", muted: true, mutedBy: "facilitator" }, logIdentity: "log-1" }));
+    await act(async () => { f.release(); await sent; });
+    expect(hook.result.current.state.voice).toEqual({ state: "voice", muted: true, mutedBy: "facilitator" });
+  });
+});

@@ -329,7 +329,7 @@ const JOINED_KEYS = keys<JoinedFrame>()(["type", "roleId", "brief", "privateFact
 const PLAYER_JOINED_KEYS = JOINED_KEYS.filter((k) => k !== "hiddenFacts");
 const REPLAY_KEYS = keys<ReplaySummary>()(["afterSeq", "toSeq", "events", "complete"]);
 const CONSENT_KEYS = keys<NonNullable<JoinedFrame["consent"]>>()(["noticeVersion", "notice", "given"]);
-const PEER_KEYS = keys<PeerRosterEntry>()(["roleId", "name", "ready", "ai"]);
+const PEER_KEYS = keys<PeerRosterEntry>()(["roleId", "name", "ready", "ai", "facilitatorMuted"]);
 const EVENT_FRAME_KEYS = keys<Extract<ServerMessage, { type: "event" }>>()(["type", "event"]);
 const ERROR_KEYS = keys<Extract<ServerMessage, { type: "error" }>>()(["type", "code", "message", "ref"]);
 const ROSTER_KEYS = keys<Extract<ServerMessage, { type: "roster"; audience: "peers" }>>()(["type", "audience", "entries"]);
@@ -389,7 +389,7 @@ describe("wire contract", () => {
 
 // The facilitator side of the contract: every client message wire.ts can send is accepted by the runtime's own schema, and the frames a
 // facilitator receives carry only the keys wire.ts knows.
-const FAC_ENTRY_KEYS = keys<FacilitatorRosterEntry>()(["roleId", "name", "joined", "consented", "connected", "ai", "voice", "speaking"]);
+const FAC_ENTRY_KEYS = keys<FacilitatorRosterEntry>()(["roleId", "name", "joined", "consented", "connected", "ai", "voice", "speaking", "facilitatorMuted"]);
 const FAC_ROSTER_KEYS = keys<Extract<ServerMessage, { type: "roster"; audience: "facilitator" }>>()(["type", "audience", "entries"]);
 /** One sample of every ClientMessage variant; the Record makes a new variant a compile error until it is added here. */
 const SENT: Record<ClientMessage["type"], ClientMessage> = {

@@ -824,3 +824,24 @@ describe("AiPlayerBot review fixes", () => {
     await Promise.all([p, d]);
   });
 });
+
+describe("AiPlayerBot ignores facilitator mute (A3A)", () => {
+  it("a paused bot that receives a mute_seat facilitator.command stays paused (it does not count as a resume)", async () => {
+    const m = make();
+    const s = await up(m);
+    ev(s, { seq: 6, type: "facilitator.command", command: "pause" });
+    ev(s, { seq: 7, type: "facilitator.command", command: "mute_seat", roleId: "tech_lead", muted: true });
+    human(s, 8);
+    await adv(6_000);
+    expect(s.said).toHaveLength(0);
+    ev(s, { seq: 9, type: "facilitator.command", command: "resume" });
+    human(s, 10);
+    await adv(6_000);
+    expect(s.said).toHaveLength(1); // only an explicit resume clears the pause
+  });
+
+  it("the frame parser drops a mute_seat command and a voice frame (default deny)", () => {
+    expect(frame({ type: "event", event: { seq: 7, type: "facilitator.command", command: "mute_seat", roleId: "tech_lead", muted: true } })).toEqual({ type: "ignored" });
+    expect(frame({ type: "voice", roleId: "tech_lead", muted: true })).toEqual({ type: "ignored" });
+  });
+});

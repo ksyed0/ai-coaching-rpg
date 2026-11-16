@@ -613,22 +613,97 @@ describe("StreamHub voice (US-0071)", () => {
     expect([...VOICE_NOTICE_CODES]).toEqual(["stt_failed", "empty", "paused", "not_in_scene", "ended", "not_recording", "voice_unavailable", "voice_available"]);
   });
 
-  it("a voice frame without a pending send is dropped", () => {
+  it("a voice frame without a pending send is forwarded as a named voice event, mutedBy kept and nothing else (A3A)", () => {
     const { h } = hub();
     const { conn, rec } = opened(h);
+    conn.emit({ type: "voice", state: "voice", muted: true, mutedBy: "facilitator", room: "r-secret" } as never);
     conn.emit({ type: "voice", state: "voice", muted: false });
-    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+    expect(rec.frames().slice(2)).toEqual([
+      { event: "voice", data: { state: "voice", muted: true, mutedBy: "facilitator" } },
+      { event: "voice", data: { state: "voice", muted: false } },
+    ]);
+    expect(rec.chunks.join("")).not.toContain("r-secret");
   });
 
-  it("voice_opt_in resolves with the voice frame, which is not also written to the stream", async () => {
+  it("an unsolicited voice frame with an unknown state or a mutedBy that is not facilitator is cleaned or dropped (A3A)", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({ type: "voice", state: "loud", muted: true } as never);
+    conn.emit({ type: "voice", state: "voice", muted: "yes", mutedBy: "someone" } as never);
+    expect(rec.frames().slice(2)).toEqual([{ event: "voice", data: { state: "voice" } }]);
+  });
+
+  it("joined.voice keeps mutedBy facilitator and drops any other value (A3A)", () => {
+    const { h } = hub();
+    const { rec } = opened(h, { joined: joinedFrame({ voice: { state: "voice", muted: true, mutedBy: "facilitator" } as never }) });
+    expect(rec.frames()[1]!.data.voice).toEqual({ state: "voice", muted: true, mutedBy: "facilitator" });
+    const b = hub();
+    const o = opened(b.h, { joined: joinedFrame({ voice: { state: "voice", muted: true, mutedBy: "admin" } as never }) });
+    expect(o.rec.frames()[1]!.data.voice).toEqual({ state: "voice", muted: true });
+  });
+
+  it("peer roster entries keep facilitatorMuted only as a boolean (A3A)", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({ type: "roster", audience: "peers", entries: [{ roleId: "a", ready: true, facilitatorMuted: true }, { roleId: "b", ready: true, facilitatorMuted: "yes" }, { roleId: "c", ready: true }] } as never);
+    expect(rec.frames()[2]!.data.entries).toEqual([{ roleId: "a", ready: true, facilitatorMuted: true }, { roleId: "b", ready: true }, { roleId: "c", ready: true }]);
+  });
+
+  it("the role-label mute_seat event reaches the player's stream as a named event, no by (A3A)", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({ type: "event", event: { type: "facilitator.command", seq: 5, ts: 1, sessionId: "s", command: "mute_seat", roleId: "lead", muted: true } } as never);
+    const f = rec.frames()[2]!;
+    expect(f.event).toBe("event");
+    expect(f.data).toEqual({ type: "facilitator.command", seq: 5, ts: 1, sessionId: "s", command: "mute_seat", roleId: "lead", muted: true });
+    expect(Object.hasOwn(f.data, "by")).toBe(false);
+  });
+
+  it("a voice_mute refused with muted_by_facilitator is the send's answer at once, with no timer wait (A3A)", async () => {
+    const { h, timers } = hub();
+    const { conn } = opened(h);
+    conn.answer = () => ({ type: "error", code: "muted_by_facilitator", message: "runtime text" });
+    expect(await h.send(cookieFor(), { type: "voice_mute", muted: false })).toMatchObject({ type: "error", code: "muted_by_facilitator" });
+    expect(timers.live().filter((t) => t.ms !== 15_000)).toEqual([]);
+  });
+
+  it("voice_opt_in resolves with the voice frame, which is also written to the stream (A3A)", async () => {
     const { h, timers } = hub();
     const { conn, rec } = opened(h);
     conn.answer = (m) => (m.type === "voice_opt_in" ? { type: "voice", state: "voice", muted: false } : null);
     const r = await h.send(cookieFor(), { type: "voice_opt_in", noticeVersion: "v3" });
     expect(r).toEqual({ type: "voice", state: "voice", muted: false });
     expect(conn.sent).toEqual([{ type: "voice_opt_in", noticeVersion: "v3" }]);
-    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined", "voice"]);
+    expect(rec.frames()[2]!.data).toEqual({ state: "voice", muted: false });
     expect(timers.live().filter((t) => t.ms !== 15_000)).toEqual([]);
+  });
+
+  it("(a) a facilitator push before the answer to voice_opt_in: both reach the stream in order (A3A)", async () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.answer = (m) => {
+      if (m.type !== "voice_opt_in") return null;
+      conn.emit({ type: "voice", state: "none", muted: true, mutedBy: "facilitator" } as never);
+      return { type: "voice", state: "voice", muted: true, mutedBy: "facilitator" } as never;
+    };
+    await h.send(cookieFor(), { type: "voice_opt_in", noticeVersion: "v3" });
+    expect(rec.frames().slice(2)).toEqual([
+      { event: "voice", data: { state: "none", muted: true, mutedBy: "facilitator" } },
+      { event: "voice", data: { state: "voice", muted: true, mutedBy: "facilitator" } },
+    ]);
+  });
+
+  it("(b) a facilitator unmute push before the answer to voice_mute{false}: both reach the stream in order (A3A)", async () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.answer = (m) => {
+      if (m.type !== "voice_mute") return null;
+      conn.emit({ type: "voice", state: "voice", muted: true } as never);
+      return { type: "voice", state: "voice", muted: false } as never;
+    };
+    await h.send(cookieFor(), { type: "voice_mute", muted: false });
+    expect(rec.frames().slice(2).map((f) => f.data)).toEqual([{ state: "voice", muted: true }, { state: "voice", muted: false }]);
   });
 
   it("voice_opt_out and voice_mute resolve with their voice frame", async () => {
@@ -672,7 +747,8 @@ describe("StreamHub voice (US-0071)", () => {
     conn.emit({ type: "voice", state: "voice", muted: false });
     timers.fire(300);
     expect(await p).toBeNull();
-    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined"]);
+    // A3A: the voice frame was not the say's answer; it went to the page as the runtime's own push.
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined", "voice"]);
   });
 
   it("send still refuses an unknown type (characterisation)", async () => {

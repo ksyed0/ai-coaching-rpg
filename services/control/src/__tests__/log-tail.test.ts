@@ -28,6 +28,11 @@ describe("readLogStatus", () => {
     expect(readLogStatus(file(head))).toBe("running");
     expect(readLogStatus(file(head + line({ type: "facilitator.alert" }) + line({ type: "session.ended", reason: "facilitator_end" })))).toBe("ended");
   });
+  it("A3A: a mute_seat command line is an ordinary event: running as the last line, ended when session.ended follows", () => {
+    const mute = line({ type: "facilitator.command", command: "mute_seat", roleId: "tech_lead", muted: true });
+    expect(readLogStatus(file(line({ type: "session.started" }) + mute))).toBe("running");
+    expect(readLogStatus(file(line({ type: "session.started" }) + mute + line({ type: "session.ended", reason: "facilitator_end" })))).toBe("ended");
+  });
   it("running after a normal line", () => {
     expect(readLogStatus(file(line({ type: "session.started" })))).toBe("running");
   });

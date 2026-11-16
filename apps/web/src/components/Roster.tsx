@@ -1,4 +1,5 @@
 import type { PeerRosterEntry } from "../lib/use-session";
+import { MESSAGES } from "../lib/messages";
 import { roleLabel } from "../lib/names";
 
 // Who is in the room: each player seat's display name (typed by that person; shown as text) or its role, and its state in words.
@@ -16,7 +17,10 @@ export function Roster({ entries, selfRole }: { entries: PeerRosterEntry[]; self
               {e.ai || e.name !== undefined ? <span className="muted"> {roleLabel(e.roleId)}</span> : null}
               {e.roleId === selfRole ? <span className="muted"> (you)</span> : null}
             </span>
-            <span className={`pill ${state.tone}`}>{state.label}</span>
+            <span>
+              {e.facilitatorMuted ? <span className="pill warn"><span aria-hidden="true">× </span>{MESSAGES.rosterMutedByFacilitator}</span> : null}
+              <span className={`pill ${state.tone}`}>{state.label}</span>
+            </span>
           </li>
         );
       })}

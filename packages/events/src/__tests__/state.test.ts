@@ -370,3 +370,37 @@ describe("the group-score option (US-0061)", () => {
     expect(aiRolesOfStarted(st({ aiRoles: ["tech_lead", 7, "client_sponsor", "tech_lead"] }))).toEqual(["tech_lead"]);
   });
 });
+
+describe("facilitatorMutedSeats (A3A)", () => {
+  const mute = (seq: number, roleId: string, muted: boolean): SessionEvent => ({ ...env(seq), type: "facilitator.command", command: "mute_seat", roleId, muted });
+  it("starts empty", () => { expect(initialState().facilitatorMutedSeats).toEqual([]); });
+  it("a mute adds the seat and a later unmute removes it", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, mute(2, "delivery_lead", true));
+    expect(s.facilitatorMutedSeats).toEqual(["delivery_lead"]);
+    s = reduce(s, mute(3, "delivery_lead", false));
+    expect(s.facilitatorMutedSeats).toEqual([]);
+  });
+  it("the last command per seat wins, and a repeated mute keeps one entry", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, mute(2, "b", true)); s = reduce(s, mute(3, "a", true)); s = reduce(s, mute(4, "b", true));
+    expect(s.facilitatorMutedSeats).toEqual(["a", "b"]);
+    s = reduce(s, mute(5, "a", false)); s = reduce(s, mute(6, "a", true));
+    expect(s.facilitatorMutedSeats).toEqual(["a", "b"]);
+  });
+  it("an unmute of a seat that is not muted changes nothing", () => {
+    const s = reduce(reduce(initialState(), started), mute(2, "a", false));
+    expect(s.facilitatorMutedSeats).toEqual([]);
+  });
+  it("other commands, a pause and a resume leave the set unchanged", () => {
+    let s = reduce(reduce(initialState(), started), mute(2, "a", true));
+    s = reduce(s, { ...env(3), type: "facilitator.command", command: "pause" });
+    s = reduce(s, { ...env(4), type: "facilitator.command", command: "resume" });
+    s = reduce(s, { ...env(5), type: "facilitator.command", command: "advance" });
+    expect(s.facilitatorMutedSeats).toEqual(["a"]);
+  });
+  it("a role id such as __proto__ is an ordinary entry", () => {
+    const s = reduce(reduce(initialState(), started), mute(2, "__proto__", true));
+    expect(s.facilitatorMutedSeats).toEqual(["__proto__"]);
+  });
+});
