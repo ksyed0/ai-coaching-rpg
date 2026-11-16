@@ -3615,6 +3615,72 @@
       "dependencies": [
         "US-0083"
       ]
+    },
+    {
+      "id": "US-0090",
+      "epicId": "EPIC-0003",
+      "title": "As the facilitator who has just ended a voice session, I want to listen back to what was recorded, read what was transcribed beside each clip, and delete one participant's audio or all of it from the console before the client leaves, so that a participant's request to erase their audio can be honoured in the room, with proof in the audit.",
+      "priority": "Medium",
+      "estimate": "L",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0003-US-0090-voice-audio-panel",
+      "acs": [
+        {
+          "id": "AC-0540",
+          "text": "control `GET /sessions/:id/transcript` (behind the service token, facilitator-only, no `X-Acr-By`, no audit line) returns `{ lines: [{ seq, ts, roleId, text }], truncated: false }` of that session's `utterance` events only, in log order; over a cap it is 413 `transcript_too_large`, never a partial list (the log file at most 8 MiB, the returned text at most 1,000,000 characters); 404 for an unknown session or a missing log; 409 `session_live` unless the supervisor reports the session ended AND the voice host is not live (fail closed, a throwing check counts as live); 503 `busy` with `Retry-After: 1` over 4 reads in flight; the log is opened, then checked on the descriptor (a link, a non-regular file or another user's file is not found, a torn last line is skipped) (TC-0310); ticked 2026-11-16: control transcript.test.ts (the reader: events of other types and other sessions skipped, torn and blank lines, wrongly typed fields, multi-byte text, both caps, a link) and transcript-route.test.ts (the route: 401, 404, 409 for running and draining and a throwing check, 413, 503 `busy`, no `X-Acr-By` needed, no audit line)",
+          "done": true
+        },
+        {
+          "id": "AC-0541",
+          "text": "the web server has three console routes under `/api/v1/console/sessions/<id>/audio`: `GET` (the list joined to the transcript), `GET .../play?role=&segment=` (one clip) and `POST .../delete`; each goes through the owner-or-admin guard first (a neutral 404 for another facilitator's session), builds `by` on the server as `<accountSlug>-console` (a `by` in the browser's body is ignored), identifies a clip by role and segment (the identity folder, the participant id and the seq never reach the browser), and is throttled per account (list and play share 120 requests a minute, delete 10 a minute, a 60 s block, 429 `rate_limited`) (TC-0311); ticked 2026-11-16: web console-audio-handlers.test.ts (the guard, `by` built from the account, a browser `by` ignored, the throttles by account and not by cookie, no identity or seq in any answer by string search), launcher-client.audio.test.ts (the four client calls) and console-ownership.test.ts and routes.test.ts (the three routes join the ownership and route tables)",
+          "done": true
+        },
+        {
+          "id": "AC-0542",
+          "text": "a shared-secret (legacy) sign-in has no account to audit under, so all three routes answer 403 `account_required` before any control call (no list, no transcript, no play, no delete) (TC-0312); ticked 2026-11-16: web console-audio-handlers.test.ts (a legacy cookie gets 403 from all three routes with no launcher call), console-ownership.test.ts (the `ACCOUNT_ONLY` set) and console-audio.e2e.test.ts (zero `/audio` or `/transcript` requests reach control, no audit line)",
+          "done": true
+        },
+        {
+          "id": "AC-0543",
+          "text": "the join: the list asks control for the audio list first and for the transcript only when at least one clip is `transcribed` with a `seq`; a clip gets its text only when it is `transcribed`, has a `seq`, a transcript line has that `seq` AND that line's `roleId` equals the clip's role (otherwise no text); the join is by `seq`, never by position; the transcript failing leaves the clips listed with `textUnavailable`, a transcript over a cap leaves them listed with `tooLongForText`, and a transcript that answers `session_live` makes the whole list 409 (TC-0313); ticked 2026-11-16: web console-audio-join.test.ts (7 tests: by seq not position, a different role's line dropped, no seq, not transcribed, key set exact) and console-audio-handlers.test.ts (transcript not asked for when nothing is transcribed, the three failure shapes)",
+          "done": true
+        },
+        {
+          "id": "AC-0544",
+          "text": "the console `AudioPanel` appears after the report panels once the session has ended; it groups clips by seat, plays one clip at a time, deletes a seat's audio or all audio behind an inline confirmation that names the count and duration and says it cannot be undone, asks for a reason (facilitator decision or participant asked), and has its own states: loading (nothing shown), no recordings (shown only when the roster has a human voice seat), the session still ending (409, with Retry), a failed list (alert with Retry), sign in with your own account (legacy) and a deleted clip (TC-0314); ticked 2026-11-16: web AudioPanel.test.tsx (29 tests: the states, grouping, one clip at a time, the confirmation text and reasons, focus return, the keyboard and role checks) and SessionConsole.test.tsx (the panel is wired into the ended block, from the stream and from the poll)",
+          "done": true
+        },
+        {
+          "id": "AC-0545",
+          "text": "a delete that control answers 503 with a partial body is never shown as a success: the web route answers 503 with the partial result and the sentence \"Some recordings could not be deleted yet\" (the code is the worst reason: `store_unsafe`, then `audit_unavailable`, then `busy`; `Retry-After: 5` is sent whatever the reason), the browser parses it as `pending`, and the panel reloads the list, says which parts are not done in plain words and offers Retry with the same scope and reason; 200 is `done`, 409 `session_live` is refused, 503 `busy` with no body is a plain busy (TC-0315); ticked 2026-11-16: web console-audio-handlers.test.ts (pending is 503 with the partial result and not the \"nothing was changed\" sentence, worst reason, busy only), console-api.audio.test.ts (503 plus a body is `pending`, a malformed 200 is `failed`, never `done`) and AudioPanel.test.tsx (the partial-delete and unknown-reason tests)",
+          "done": true
+        },
+        {
+          "id": "AC-0546",
+          "text": "every response that carries audio or transcript text is `Cache-Control: no-store` and keeps `Referrer-Policy: no-referrer`: the list, the play (WAV bytes) and the delete answer; the page CSP gains `media-src 'self' blob:` and nothing else (TC-0316); ticked 2026-11-16: web console-audio-handlers.test.ts (the four play headers and the `priv` headers on every answer) and headers.test.ts (`media-src 'self' blob:`); a real browser playing a blob URL under this CSP is TC-0321 (owner-run, Not Run)",
+          "done": true
+        },
+        {
+          "id": "AC-0547",
+          "text": "one play is one audit line: a click on an already fetching clip is ignored (an in-flight guard), so one play is one web request, one control replay and exactly one `audio.played` line; the list, the transcript and a failed play add none; the WAV is served whole with `Accept-Ranges: none` and `X-Content-Type-Options: nosniff`, so the browser cannot make a second ranged request (TC-0317); ticked 2026-11-16: web AudioPanel.test.tsx (a second click while a fetch is in flight sends one request), console-audio.e2e.test.ts (the bytes equal the file on disk, exactly one `audio.played` line per play, the list adds none) and console-audio-handlers.test.ts (the four headers)",
+          "done": true
+        },
+        {
+          "id": "AC-0548",
+          "text": "the real chain works end to end: the three web handlers, the real `LauncherClient`, the real control API with the real transcript service and the real speech audio store and audit log (list shows text and no identity; play bytes equal the disk; delete of one role marks only that role, play of it is 410 and the other role still plays; a running session is 409; a legacy cookie reaches control zero times), and the mutation checks (the legacy refusal removed, the body `by` used, `no-store` dropped, join by position, a pending delete shown as success, the in-flight play guard removed, `media-src` removed, the panel unwired, the transcript live check removed, a partial list over the cap) each fail a named test and are reverted (TC-0318); ticked 2026-11-16: web console-audio.e2e.test.ts (5 tests) and the mutation runs recorded in the task reports (prior evidence, not re-run here)",
+          "done": true
+        },
+        {
+          "id": "AC-0549",
+          "text": "documented: `docs/THREAT_MODEL.md` (\"Voice audio review panel, slice A2b-2\"), `docs/VOICE_RUNBOOK.md` (sections 7 and 8, and the owner checklist item 10), `docs/ROLLBACK.md` (\"US-0090\": deploy control before web, no data step), `CHANGELOG.md`, the spec status line, `docs/ID_REGISTRY.md`, this plan, the test cases, `progress.md`, `MEMORY.md` and the backlog note (TC-0319); ticked 2026-11-16: the Task 8 documents pass and `npm run plan:generate`",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0074",
+        "US-0075",
+        "US-0083"
+      ]
     }
   ],
   "tasks": [
@@ -4797,6 +4863,16 @@
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0083-facilitator-accounts",
       "notes": "Task 11 (AC-0518): THREAT_MODEL, ROLLBACK, README, `.env.example`, CHANGELOG, this plan, the registry, the test cases, the demo cue card and `demo-up.sh`, progress.md and MEMORY.md. Commits: this commit. Done 2026-11-13."
+    },
+    {
+      "id": "TASK-0142",
+      "storyId": "US-0090",
+      "title": "Build the facilitator audio review and delete panel (slice A2b-2)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0003-US-0090-voice-audio-panel",
+      "notes": "Plan: docs/superpowers/plans/2026-11-16-voice-a2b2-audio-panel.md (Task 1: the control transcript reader; Task 2: the route and its service; Task 3: the launcher client calls; Task 4: the join and the three web handlers; Task 5: the browser client functions and copy; Task 6: the AudioPanel and its wiring; Task 7: end to end and the keyboard checks; Task 8: the documents). Covers AC-0540 to AC-0549 (TC-0310 to TC-0319). Filed 2026-11-16; Tasks 1 to 7 built the same day with a review per task (a fix round on Task 4) and Task 8 (the documents) closed it. Done 2026-11-16 on feature/EPIC-0003-US-0090-voice-audio-panel; the PR into `develop` is not yet opened. Test cases TC-0310 to TC-0319 Pass (TC-0318's mutation checks are prior evidence); TC-0320 (the owner-run real-room review and delete) and TC-0321 (a real browser playing a clip) are Not Run."
     }
   ],
   "testCases": [
@@ -7469,6 +7545,126 @@
       "type": "Unit",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0310",
+      "title": "Control transcript route: one session's utterances, bounded and refused while live",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0540",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0311",
+      "title": "Web audio routes: guard, server-built `by`, no identity, throttles",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0541",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0312",
+      "title": "A shared-secret sign-in is refused before any control call",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0542",
+      "type": "Unit and integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0313",
+      "title": "The clip and transcript join",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0543",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0314",
+      "title": "AudioPanel: grouping, one clip at a time, confirmation and states",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0544",
+      "type": "Unit (jsdom)",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0315",
+      "title": "A partial delete is never shown as success",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0545",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0316",
+      "title": "No caching and the page CSP allows media from a blob",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0546",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0317",
+      "title": "One play is one audit line",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0547",
+      "type": "Unit and integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0318",
+      "title": "End to end: web handlers, real client, real control, real store",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0548",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0319",
+      "title": "The slice is documented",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0549",
+      "type": "Manual",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0320",
+      "title": "Review and delete on a real recorded session from the console (owner-run)",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0540, AC-0541, AC-0544, AC-0545, AC-0547",
+      "type": "Manual",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0321",
+      "title": "A real browser plays a clip under the page CSP (owner-run)",
+      "relatedStory": "US-0090",
+      "relatedTask": "TASK-0142",
+      "relatedAC": "AC-0546, AC-0547",
+      "type": "Manual",
+      "status": "Not Run",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -7884,493 +8080,499 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0070": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0071": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0072": {
       "projectedUsd": 1600,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0073": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0074": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0075": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0083": {
       "projectedUsd": 3200,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0084": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0085": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0086": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0087": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0088": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0089": {
       "projectedUsd": 0.9,
-      "costUsd": 9.749832,
+      "costUsd": 9.632364,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0090": {
+      "projectedUsd": 1600,
+      "costUsd": 9.632364,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -9233,6 +9435,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0090": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -9621,10 +9830,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-16T16:18:11.528Z",
-  "commitSha": "eff22a2c",
-  "buildNumber": "571",
-  "branch": "feature/US-0083-final-review-fixes",
+  "generatedAt": "2026-11-16T18:19:57.468Z",
+  "commitSha": "3d4d0226",
+  "buildNumber": "576",
+  "branch": "feature/EPIC-0003-US-0090-voice-audio-panel",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -9768,7 +9977,7 @@
   "budget": {
     "totalBudget": 812.9862,
     "totalSpent": 799.4862,
-    "totalProjected": 16863.000000000007,
+    "totalProjected": 18463.000000000007,
     "percentUsed": 98,
     "burnRate": 0,
     "daysRemaining": null,
@@ -9788,66 +9997,66 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 136.497648,
-        "spent": 136.497648,
+        "budget": 134.853096,
+        "spent": 134.853096,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0003",
         "title": "Slice 3 — voice over LiveKit",
-        "budget": 58.498991999999994,
-        "spent": 58.498991999999994,
+        "budget": 67.42654800000001,
+        "spent": 67.42654800000001,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 136.497648,
-        "spent": 136.497648,
+        "budget": 134.853096,
+        "spent": 134.853096,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 146.24748,
-        "spent": 146.24748,
+        "budget": 144.48546,
+        "spent": 144.48546,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 239.39596799999998,
-        "spent": 233.99596799999998,
+        "budget": 236.57673599999995,
+        "spent": 231.17673599999995,
         "remaining": 5.400000000000006,
         "percentUsed": 98
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 42.599328,
-        "spent": 38.999328,
+        "budget": 42.129456000000005,
+        "spent": 38.529456,
         "remaining": 3.6000000000000014,
-        "percentUsed": 92
+        "percentUsed": 91
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 42.599328,
-        "spent": 38.999328,
+        "budget": 42.129456000000005,
+        "spent": 38.529456,
         "remaining": 3.6000000000000014,
-        "percentUsed": 92
+        "percentUsed": 91
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 10.649832,
-        "spent": 9.749832,
+        "budget": 10.532364000000001,
+        "spent": 9.632364,
         "remaining": 0.9000000000000004,
-        "percentUsed": 92
+        "percentUsed": 91
       },
       {
         "id": "EPIC-0004",
@@ -9861,79 +10070,27 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Jan 19",
-    "rangeStart": "Oct 25",
-    "rangeEnd": "Apr 14",
+    "likelyDate": "Jan 27",
+    "rangeStart": "Nov 1",
+    "rangeEnd": "Apr 24",
     "velocityWeeks": 6,
     "storiesPerWeek": 0.9,
-    "pointsPerWeek": 4.6
+    "pointsPerWeek": 4.5
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-06T05:38:48.389Z",
-      "2026-11-06T07:06:42.489Z",
-      "2026-11-06T16:07:34.581Z",
-      "2026-11-06T20:16:40.988Z",
-      "2026-11-06T20:43:37.775Z",
-      "2026-11-06T21:55:07.566Z",
-      "2026-11-06T22:58:47.846Z",
-      "2026-11-06T23:42:42.538Z",
-      "2026-11-08T17:39:47.895Z",
-      "2026-11-08T18:12:59.796Z",
-      "2026-11-08T22:40:07.074Z",
-      "2026-11-09T00:34:57.678Z",
-      "2026-11-09T01:59:36.634Z",
-      "2026-11-09T03:02:23.129Z",
-      "2026-11-09T04:00:10.727Z",
-      "2026-11-09T05:07:55.551Z",
-      "2026-11-09T06:06:32.091Z",
-      "2026-11-09T06:42:55.572Z",
-      "2026-11-09T07:13:33.400Z",
-      "2026-11-09T08:23:11.057Z",
-      "2026-11-09T09:05:12.201Z",
-      "2026-11-09T15:05:52.083Z",
-      "2026-11-09T15:35:57.568Z",
-      "2026-11-09T16:36:31.736Z",
-      "2026-11-09T17:10:02.269Z",
-      "2026-11-09T17:43:48.273Z",
-      "2026-11-09T18:19:05.586Z",
-      "2026-11-09T19:32:10.800Z",
-      "2026-11-09T20:23:03.700Z",
-      "2026-11-09T21:18:44.573Z",
-      "2026-11-13T22:38:37.274Z",
-      "2026-11-16T14:58:31.473Z",
-      "2026-11-16T15:19:21.994Z",
-      "2026-11-16T16:18:11.637Z"
+      "2026-11-11T18:08:18.602Z",
+      "2026-11-11T19:47:52.607Z",
+      "2026-11-12T20:37:55.878Z",
+      "2026-11-12T21:50:41.141Z",
+      "2026-11-13T17:35:13.525Z",
+      "2026-11-13T18:05:24.013Z",
+      "2026-11-13T22:28:39.904Z",
+      "2026-11-16T18:19:57.554Z"
     ],
     "doneCounts": [
       0,
-      2,
-      3,
-      3,
-      3,
-      3,
-      4,
-      4,
-      4,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
       6,
       6,
       6,
@@ -9945,69 +10102,17 @@
     ],
     "totalStories": [
       13,
-      65,
-      65,
-      65,
-      65,
-      65,
-      65,
-      65,
-      65,
-      69,
-      69,
-      70,
-      70,
-      70,
-      71,
-      71,
-      71,
-      71,
-      71,
-      71,
-      71,
-      71,
-      71,
-      71,
-      72,
-      72,
-      72,
-      72,
-      72,
-      72,
-      72,
-      84,
+      73,
+      73,
+      74,
+      74,
+      75,
+      75,
       82,
-      82,
-      82
+      83
     ],
     "aiCosts": [
       54.2322,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -10026,62 +10131,10 @@
       null,
       null,
       null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
       null
     ],
     "velocity": [
       0,
-      8,
-      13,
-      13,
-      13,
-      13,
-      21,
-      21,
-      21,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
       29,
       29,
       29,
@@ -10093,32 +10146,6 @@
     ],
     "openBugs": [
       0,
-      4,
-      4,
-      4,
-      4,
-      4,
-      4,
-      4,
-      4,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
       1,
       1,
       1,
@@ -10129,32 +10156,6 @@
       1
     ],
     "atRisk": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0,
       0,
@@ -10174,32 +10175,6 @@
       33019880,
       33019880,
       33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
       33019880
     ],
     "outputTokens": [
@@ -10211,89 +10186,34 @@
       5997518,
       5997518,
       5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
-      1.1380952380952383,
-      1.1387096774193552,
-      1.1387096774193552,
-      1.1435483870967746,
-      1.1435483870967746,
-      1.1393442622950825,
-      1.1393442622950825,
-      1.1393442622950825,
-      1.1333333333333335,
-      1.1333333333333335,
-      1.1375000000000002,
-      1.1375000000000002,
-      1.1328125,
-      1.136923076923077,
-      1.136923076923077,
-      1.136923076923077,
-      1.136923076923077,
-      1.136923076923077,
-      1.136923076923077,
-      1.136923076923077,
-      1.1323076923076922,
-      1.1323076923076922,
-      1.1323076923076922,
-      1.1363636363636365,
-      1.1363636363636365,
-      1.1363636363636365,
-      1.1363636363636365,
-      1.1363636363636365,
-      1.1363636363636365,
-      1.1363636363636365,
-      1.134615384615384,
+      1.135820895522388,
+      1.135820895522388,
+      1.1352941176470586,
+      1.1352941176470586,
+      1.1347826086956518,
+      1.1347826086956518,
       1.135526315789473,
-      1.135526315789473,
-      1.135526315789473
+      1.1389610389610385
     ],
     "velocityByWeek": {
       "labels": [
         "2026-W40",
-        "2026-W45",
         "2026-W46",
         "2026-W47"
       ],
       "points": [
         0,
         29,
-        0,
         0
       ],
       "rollingAvg": [
         0,
         14.5,
-        9.7,
-        7.3
+        9.7
       ]
     }
   }

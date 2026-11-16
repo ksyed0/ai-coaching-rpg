@@ -1,6 +1,6 @@
 # Voice slice A2b-2: facilitator audio review and delete panel (control transcript route, web routes, console panel) (design)
 
-Status: Draft 2 (2026-11-16), after an independent builder check (4 questions, all settled in the doc as my calls, to be confirmed by the owner). Parents: `2026-11-12-voice-a2b1-audio-replay-delete-design.md` (sections 5 to 7 stay in force), `2026-11-13-voice-a2b1b-audio-delete-design.md`, `2026-11-13-facilitator-accounts-design.md`, `docs/THREAT_MODEL.md`. A2b-1a (US-0074, PR #139) and A2b-1b (US-0075, PR #141) are merged, and so are facilitator accounts (US-0083, PRs #142 and #144). Proposed story: not yet filed (next free ids to be taken from `docs/ID_REGISTRY.md`), EPIC-0003, dark behind `VOICE_ENABLED`. Live partials, mute and consent (A3) stay a separate slice.
+Status: Draft 2, approved by the owner 2026-11-16 (after an independent builder check; 4 questions, all settled in the doc as builder calls). Parents: `2026-11-12-voice-a2b1-audio-replay-delete-design.md` (sections 5 to 7 stay in force), `2026-11-13-voice-a2b1b-audio-delete-design.md`, `2026-11-13-facilitator-accounts-design.md`, `docs/THREAT_MODEL.md`. A2b-1a (US-0074, PR #139) and A2b-1b (US-0075, PR #141) are merged, and so are facilitator accounts (US-0083, PRs #142 and #144). Story: US-0090 (TASK-0142, AC-0540 to AC-0549, TC-0310 to TC-0321), filed 2026-11-16, EPIC-0003, dark behind `VOICE_ENABLED`. Live partials, mute and consent (A3) stay a separate slice.
 
 ## 1. Intent and why
 

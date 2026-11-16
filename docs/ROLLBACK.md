@@ -666,3 +666,35 @@ Set `ADMIN_RESET=1` on the control service and restart it: the admin's password 
 ### Rolling forward again
 
 Redeploy control, then web. The existing `accounts.json` and `session-owners.json` are used as they were; if the shared secret was restored in the meantime, it works again only if the latch (`legacyClosed`) is still open. Nothing to migrate. Sessions created on the older build have no owner, so they are admin-only after rolling forward until an admin assigns them. If `accounts.json` was deleted, that took effect at once on the running control: every account was refused and the shared secret (when `FACILITATOR_SECRET` is set) signed in again before any restart. To restore, put the file back (every account and the latch return as they were); otherwise restart control, which creates the default admin with the default password, and create the facilitators again.
+
+## US-0090: facilitator audio review and delete panel (EPIC-0003 voice slice A2b-2)
+
+```
+Release: unreleased (feature/EPIC-0003-US-0090-voice-audio-panel)
+Date: not deployed
+Rollback trigger: a Recordings panel that misbehaves (a clip that will not play, a delete shown as done that is not, a page that no longer loads because of the new `media-src` header), a transcript read that stalls the control service, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No change to the session log, the audio store, any event, the audit file format or any file on disk. No new setting.** The panel writes only what the existing routes already write: `audio.played` and `audio.deleted` lines in `<logIdentity>.audio-audit.jsonl`.
+- **One new control route:** `GET /sessions/:id/transcript` (service token; a bounded read of the session log; 404, 409 `session_live`, 413 `transcript_too_large` and 503 `busy` as `docs/VOICE_RUNBOOK.md` section 8 explains). It is available whatever `VOICE_ENABLED` is.
+- **Three new web routes** under `/api/v1/console/sessions/:id/audio` (list, `play`, `delete`), a Recordings panel in the console after the session ends, and `media-src 'self' blob:` added to the page Content-Security-Policy.
+
+### Deploy order
+
+**Control before web.** The new web app asks control for the transcript:
+- **Web without the new control route** (web deployed first, or control rolled back): the panel still lists, plays and deletes; each clip shows no text and the panel says "Transcripts are unavailable right now." Nothing else changes.
+- **Control alone** (the new control with the older web app): nothing a browser can see changes. The new route is unused.
+
+The panel only opens for an ended session and the control change only adds a route.
+
+### Rolling back
+
+- **No data step is needed.** There is nothing to undo on disk. Audio already deleted stays deleted; the `audio.played` and `audio.deleted` lines already written stay in the audit file (the sweep never reads it).
+- **Roll back web** to remove the panel, the three routes and the CSP change; the control routes for list, replay and delete from A2b-1a and A2b-1b are unaffected and still work by hand (`docs/VOICE_RUNBOOK.md` section 7). **Roll back control** to remove only the transcript route (the new web app then shows "transcripts unavailable").
+- **If only the CSP is the problem** (a browser refuses a clip), the fix is `media-src` in `apps/web/src/server/headers.ts`; there is no setting for it.
+
+### Rolling forward again
+
+Redeploy control, then web. Nothing to migrate.
