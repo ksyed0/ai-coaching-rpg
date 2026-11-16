@@ -57,7 +57,7 @@ type Ctx = { who: ConsoleCaller & { accountId: string }; id: string; by: string;
 
 /** The common front of all three routes; `run` is called only once every check has passed. */
 function front(req: Request, deps: Deps, change: boolean, t: JoinThrottle, role: string, run: (c: Ctx) => Promise<Response>): Promise<Response> {
-  return safely(async () => {
+  return safely("console audio request failed", async () => {
     const g = await guard(req, deps, change);
     if ("response" in g) return priv(g.response);
     if (g.who.accountId === null) return say(403, "account_required");
@@ -107,6 +107,10 @@ export const handleConsoleAudioList = (req: Request, deps: Deps): Promise<Respon
 /** GET .../audio/play?role=&segment=: one clip's WAV, built here with exactly these headers. */
 export const handleConsoleAudioPlay = (req: Request, deps: Deps): Promise<Response> =>
   front(req, deps, false, deps.consoleAudioReadThrottle, READ_ROLE, async (c) => {
+    // Fetch-Metadata: the panel's own fetch sends same-origin and empty; a media or navigation request would repeat (and audit again).
+    const site = req.headers.get("Sec-Fetch-Site");
+    const dest = req.headers.get("Sec-Fetch-Dest");
+    if ((site !== null && site !== "same-origin") || (dest !== null && dest !== "empty")) return say(403, "invalid");
     const q = new URL(req.url).searchParams;
     const role = q.getAll("role");
     const segment = q.getAll("segment");
@@ -164,7 +168,8 @@ export const handleConsoleAudioDelete = (req: Request, deps: Deps): Promise<Resp
       if (a.state === "live") return priv(fail(409, "session_live", AUDIO_REFUSALS.session_live, undefined, a));
       const code = worst(a);
       // The code names the worst reason; the sentence is true of a partial delete (some recordings may already be gone).
-      return priv(fail(503, code, AUDIO_REFUSALS.delete_pending, { headers: { "Retry-After": "5" } }, a));
+      // Retry-After only for a plain busy (as control does): a store or audit problem will not clear by itself.
+      return priv(fail(503, code, AUDIO_REFUSALS.delete_pending, code === "busy" ? { headers: { "Retry-After": "5" } } : undefined, a));
     } catch (err) {
       return audioFailure(err);
     }

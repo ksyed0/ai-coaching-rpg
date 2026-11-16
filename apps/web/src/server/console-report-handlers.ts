@@ -67,11 +67,11 @@ export function reportFailure(err: unknown): Response {
 }
 
 /** Runs a handler; an unexpected throw is a 500 that logs only the error's name. */
-export async function safely(fn: () => Promise<Response>): Promise<Response> {
+export async function safely(label: string, fn: () => Promise<Response>): Promise<Response> {
   try {
     return await fn();
   } catch (err) {
-    console.error(`web: console report request failed: ${err instanceof Error ? err.name : "error"}`);
+    console.error(`web: ${label}: ${err instanceof Error ? err.name : "error"}`);
     return priv(fail(500, "internal", "Something went wrong. Try again."));
   }
 }
@@ -157,7 +157,7 @@ export function accountSlug(name: string, accountId: string): string {
 }
 
 function write(req: Request, deps: Deps, s: Spec): Promise<Response> {
-  return safely(async () => {
+  return safely("console report request failed", async () => {
     const g = await guard(req, deps, true); // the console cookie, then Origin and Fetch-Metadata: both before anything is counted
     if ("response" in g) return priv(g.response);
     const t = deps.consoleReportThrottle;
@@ -198,7 +198,7 @@ function write(req: Request, deps: Deps, s: Spec): Promise<Response> {
 }
 
 function read(req: Request, deps: Deps, subject: boolean): Promise<Response> {
-  return safely(async () => {
+  return safely("console report request failed", async () => {
     const g = await guard(req, deps, false);
     if ("response" in g) return priv(g.response);
     const id = sessionIdOf(req);

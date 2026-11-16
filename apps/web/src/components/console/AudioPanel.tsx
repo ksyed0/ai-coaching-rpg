@@ -32,6 +32,7 @@ export function AudioPanel({ sessionId, fetch: f, roster }: { sessionId: string;
   const alive = useRef(true);
   const fetching = useRef(false);
   const urlRef = useRef<string | null>(null);
+  const generation = useRef(0);
   const audio = useRef<HTMLAudioElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const confirmBox = useRef<HTMLDivElement>(null);
@@ -86,9 +87,11 @@ export function AudioPanel({ sessionId, fetch: f, roster }: { sessionId: string;
     fetching.current = true;
     setMsg(null);
     audio.current?.pause?.();
+    const gen = generation.current;
     try {
       const r = await playClip(f, sessionId, c.role, c.segment);
-      if (!alive.current) return;
+      // A delete that started while this fetch was in flight owns the player now: a late result must not start the deleted clip.
+      if (!alive.current || generation.current !== gen) return;
       if (!r.ok) {
         if (r.code === "audio_deleted") setFlipped((s) => new Set(s).add(key(c)));
         else setMsg({ kind: "alert", text: audioFailureText(r.code) });
@@ -107,6 +110,12 @@ export function AudioPanel({ sessionId, fetch: f, roster }: { sessionId: string;
   }
 
   async function runDelete(scope: DeleteScope, reason: Reason) {
+    // Whatever the scope, stop and drop the player first: a deleted clip must not stay playable in an open <audio>.
+    generation.current += 1;
+    audio.current?.pause?.();
+    setCurrent(null);
+    if (urlRef.current !== null) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = null;
     setBusy(true);
     setMsg(null);
     setConfirm(null);
@@ -130,6 +139,8 @@ export function AudioPanel({ sessionId, fetch: f, roster }: { sessionId: string;
 
   if (phase.k === "loading") return null;
   if (phase.k === "ready" && phase.data.clips.length === 0 && !hasVoiceSeat) return null;
+  // Same rule as the gate above: a sign-in without an account or a control outage must not show a Recordings card on a voice-off deployment.
+  if ((phase.k === "account_required" || phase.k === "failed") && !hasVoiceSeat) return null;
 
   const clips = phase.k === "ready" ? [...phase.data.clips].sort((a, b) => a.startMs - b.startMs) : [];
   const availability = (c: ClipView) => (flipped.has(key(c)) ? "deleted" : c.audio);
@@ -204,7 +215,7 @@ export function AudioPanel({ sessionId, fetch: f, roster }: { sessionId: string;
                         <span className="mono">{mmss(c.startMs)}</span>
                         <span>{c.text !== undefined && c.text !== "" ? c.text : AUDIO_CONSOLE.noTranscript}</span>
                         {state === "available" ? (
-                          <button className="btn" type="button" aria-label={`Play clip, ${label}`} onClick={() => void play(c, label)}>
+                          <button className="btn" type="button" disabled={busy} aria-label={`Play clip, ${label}`} onClick={() => void play(c, label)}>
                             {current?.key === key(c) ? "Playing" : "Play"}
                           </button>
                         ) : (

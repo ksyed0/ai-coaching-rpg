@@ -243,6 +243,26 @@ describe("play", () => {
     expect(audioCalls()).toEqual([]);
   });
 
+  it("refuses a request whose Sec-Fetch-Site is not same-origin, before control", async () => {
+    for (const site of ["cross-site", "same-site", "none"]) {
+      const req = new Request(`${base()}/play?role=alice&segment=seg-1`, { headers: { Cookie: ADMIN_COOKIE, "Sec-Fetch-Site": site } });
+      expect([site, (await handleConsoleAudioPlay(req, deps)).status]).toEqual([site, 403]);
+    }
+    expect(audioCalls()).toEqual([]);
+    answer = () => good();
+    const okReq = new Request(`${base()}/play?role=alice&segment=seg-1`, { headers: { Cookie: ADMIN_COOKIE, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "empty" } });
+    answer = () => new Response(WAV, { status: 200 });
+    expect((await handleConsoleAudioPlay(okReq, deps)).status).toBe(200);
+  });
+
+  it("refuses a request whose Sec-Fetch-Dest is not empty (a media or navigation request), before control", async () => {
+    for (const dest of ["audio", "media", "document"]) {
+      const req = new Request(`${base()}/play?role=alice&segment=seg-1`, { headers: { Cookie: ADMIN_COOKIE, "Sec-Fetch-Dest": dest } });
+      expect([dest, (await handleConsoleAudioPlay(req, deps)).status]).toEqual([dest, 403]);
+    }
+    expect(audioCalls()).toEqual([]);
+  });
+
   it("maps 410, 503 audit_unavailable, 503 store_unsafe and busy", async () => {
     answer = () => refused(410, "audio_deleted");
     let res = await handleConsoleAudioPlay(play(), deps);
@@ -309,7 +329,7 @@ describe("delete", () => {
     answer = () => refused(503, "audit_unavailable", { deleted: 1, identities: ["folder-real-name"], pending: [{ reason: "busy" }, { reason: "store_unsafe" }] });
     const res = await handleConsoleAudioDelete(post(DEL), deps);
     expect(res.status).toBe(503);
-    expect(res.headers.get("retry-after")).not.toBeNull();
+    expect(res.headers.get("retry-after")).toBeNull();
     const body = await json(res);
     expect(body.success).toBe(false);
     expect(body.error?.code).toBe("store_unsafe");
@@ -322,7 +342,9 @@ describe("delete", () => {
 
   it("pending with only busy reasons is a 503 busy", async () => {
     answer = () => refused(503, "busy", { deleted: 0, identities: [], pending: [{ reason: "busy" }] });
-    const body = await json(await handleConsoleAudioDelete(post(DEL), deps));
+    const res = await handleConsoleAudioDelete(post(DEL), deps);
+    expect(res.headers.get("retry-after")).toBe("5");
+    const body = await json(res);
     expect(body.error?.code).toBe("busy");
     expect(body.success).toBe(false);
   });

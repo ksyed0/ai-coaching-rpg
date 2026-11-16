@@ -1047,7 +1047,7 @@ export class LauncherClient {
   /** A2b-2: the recorded clips of an ended session (control's facilitator listing). `null` when there is no audio. The identity is dropped. */
   async audioList(id: string, by: string): Promise<AudioListing | null> {
     const path = `/sessions/${this.id(id)}/audio`;
-    const { status, e } = await this.exchange("GET", path, undefined, this.timeoutMs, { headers: { "x-acr-by": by } });
+    const { status, e } = await this.exchange("GET", path, undefined, this.timeoutMs, { headers: { "x-acr-by": by }, maxChars: MAX_REPORT_RESPONSE_CHARS });
     if (status === 404) return null;
     const d = this.unwrap(status, e);
     if (!isObject(d) || typeof d.recordingStopped !== "boolean" || !Array.isArray(d.segments)) return bad();
@@ -1147,9 +1147,9 @@ export class LauncherClient {
         signal,
         redirect: "error",
         headers: {
-          "x-service-token": this.token,
           Accept: "application/json",
           ...o.headers,
+          "x-service-token": this.token,
           ...(body !== undefined && { "Content-Type": "application/json" }),
         },
         ...(body !== undefined && { body: JSON.stringify(body) }),

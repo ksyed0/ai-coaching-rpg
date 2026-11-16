@@ -77,6 +77,12 @@ describe("AudioPanel: list", () => {
     expect(screen.getAllByRole("button", { name: /^Play /i })).toHaveLength(1);
   });
 
+  it("a clip whose audio is missing says Audio missing and has no play button", async () => {
+    mount((u) => (u === BASE ? { status: 200, body: ok(list([clip(), clip({ segment: "s2", audio: "missing", startMs: 90_000, endMs: 95_000 })])) } : undefined));
+    await screen.findByText("Audio missing");
+    expect(screen.getAllByRole("button", { name: /^Play / })).toHaveLength(1);
+  });
+
   it("renders nothing when control has no audio and the roster has no voice seat", async () => {
     const m = mount((u) => (u === BASE ? { status: 200, body: ok(list([])) } : undefined), [{ roleId: "delivery_lead", name: "Dana" }]);
     await waitFor(() => expect(lists(m)).toHaveLength(1));
@@ -114,6 +120,20 @@ describe("AudioPanel: list", () => {
     mount((u) => (u === BASE ? { status: 403, body: refused("account_required", "x") } : undefined));
     expect(await screen.findByText("Sign in with your own account to hear or delete recordings.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Play|Delete/ })).toBeNull();
+  });
+
+  it("account_required renders nothing when the roster has no voice seat (a shared-secret sign-in on a voice-off deployment)", async () => {
+    const m = mount((u) => (u === BASE ? { status: 403, body: refused("account_required", "x") } : undefined), [{ roleId: "delivery_lead", name: "Dana" }]);
+    await waitFor(() => expect(lists(m)).toHaveLength(1));
+    await flush();
+    expect(m.container.innerHTML).toBe("");
+  });
+
+  it("a failed list renders nothing when the roster has no voice seat", async () => {
+    const m = mount((u) => (u === BASE ? { status: 503, body: refused("unavailable", "x") } : undefined), [{ roleId: "delivery_lead", name: "Dana" }]);
+    await waitFor(() => expect(lists(m)).toHaveLength(1));
+    await flush();
+    expect(m.container.innerHTML).toBe("");
   });
 
   it("session_live (409) shows the still-ending sentence with a Retry", async () => {
@@ -203,6 +223,70 @@ describe("AudioPanel: play", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: /^Play / }))[0]!);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("The recordings are busy. Try again in a moment.");
+  });
+});
+
+describe("AudioPanel: play and delete together", () => {
+  function gated() {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let gatePlay = false;
+    const f = fakeFetch((u) => {
+      if (u === BASE) return { status: 200, body: ok(list(TWO)) };
+      if (u === `${BASE}/delete`) return { status: 200, body: ok({ state: "done", deleted: 3, done: 2, pending: [] }) };
+      return { status: 404, body: refused("not_found", "x") };
+    });
+    const wrapped = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      if (u.startsWith(`${BASE}/play`)) { if (gatePlay) await gate; return wav(); }
+      return f.fetch(input, init);
+    }) as typeof fetch;
+    render(<AudioPanel sessionId={SID} fetch={wrapped} roster={ROSTER} />);
+    return { release, hold: () => { gatePlay = true; } };
+  }
+  const confirmAll = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Delete all audio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete audio" }));
+  };
+
+  it("play then delete leaves no audio element and revokes the object URL", async () => {
+    gated();
+    fireEvent.click((await screen.findAllByRole("button", { name: /^Play / }))[0]!);
+    await waitFor(() => expect(document.querySelectorAll("audio")).toHaveLength(1));
+    await confirmAll();
+    await waitFor(() => expect(document.querySelectorAll("audio")).toHaveLength(0));
+    expect(revoked).toEqual(["blob:test/1"]);
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
+  });
+
+  it("a play result that arrives after a delete started does not start playback", async () => {
+    const g = gated();
+    const btns = await screen.findAllByRole("button", { name: /^Play / });
+    g.hold();
+    fireEvent.click(btns[0]!);
+    await flush();
+    await confirmAll();
+    await screen.findByText("Deleted 3 clips.");
+    g.release();
+    await flush();
+    await flush();
+    expect(document.querySelectorAll("audio")).toHaveLength(0);
+    expect(created).toHaveLength(0);
+  });
+
+  it("Play is disabled while a delete is running", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const f = fakeFetch((u) => (u === BASE ? { status: 200, body: ok(list(TWO)) } : { status: 404, body: refused("not_found", "x") }));
+    const wrapped = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === `${BASE}/delete`) { await gate; return new Response(JSON.stringify(ok({ state: "done", deleted: 3, done: 2, pending: [] })), { status: 200, headers: { "Content-Type": "application/json" } }); }
+      return f.fetch(input, init);
+    }) as typeof fetch;
+    render(<AudioPanel sessionId={SID} fetch={wrapped} roster={ROSTER} />);
+    await confirmAll();
+    await waitFor(() => expect((screen.getAllByRole("button", { name: /^Play / })[0] as HTMLButtonElement).disabled).toBe(true));
+    release();
+    await screen.findByText("Deleted 3 clips.");
   });
 });
 
