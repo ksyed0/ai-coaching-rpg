@@ -46,10 +46,10 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     const m = mount();
     join(m);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.voiceJoin })); });
-    expect(unmuteButton().disabled).toBe(false);
+    expect(unmuteButton().getAttribute("aria-disabled")).toBeNull();
     emit(m.es(), "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
     expect(live()).toContain(SELF_MUTED);
-    expect(unmuteButton().disabled).toBe(true);
+    expect(unmuteButton().getAttribute("aria-disabled")).toBe("true");
   });
 
   it("an unmute shows 'You can speak again' once, and the button is back to normal", async () => {
@@ -61,7 +61,7 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     expect(live()).toContain(AGAIN);
     expect(screen.getAllByText(AGAIN)).toHaveLength(1);
     expect(screen.queryByText(SELF_MUTED)).toBeNull();
-    expect(unmuteButton().disabled).toBe(false);
+    expect(unmuteButton().getAttribute("aria-disabled")).toBeNull();
     // A repeated frame of the same state (every voice frame is a full snapshot) is not a change.
     const before = screen.getByText(AGAIN);
     emit(m.es(), "voice", { state: "voice", muted: false });
@@ -75,7 +75,7 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     expect(screen.getByText(SELF_MUTED)).toBeTruthy();
     expect(live()).toBe("");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.voiceJoin })); });
-    expect(unmuteButton().disabled).toBe(true);
+    expect(unmuteButton().getAttribute("aria-disabled")).toBe("true");
   });
 
   it("the same frame arriving again after the join is not announced", () => {
@@ -94,6 +94,26 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     join(m, { state: "voice", muted: true, mutedBy: "facilitator" });
     expect(live()).toBe("");
     expect(screen.getAllByText(SELF_MUTED)).toHaveLength(1);
+  });
+
+  it("a mute held before the seat chose voice is announced when the opt-in answer arrives", () => {
+    const m = mount();
+    join(m, { state: "none", muted: true, mutedBy: "facilitator" });
+    expect(live()).toBe("");
+    emit(m.es(), "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
+    expect(live()).toContain(SELF_MUTED);
+  });
+
+  it("a focused Mute button keeps its focus when the mute lands, and a press sends nothing", async () => {
+    const m = mount();
+    join(m);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: MESSAGES.voiceJoin })); });
+    unmuteButton().focus();
+    emit(m.es(), "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
+    expect(document.activeElement).toBe(unmuteButton());
+    const calls = m.f.calls.length;
+    await act(async () => { fireEvent.click(unmuteButton()); });
+    expect(m.f.calls.length).toBe(calls);
   });
 
   it("a text-only seat that is facilitator-muted shows no personal notice (it has no microphone to speak of)", () => {
@@ -117,7 +137,7 @@ describe("SessionScreen: the facilitator has muted this seat", () => {
     emit(es, "voice", { state: "voice", muted: true, mutedBy: "facilitator" });
     await act(async () => { f.release(); });
     expect(screen.getByText(SELF_MUTED)).toBeTruthy();
-    expect(unmuteButton().disabled).toBe(true);
+    expect(unmuteButton().getAttribute("aria-disabled")).toBe("true");
   });
 });
 

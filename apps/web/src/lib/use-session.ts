@@ -109,7 +109,7 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       const view = s.view !== null && sameLog ? s.view : capped(initPlayerView(a.state));
       // US-0082: a fresh connection starts with no indicator (the runtime re-sends who is thinking right after joined).
       // A3A: a fresh join shows the mute state but announces nothing: the notice slot is cleared and the snapshot is the new baseline.
-      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false, muteNotice: null, mutedSeats: mutedSeatsOf(a.state), joinedSeq: a.state.lastSeq, joins: s.joins + 1, activity: {} };
+      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false, muteNotice: null, mutedSeats: mutedSeatsOf(a.state), joinedSeq: a.state.lastSeq, voiceEvents: s.voiceEvents + 1, joins: s.joins + 1, activity: {} };
     }
     case "reset":
       return { ...s, conn: "live", view: capped(a.view), notice: null };
@@ -134,9 +134,10 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       const voiceEvents = a.since === undefined ? s.voiceEvents + 1 : s.voiceEvents;
       // A change of the facilitator's hold is announced, but only once a voice state is already known (never the first frame of a join)
       // and only to a seat that chose voice. The text/none seat shows nothing personal.
-      const was = s.voice?.mutedBy === "facilitator";
-      const now = a.voice.mutedBy === "facilitator";
-      const announce = s.voice !== null && was !== now && a.voice.state === "voice";
+      // "Held muted" means a voice seat the facilitator holds muted: a mute kept from before the opt-in is news when the seat opts in.
+      const was = s.voice?.state === "voice" && s.voice.mutedBy === "facilitator";
+      const now = a.voice.state === "voice" && a.voice.mutedBy === "facilitator";
+      const announce = s.voice !== null && was !== now;
       const muteNotice = announce ? { kind: now ? "self_muted" as const : "self_again" as const, n: (s.muteNotice?.n ?? 0) + 1 } : s.muteNotice;
       return { ...s, voice: a.voice, voiceEvents, muteNotice };
     }

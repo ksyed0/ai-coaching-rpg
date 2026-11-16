@@ -147,11 +147,11 @@ describe("MicButton", () => {
   it("the Mute button is disabled while the facilitator holds the seat muted, and enabled again after (A3A)", async () => {
     const m = mount();
     await press(join());
-    expect(mute().disabled).toBe(false);
+    expect(mute().getAttribute("aria-disabled")).toBeNull();
     m.rerender(<MicButton {...m.props} serverMuted facilitatorMuted />);
-    expect(mute().disabled).toBe(true);
+    expect(mute().getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText(MESSAGES.micMuted)).toBeTruthy();
     m.rerender(<MicButton {...m.props} serverMuted={false} facilitatorMuted={false} />);
-    expect(mute().disabled).toBe(false);
+    expect(mute().getAttribute("aria-disabled")).toBeNull();
   });
 });
