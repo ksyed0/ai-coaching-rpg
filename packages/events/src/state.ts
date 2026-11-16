@@ -50,10 +50,12 @@ export type SessionState = {
   whispers: Record<string, Whisper[]>;
   /** BUG-0023: per player role, the seq of the last "consent ... will be rebound after a code reissue" alert: a replacement participant gets only whispers with a higher seq. Facilitator-side only: never in a player snapshot. */
   whisperFloor: Record<string, number>;
+  /** A3A: seats the facilitator has muted (a `mute_seat` command; the last one per seat wins), sorted, distinct. Lasts until a `mute_seat` with `muted: false`; rebuilt from the log. */
+  facilitatorMutedSeats: string[];
 };
 
-/** A snapshot a player may hold: everything but the facilitator-only fields; `whispers` is the player's own list. */
-export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers" | "whisperFloor"> & { whispers: Whisper[] };
+/** A snapshot a player may hold: everything but the facilitator-only fields (TODO(A3A Task 3): facilitatorMutedSeats is omitted for now, Task 3 projects it); `whispers` is the player's own list. */
+export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers" | "whisperFloor" | "facilitatorMutedSeats"> & { whispers: Whisper[] };
 
 /** Reads with Object.hasOwn and returns a new record, so a role id such as "__proto__" or "constructor" is an ordinary own key (a computed key defines, it never sets the prototype). */
 function withTalk(talk: SessionState["talk"], roleId: string, text: string): SessionState["talk"] {
@@ -88,7 +90,7 @@ export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
     currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
-    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {}, whisperFloor: {},
+    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {}, whisperFloor: {}, facilitatorMutedSeats: [],
   };
 }
 
@@ -121,6 +123,11 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
       }
       if (e.command === "advance") return { ...s, advanceRequested: true };
       if (e.command === "whisper") return typeof e.roleId === "string" && typeof e.text === "string" ? { ...s, whispers: withWhisper(s, e) } : s;
+      if (e.command === "mute_seat") {
+        if (typeof e.roleId !== "string" || typeof e.muted !== "boolean") return s;
+        const rest = s.facilitatorMutedSeats.filter((r) => r !== e.roleId);
+        return { ...s, facilitatorMutedSeats: e.muted ? [...rest, e.roleId].sort() : rest };
+      }
       return s;
     case "gm.decision":
       if (s.currentScene?.id !== e.sceneId) return s;

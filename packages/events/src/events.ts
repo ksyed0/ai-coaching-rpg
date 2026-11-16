@@ -21,7 +21,12 @@ export type FacilitatorCommand =
    * US-0060, facilitator only: the facilitator asks the AI player of `roleId` to speak now. Carries NO hint or free text anywhere: what the
    * facilitator might want to say is never written to the session log. Players never receive it. Counts as one AI call (ResumeInfo.aiCalls).
    */
-  | { command: "prompt_ai"; roleId: string };
+  | { command: "prompt_ai"; roleId: string }
+  /**
+   * A3A, facilitator only: mutes (`muted: true`) or unmutes a seat's microphone for the game. No free text anywhere. The last command per
+   * seat wins (SessionState.facilitatorMutedSeats). Named apart from the participant's own `voice_mute`.
+   */
+  | { command: "mute_seat"; roleId: string; muted: boolean };
 
 export type EventEnvelope = { seq: number; ts: number; sessionId: string };
 

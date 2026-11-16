@@ -14,7 +14,8 @@ export type FacilitatorCommand =
   | { command: "release_hidden"; roleId: string; fact: number }
   | { command: "set_npc_stance"; roleId: string; goals: string[] }
   /** US-0060: only the AI prompt route sends this one (the hint never goes to the runtime). */
-  | { command: "prompt_ai"; roleId: string };
+  | { command: "prompt_ai"; roleId: string }
+  | { command: "mute_seat"; roleId: string; muted: boolean };
 
 export type ClientMessage =
   | { type: "join"; sessionId: string; roleId: string; participantId: string; reconnectToken?: string; joinCode?: string; lastSeq?: number;

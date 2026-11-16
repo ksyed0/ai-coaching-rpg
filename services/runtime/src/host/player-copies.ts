@@ -38,6 +38,7 @@ export const PLAYER_SNAPSHOT: { [K in keyof SessionState]: PlayerField<K> } = {
   // BUG-0023: ONLY the whispers addressed to this player, three fields each (seq, scene, text). Never the record of all roles, `by`, a ref or an ack.
   whispers: (s, who) => (Object.hasOwn(s.whispers, who) ? s.whispers[who]!.filter((w) => w.seq > (Object.hasOwn(s.whisperFloor, who) ? s.whisperFloor[who]! : 0)).map((w) => ({ seq: w.seq, sceneId: w.sceneId, text: w.text })) : []),
   whisperFloor: "omit", // BUG-0023: bookkeeping for the whispers filter above
+  facilitatorMutedSeats: "omit", // TODO(A3A Task 3): not yet projected; Task 3 removes this line and projects the set to players
   talk: "omit", // US-0059: words spoken are for the facilitator console only
 };
 

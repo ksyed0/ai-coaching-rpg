@@ -307,6 +307,8 @@ export class SessionEngine {
       const cur = this.currentScene();
       if (!cur || !cur.participants.includes(cmd.roleId)) throw new EngineError("not_in_scene", `${cmd.roleId} is not in the current scene`);
     }
+    // A3A: only the seat check is the engine's; voice_off and forbidden are the host's, and no Game Master tick follows (host-only).
+    if (cmd.command === "mute_seat" && !own(this.state.roles, cmd.roleId)) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
     if (cmd.command === "set_npc_stance" && !own(this.state.npcs, cmd.roleId)) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
     let release: { roleId: string; npc: SessionState["npcs"][string]; text: string } | null = null;
     if (cmd.command === "release_hidden") {

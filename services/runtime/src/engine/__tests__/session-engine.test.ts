@@ -675,3 +675,47 @@ describe("the prompt_ai command (US-0060, slice 2b-3b)", () => {
     expect(fEngine.state).toEqual({ ...before, lastSeq: before.lastSeq + 1 });
   });
 });
+
+describe("the mute_seat command (A3A)", () => {
+  it("appends one facilitator.command with by and no other key, and the state holds the seat", async () => {
+    const before = (await log.all()).length;
+    await engine.command({ command: "mute_seat", roleId: "host", muted: true }, { by: "Sam" });
+    const evs = await log.all();
+    expect(evs.length).toBe(before + 1);
+    const { seq: _s, ts: _t, sessionId: _i, ...rest } = evs[evs.length - 1]!;
+    expect(rest).toEqual({ type: "facilitator.command", command: "mute_seat", roleId: "host", muted: true, by: "Sam" });
+    expect(engine.state.facilitatorMutedSeats).toEqual(["host"]);
+    await engine.command({ command: "mute_seat", roleId: "host", muted: false }, { by: "Sam" });
+    expect(engine.state.facilitatorMutedSeats).toEqual([]);
+  });
+  it("a role that is not a seat of the session is unknown_role and nothing is appended", async () => {
+    const before = (await log.all()).length;
+    for (const roleId of ["ghost", "__proto__", "constructor"]) {
+      await expect(engine.command({ command: "mute_seat", roleId, muted: true })).rejects.toMatchObject({ code: "unknown_role" });
+    }
+    expect((await log.all()).length).toBe(before);
+    expect(engine.state.facilitatorMutedSeats).toEqual([]);
+  });
+  it("is allowed while paused", async () => {
+    await engine.command({ command: "pause" });
+    await engine.command({ command: "mute_seat", roleId: "host", muted: true });
+    expect(engine.state.paused).toBe(true);
+    expect(engine.state.facilitatorMutedSeats).toEqual(["host"]);
+  });
+  it("after the end is ended and nothing is appended", async () => {
+    await engine.endNow({ actor: "Sam" });
+    const before = (await log.all()).length;
+    await expect(engine.command({ command: "mute_seat", roleId: "host", muted: true })).rejects.toMatchObject({ code: "ended" });
+    expect((await log.all()).length).toBe(before);
+  });
+  it("restore rebuilds the set from the log: mute stays, mute then unmute is empty", async () => {
+    await engine.command({ command: "mute_seat", roleId: "host", muted: true }, { by: "Sam" });
+    const a = new SessionEngine({ scenario, log, clock });
+    await a.restore();
+    expect(a.state.facilitatorMutedSeats).toEqual(["host"]);
+    await engine.command({ command: "mute_seat", roleId: "host", muted: false }, { by: "Sam" });
+    const b = new SessionEngine({ scenario, log, clock });
+    await b.restore();
+    expect(b.state.facilitatorMutedSeats).toEqual([]);
+  });
+});

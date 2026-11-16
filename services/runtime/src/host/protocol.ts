@@ -19,6 +19,8 @@ const FacilitatorCommandSchema = z.discriminatedUnion("command", [
   z.object({ command: z.literal("release_hidden"), roleId: Id, fact: z.number().int().min(1).max(MAX_HIDDEN_FACT_NUMBER) }),
   // US-0060: strict, so a `hint` (or any other key) is bad_message rather than silently dropped: the log never holds a hint.
   z.object({ command: z.literal("prompt_ai"), roleId: Id }).strict(),
+  // A3A: strict, so no free text (a reason, a note) can ever reach the log.
+  z.object({ command: z.literal("mute_seat"), roleId: Id, muted: z.boolean() }).strict(),
   z.object({ command: z.literal("set_npc_stance"), roleId: Id, goals: z.array(z.string().max(MAX_UTTERANCE_CHARS)).max(50) }),
 ]);
 

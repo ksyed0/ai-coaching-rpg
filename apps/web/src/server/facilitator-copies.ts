@@ -32,6 +32,7 @@ export const CONSOLE_STATE: { [K in keyof SessionState]: (s: SessionState) => Se
   talk: (s) => s.talk,
   aiRoles: (s) => strings(s.aiRoles),
   whisperFloor: () => ({}),
+  facilitatorMutedSeats: (s) => strings(s.facilitatorMutedSeats), // A3A: the console shows which seats the facilitator has muted
   whispers: () => ({}), // BUG-0023: the console has every whisper as an event; the per-role lists are for the addressed player's snapshot only
 };
 
@@ -98,6 +99,7 @@ const EVENT_COPY: { [T in EventType]: (e: Ev<T>) => SessionEvent } = {
       case "set_npc_stance": return { ...base, command: e.command, roleId: e.roleId, goals: [] };
       case "release_hidden": return { ...base, command: e.command, roleId: e.roleId, fact: e.fact };
       case "prompt_ai": return { ...base, command: e.command, roleId: e.roleId };
+      case "mute_seat": return { ...base, command: e.command, roleId: e.roleId, muted: e.muted === true };
     }
   },
   "facilitator.alert": (e) => ({ type: e.type, ...env(e), level: e.level === "info" ? "info" : "warning", message: alertMessage(e) }),
