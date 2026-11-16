@@ -137,3 +137,25 @@ describe("loadConfig LIVEKIT_URL", () => {
     for (const v of [undefined, "", "https://x.example", "wss://x.example/path", "ws://10.0.0.1:7880", "%%%"]) expect(liveKitOrigin(v)).toBeUndefined();
   });
 });
+
+describe("loadConfig CONSOLE_STREAM_OUTAGE_MS", () => {
+  it("test_config_console_stream_outage_ms_default_is_three_minutes", () => {
+    expect(loadConfig(base()).consoleStreamOutageMs).toBe(180_000);
+    expect(loadConfig({ ...base(), CONSOLE_STREAM_OUTAGE_MS: "" }).consoleStreamOutageMs).toBe(180_000);
+  });
+
+  it("test_config_console_stream_outage_ms_override_is_read", () => {
+    expect(loadConfig({ ...base(), CONSOLE_STREAM_OUTAGE_MS: "60000" }).consoleStreamOutageMs).toBe(60_000);
+  });
+
+  it.each(["30000", "900000"])("test_config_console_stream_outage_ms_bound_%s_is_accepted", (v) => {
+    expect(loadConfig({ ...base(), CONSOLE_STREAM_OUTAGE_MS: v }).consoleStreamOutageMs).toBe(Number(v));
+  });
+
+  it.each(["29999", "900001", "abc", "1.5", "0", "-30000", "off", "never", "1000000"])("test_config_console_stream_outage_ms_%s_is_refused_without_echoing_it", (v) => {
+    let message = "";
+    try { loadConfig({ ...base(), CONSOLE_STREAM_OUTAGE_MS: v }); } catch (e) { message = (e as Error).message; }
+    expect(message).toContain("CONSOLE_STREAM_OUTAGE_MS");
+    expect(message).not.toContain(v);
+  });
+});

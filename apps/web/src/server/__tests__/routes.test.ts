@@ -13,6 +13,13 @@ const ENV = { RUNTIME_URL: "ws://127.0.0.1:4100", PUBLIC_ORIGIN: "https://play.e
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("createDeps", () => {
+  it("test_routes_create_deps_passes_the_console_stream_outage_setting_to_the_hub", () => {
+    expect(createDeps(ENV).facilitatorHub.outageLimit).toBe(12);
+    expect(createDeps({ ...ENV, CONSOLE_STREAM_OUTAGE_MS: "30000" }).facilitatorHub.outageLimit).toBe(2);
+    expect(createDeps({ ...ENV, CONSOLE_STREAM_OUTAGE_MS: "45000" }).facilitatorHub.outageLimit).toBe(3);
+    expect(() => createDeps({ ...ENV, CONSOLE_STREAM_OUTAGE_MS: "29999" })).toThrow(/CONSOLE_STREAM_OUTAGE_MS/);
+  });
+
   it("builds the handlers' dependencies from the environment", () => {
     const d = createDeps(ENV);
     expect(d.config.publicOrigin).toBe(ENV.PUBLIC_ORIGIN);
