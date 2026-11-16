@@ -4,6 +4,7 @@ export * from "./schema.js";
 export * from "./load.js";
 export * from "./validate.js";
 export * from "./earned-when.js";
+export * from "./ends-when.js";
 export * from "./rubric.js";
 export * from "./rubric-load.js";
 export * from "./read-capped.js";

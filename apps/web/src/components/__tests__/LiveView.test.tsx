@@ -94,7 +94,7 @@ describe("LiveView", () => {
     const live = screen.getByRole("region", { name: "Live session" });
     expect(within(live).queryByText("Running")).toBeNull();
     expect(within(live).getByText("Scene 1 of 1: The Gate")).toBeTruthy();
-    expect(within(live).getByText("Goal: Get through")).toBeTruthy();
+    expect(within(live).getByText("Objective: Get through")).toBeTruthy();
     expect(within(live).getByRole("timer").textContent).toContain("04:00");
     rerender(<LiveView ui={ui({}, { paused: true, pausedSince: T + 30_000 })} clock={new FakeClock(T + 60_000)} />);
     expect(screen.getAllByText("Paused")).toHaveLength(1); // the scene bar's pill only

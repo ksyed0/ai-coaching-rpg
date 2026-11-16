@@ -2,6 +2,7 @@ import { initPlayerView } from "@acr/events";
 import { CLOSE_AI_FILLED, CLOSE_REISSUED, CLOSE_REMOVED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
 import type { ClientMessage, JoinedFrame, PeerRosterEntry, ServerMessage, VoiceState } from "./wire";
+import { playerActivity } from "./activity-copy";
 
 // Bridges one participant's runtime socket to one server-sent-events response. No Next imports: the route hands in an `out` writer.
 // The hub never reconnects: on a drop it tells the browser, whose native EventSource reconnects with Last-Event-ID, and the next request
@@ -254,6 +255,10 @@ export class StreamHub {
     } else if (m.type === "voice_notice") {
       // US-0071 (AC-0414): to this player's page only, as a named event with the code alone; a code outside the allowlist is dropped.
       if (isNoticeCode(m.code)) this.write(s, sse("voice_notice", { code: m.code }));
+    } else if (m.type === "activity") {
+      // US-0082: who is composing a reply, as a named event with the role and state only (never the outcome); a malformed one is dropped.
+      const a = playerActivity(m);
+      if (a) this.write(s, sse("activity", a));
     }
     // Anything else (another joined, an unknown type) is not forwarded: the browser gets only frames it knows.
   }

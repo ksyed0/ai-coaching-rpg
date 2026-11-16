@@ -27,7 +27,8 @@ export type ClientMessage =
   | { type: "consent"; noticeVersion: string }
   | { type: "withdraw_consent" }
   | { type: "leave" }
-  | { type: "say"; text: string; expectSceneId?: string }
+  /** `to` (US-0082): the role the line is directed at (the runtime keeps it only for another role of the speaker's scene). */
+  | { type: "say"; text: string; expectSceneId?: string; to?: string }
   /** US-0070/US-0071: the player's voice choice (naming the notice version for voice) and mute. The runtime answers each with `voice`. */
   | { type: "voice_opt_in"; noticeVersion: string }
   | { type: "voice_opt_out" }
@@ -56,7 +57,7 @@ export type JoinedFrame = {
   replay?: ReplaySummary;
   /** The durable credential, only on the join by code that asked for it. The one copy. */
   credential?: string;
-  /** Title, goal and time box of the scenes this role takes part in, in script order; the facilitator join lists every scene. */
+  /** Title, goal, time box and (US-0080, optional) the end rule of the scenes this role takes part in, in script order; the facilitator join lists every scene. */
   scenes?: (PlayerScene & { injects?: FacilitatorInject[] })[];
   /** Facilitator join only: each AI character's hidden facts, in the order `release_hidden` numbers them (1-based). */
   hiddenFacts?: Record<string, string[]>;
@@ -88,7 +89,13 @@ export type ServerMessage =
   | { type: "voice"; state: VoiceState; muted?: boolean }
   /** US-0070/US-0071: why this player's speech was not recorded, or whether voice is available; to the holder's socket only. */
   | { type: "voice_notice"; code: string }
+  /** US-0082: someone is (or stopped) composing a reply; not an event (no seq, never logged). `outcome` only on a facilitator socket. SOURCE: host/activity.ts. */
+  | { type: "activity"; roleId: string; state: ActivityState; outcome?: ActivityOutcome }
   | { type: "error"; code: string; message: string; ref?: string };
+
+/** US-0082. SOURCE: ActivityState and ActivityOutcome in the runtime's host/activity.ts. */
+export type ActivityState = "thinking" | "idle";
+export type ActivityOutcome = "timed_out" | "failed";
 
 export type FacilitatorRoster = Extract<ServerMessage, { type: "roster"; audience: "facilitator" }>;
 /** A roster frame meant for the facilitator (the runtime sends it right after `joined`, and again on every change). */

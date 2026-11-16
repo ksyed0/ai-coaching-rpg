@@ -1,5 +1,5 @@
 import type { ModelProvider } from "@acr/adapters";
-import type { Utterance } from "@acr/events";
+import type { SessionState, Utterance } from "@acr/events";
 import type { SessionEngine } from "../engine/session-engine.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
 import { buildGmEarnedRequest, buildGmRequest, selectGmLines } from "./gm-prompt.js";
@@ -12,6 +12,21 @@ import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
  * reached). Bounds a round to (exit conditions + this) Game Master evaluations, each inside GM_TIMEOUT_MS, however many hidden facts carry a condition.
  */
 export const MAX_EARNED_CHECKS_PER_ROUND = 2;
+
+/** US-0081: the facilitator-only note (once per scene, info) that the Game Master is waiting for a human line before it judges the scene. */
+export const GM_HUMAN_LINE_ALERT = "GM: this scene is not judged yet: the Game Master waits until a human player has spoken in it";
+
+/**
+ * US-0081 (AC-0474): whether the Game Master may judge `sceneId`. In a session with at least one HUMAN player seat (a player role that is not
+ * in `aiRoles`) only once one of those seats has spoken in the scene; a session without a human seat is never gated. Lines of AI players and
+ * AI characters do not count. Pure.
+ */
+export function humanLineGateOpen(state: Pick<SessionState, "roles" | "aiRoles" | "transcript">, sceneId: string): boolean {
+  const ai = new Set(state.aiRoles ?? []);
+  const humans = new Set(Object.keys(state.roles).filter((id) => state.roles[id]!.kind === "player" && !ai.has(id)));
+  if (humans.size === 0) return true;
+  return state.transcript.some((u) => u.sceneId === sceneId && humans.has(u.roleId));
+}
 
 /** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
 export const GM_EVERY_N_UTTERANCES = DEFAULT_GM_EVERY_N_UTTERANCES;
@@ -60,6 +75,8 @@ export class GameMaster {
   private readonly units: (lines: Utterance[]) => number;
   /** US-0070: while true (a voice turn is open) no evaluation runs; engine.tick still does. */
   private readonly hold: () => boolean;
+  /** US-0081: scenes whose human-line gate note was already raised. */
+  private readonly gateAlerted = new Set<string>();
 
   constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void; autoRelease?: boolean; transcriptWindow?: number; /** US-0070: the cadence count of a scene's lines (default `lines.length`). */ units?: (lines: Utterance[]) => number; /** US-0070: skip evaluation while true (default never). */ hold?: () => boolean }) {
     this.reask = opts.reask ?? true; this.trace = opts.trace; this.autoRelease = opts.autoRelease ?? false;
@@ -102,6 +119,8 @@ export class GameMaster {
     if (this.hold()) return; // US-0070: a voice turn is open; it is judged once closed
     const count = this.units(this.engine.state.transcript.filter((u) => u.sceneId === scene.id));
     if (count === 0 || count - this.evaluatedCount < this.everyN) return;
+    // US-0081: no human line in this scene yet: nothing is judged and nothing counts as evaluated (the first human line is judged at once)
+    if (!humanLineGateOpen(this.engine.state, scene.id)) { await this.alertGateOnce(scene.id); return; }
     this.evaluatedCount = count;
     this.evaluating = true;
     try {
@@ -132,6 +151,7 @@ export class GameMaster {
     if (expectSceneId !== undefined && scene.id !== expectSceneId) return false; // the scene changed since the caller looked
     if (scene.id !== this.lastSceneId || this.evaluatedCount === 0) return false;
     if (this.hold()) return false; // US-0070: a voice turn is open
+    if (!humanLineGateOpen(this.engine.state, scene.id)) return false; // US-0081
     const count = this.units(this.engine.state.transcript.filter((u) => u.sceneId === scene.id));
     if (count <= this.evaluatedCount) return false;
     this.evaluatedCount = count;
@@ -229,6 +249,13 @@ export class GameMaster {
   /** The facilitator warning for new lines the cap left out of a prompt (numbers and the condition only), after the prompt was built. */
   private async alertDropped(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, dropped: number, what: string): Promise<void> {
     if (dropped > 0) await this.engine.alert(`GM: ${dropped === 1 ? "1 line" : `${dropped} lines`} of this scene that arrived since the last evaluation of ${what} ${dropped === 1 ? "was" : "were"} not shown to the Game Master (more than ${MAX_GM_TRANSCRIPT_WINDOW} new lines at once)`, "warning", { expectSceneId: scene.id });
+  }
+
+  /** US-0081: the gate note goes to the facilitator once per scene (memory only: a restart may say it once more). An alert failure is reported, never thrown. */
+  private async alertGateOnce(sceneId: string): Promise<void> {
+    if (this.gateAlerted.has(sceneId)) return;
+    this.gateAlerted.add(sceneId);
+    try { await this.engine.alert(GM_HUMAN_LINE_ALERT, "info", { expectSceneId: sceneId }); } catch (err) { this.report(err); }
   }
 
   private report(err: unknown): void {

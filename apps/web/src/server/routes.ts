@@ -1,10 +1,11 @@
 import { loadConfig, missingConsoleVars } from "./config";
-import { handleConsoleLogin, handleConsoleLogout } from "./console-handlers";
+import { handleConsoleLogin, handleConsoleLogout, handleConsolePassword, resolveConsoleCaller } from "./console-handlers";
 import {
   handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRemove, handleConsoleRestart, handleConsoleScenarios,
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
 import { handleConsoleAiIntents, handleConsoleAiPrompt, handleConsoleAiRoles } from "./console-ai";
+import { handleAdminAccountAction, handleAdminAccountCreate, handleAdminAccountsList, handleConsoleSetOwner } from "./console-accounts";
 import {
   handleConsoleReportAccept, handleConsoleReportCancel, handleConsoleReportComment, handleConsoleReportEdit, handleConsoleReportEditSummary,
   handleConsoleReportEvaluate, handleConsoleReportOpen, handleConsoleReportOverview, handleConsoleReportSubject,
@@ -15,13 +16,13 @@ import { handleConsoleStream } from "./console-stream";
 import {
   handleConsoleReportLinkAction, handleConsoleReportLinks, handleConsoleReportLinksIssue, handleReportEnter, handleReportGet, handleReportRate, handleReportRespond,
 } from "./report-handlers";
-import { consoleSessionFromToken } from "./console-session";
+import { openConsoleCookie } from "./console-session";
 import { fail } from "./envelope";
 import { FacilitatorBudget } from "./facilitator-budget";
 import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, handleVoice, handleVoiceToken, seatedIn, VOICE_TOKEN_THROTTLE, type Deps } from "./handlers";
 import { LauncherClient } from "./launcher-client";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
-import { FacilitatorHub } from "./facilitator-hub";
+import { consoleRecheck, FacilitatorHub } from "./facilitator-hub";
 import { StreamHub } from "./stream-hub";
 import { JoinThrottle } from "./throttle";
 
@@ -47,8 +48,13 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
   const config = loadConfig(env);
   const now = () => Date.now();
   const missing = missingConsoleVars(config);
+  // loadConfig guarantees the token whenever the URL is set.
+  const launcher = config.launcherUrl !== undefined && config.launcherToken !== undefined
+    ? new LauncherClient({ baseUrl: config.launcherUrl, token: config.launcherToken }) : undefined;
   // Names only, never values. A player-only deployment sets none of them, which is fine, but it is said once, loudly.
   if (missing.length > 0) console.warn(`web: the facilitator console is DISABLED; unset: ${missing.join(", ")}`);
+  // US-0083: accounts are the sign-in; the shared secret only serves the legacy sign-in until control closes its latch.
+  else if (config.facilitatorSecret === undefined) console.warn("web: FACILITATOR_SECRET is unset: the legacy shared-secret sign-in is off (account sign-in only)");
   return {
     config, now, connect: RuntimeConnection.connect,
     joinThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
@@ -58,6 +64,8 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // ignores the address: a wrong secret anywhere is charged here too. The price is that an attacker can lock the facilitator out
     // of LOGIN (never out of a signed-in console) for CONSOLE_GLOBAL_THROTTLE.blockMs at a time.
     consoleGlobalThrottle: new JoinThrottle({ ...CONSOLE_GLOBAL_THROTTLE, now }),
+    // US-0083: wrong account passwords per lower-cased login, so rotating addresses cannot dodge it (the join's limits, a table of its own).
+    consoleLoginThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     reportThrottle: new JoinThrottle({ ...REPORT_READ_THROTTLE, now }),
     reportWriteThrottle: new JoinThrottle({ ...REPORT_WRITE_THROTTLE, now }),
     consoleReportThrottle: new JoinThrottle({ ...CONSOLE_REPORT_THROTTLE, now }),
@@ -69,10 +77,9 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // US-0071: voice token requests per participant (a digest of the cookie's seat), in a table of their own.
     voiceTokenThrottle: new JoinThrottle({ ...VOICE_TOKEN_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
-    facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now }),
+    facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now, ...(launcher && { recheck: consoleRecheck(launcher) }) }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
-    // loadConfig guarantees the token whenever the URL is set.
-    ...(config.launcherUrl !== undefined && config.launcherToken !== undefined && { launcher: new LauncherClient({ baseUrl: config.launcherUrl, token: config.launcherToken }) }),
+    ...(launcher && { launcher }),
   };
 }
 
@@ -102,17 +109,64 @@ export function voiceTransport(getDeps: () => Deps = sharedDeps): boolean {
   catch { return false; }
 }
 
-/** For the /console page (server side only): the console's state for this cookie value. A configuration error reads as disabled. */
-export type ConsoleView = { kind: "disabled" } | { kind: "signed_out" } | { kind: "signed_in"; name: string };
-export function consoleView(token: string | undefined, getDeps: () => Deps = sharedDeps): ConsoleView {
+/**
+ * For the sign-in form (server side only): whether the shared-secret sign-in is still offered. Control's latch, read fresh; false when
+ * the latch cannot be read or the console is not configured (the disclosure is simply hidden, and the login route still decides).
+ */
+export async function consoleLegacyAllowed(getDeps: () => Deps = sharedDeps): Promise<boolean> {
   try {
     const d = getDeps();
+    if (missingConsoleVars(d.config).length > 0 || !d.launcher) return false;
+    return await d.launcher.legacyAllowed();
+  } catch {
+    return false;
+  }
+}
+
+/** Where a signed-in account that must change its password is sent (`app/console/password/page.tsx`). */
+export const CONSOLE_PASSWORD_PATH = "/console/password";
+
+/**
+ * For the /console pages (server side only): the console's state for this cookie value, re-checked against the control service on
+ * every render (US-0083: a revoked, reset or password-changed account's cookie is signed out at once). A configuration error reads as
+ * disabled; control unreachable is `unavailable` (a page cannot clear a cookie, and the cookie is kept). Never a value from the config.
+ */
+export type ConsoleView =
+  | { kind: "disabled" }
+  | { kind: "signed_out" }
+  | { kind: "unavailable" }
+  | { kind: "signed_in"; name: string; role: "admin" | "facilitator"; mustChange: boolean; legacy: boolean };
+export async function consoleView(token: string | undefined, getDeps: () => Deps = sharedDeps): Promise<ConsoleView> {
+  let d: Deps;
+  try {
+    d = getDeps();
     if (missingConsoleVars(d.config).length > 0) return { kind: "disabled" };
-    const s = consoleSessionFromToken(token, d.config, d.now());
-    return s ? { kind: "signed_in", name: s.name } : { kind: "signed_out" };
   } catch {
     return { kind: "disabled" };
   }
+  const cookie = openConsoleCookie(token, d.config, d.now());
+  if (cookie === null) return { kind: "signed_out" };
+  const who = await resolveConsoleCaller(cookie, d);
+  if (who === "refused") return { kind: "signed_out" };
+  if (who === "unavailable") return { kind: "unavailable" };
+  return { kind: "signed_in", name: who.name, role: who.role, mustChange: who.mustChange, legacy: who.legacy };
+}
+
+/** Where a console page must send this view instead of rendering, or null: an account that must change its password goes there first. */
+export function consolePageRedirect(view: ConsoleView): string | null {
+  return view.kind === "signed_in" && view.mustChange ? CONSOLE_PASSWORD_PATH : null;
+}
+
+/**
+ * Where /console/admin must send this view instead of rendering, or null. Signed out goes to the sign-in, an account that must change
+ * its password goes there first, and anyone who is not an admin ACCOUNT (a facilitator, or a legacy shared-secret sign-in, which the
+ * admin routes refuse) goes back to /console. The disabled and unavailable views render their own message.
+ */
+export function adminPageRedirect(view: ConsoleView): string | null {
+  if (view.kind === "disabled" || view.kind === "unavailable") return null;
+  if (view.kind === "signed_out") return "/console";
+  if (view.mustChange) return CONSOLE_PASSWORD_PATH;
+  return view.role === "admin" && !view.legacy ? null : "/console";
 }
 
 type Handler = (req: Request, deps: Deps) => Promise<Response>;
@@ -144,6 +198,7 @@ export const voicePOST = route(handleVoice);
 export const voiceTokenPOST = route(handleVoiceToken);
 export const consoleLoginPOST = route(handleConsoleLogin);
 export const consoleLogoutPOST = route(handleConsoleLogout);
+export const consolePasswordPOST = route(handleConsolePassword);
 export const consoleScenariosGET = route(handleConsoleScenarios);
 export const consoleSessionsGET = route(handleConsoleSessionsList);
 export const consoleSessionsPOST = route(handleConsoleSessionsCreate);
@@ -155,6 +210,13 @@ export const consoleReissueAllPOST = route(handleConsoleReissueAll);
 export const consoleRemovePOST = route(handleConsoleRemove);
 export const consoleRestartPOST = route(handleConsoleRestart);
 export const consoleStreamGET = route(handleConsoleStream);
+export const consoleSessionOwnerPOST = route(handleConsoleSetOwner);
+export const adminAccountsGET = route(handleAdminAccountsList);
+export const adminAccountsPOST = route(handleAdminAccountCreate);
+export const adminAccountResendPOST = route(handleAdminAccountAction("resend"));
+export const adminAccountResetPOST = route(handleAdminAccountAction("reset"));
+export const adminAccountRevokePOST = route(handleAdminAccountAction("revoke"));
+export const adminAccountReinstatePOST = route(handleAdminAccountAction("reinstate"));
 export const consoleCommandPOST = route(handleConsoleCommand);
 export const consoleFactsPOST = route(handleConsoleFacts);
 export const consoleAiRolesPOST = route(handleConsoleAiRoles);

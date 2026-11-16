@@ -99,4 +99,21 @@ describe("CodesPanel", () => {
       expect(screen.getAllByText(/Could not copy/).length).toBeGreaterThan(0),
     );
   });
+
+  it("shows each role's join link (origin, session, role; never the code) with a Copy link button when it knows the session", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<CodesPanel codes={CODES} sessionId="abc123def456" />);
+    const url = `${window.location.origin}/join?session=abc123def456&role=account_manager`;
+    expect(screen.getByText(url).tagName).toBe("CODE");
+    expect(screen.queryByText(new RegExp("AAAA-1111.*join"))).toBeNull();
+    expect(document.body.textContent).not.toContain(`session=abc123def456&role=account_manager&code`);
+    fireEvent.click(screen.getByRole("button", { name: "Copy join link for Account manager" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(url));
+  });
+
+  it("shows no join link without a session id", () => {
+    render(<CodesPanel codes={CODES} />);
+    expect(screen.queryByText(/Join link/)).toBeNull();
+  });
 });

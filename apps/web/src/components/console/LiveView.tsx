@@ -7,6 +7,8 @@ import { MESSAGES } from "../../lib/messages";
 import { aiPlayerRoles, type ConsoleStreamUi } from "../../lib/use-console-stream";
 import { SceneStatus } from "../SceneStatus";
 import { ConsoleTimeline } from "./ConsoleTimeline";
+import { ThinkingLines } from "../ThinkingLines";
+import { roleLabel } from "../../lib/names";
 import { VoicePanel } from "./VoicePanel";
 import { WordsSpoken } from "./WordsSpoken";
 
@@ -65,6 +67,8 @@ export function LiveView({ ui, clock, controls }: LiveViewProps) {
       <div>
         <h2 className="s">Transcript and notices</h2>
         <ConsoleTimeline entries={view?.timeline ?? []} names={names} playerRoles={playerRoles} aiPlayers={aiPlayers} />
+        {/* US-0082: who is composing a reply now (transient, never logged). */}
+        <ThinkingLines activity={ui.activity ?? {}} label={(r) => ({ name: aiPlayers.has(r) ? `AI player (${roleLabel(r)})` : Object.hasOwn(names, r) ? names[r]! : roleLabel(r), ai: aiPlayers.has(r) || !playerRoles.has(r) })} />
       </div>
       <WordsSpoken rows={rows} names={names} aiPlayers={aiPlayers} />
     </div>

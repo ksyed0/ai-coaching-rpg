@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { applyPlayerEvent, initPlayerView, type PlayerScene, type PlayerView, type PlayerSnapshot, type SessionEvent } from "@acr/events";
 import { postJson, type ActionResult } from "./api";
 import { isVoiceNoticeCode, MESSAGES, type VoiceNoticeCode } from "./messages";
+import { activityAfterEvent, applyActivity, toActivity, type ActivityMap } from "./activity";
 
 // One participant's live session in the browser. The stream is the browser's native EventSource on /api/v1/stream: it reconnects by
 // itself after the server's `retry:` and keeps Last-Event-ID, so this hook never runs a reconnect loop of its own. It only closes the
@@ -49,6 +50,8 @@ export type SessionUi = {
   voiceUnavailable: boolean;
   /** US-0071: counts the `joined` frames (each one is a fresh runtime connection): the voice client reconnects and re-posts its mute on each. */
   joins: number;
+  /** US-0082: who is composing a reply (the transient `activity` events), per role; never stored, cleared on a fresh joined. */
+  activity: ActivityMap;
 };
 
 const FINAL_MESSAGES: Record<FinalKind, string> = {
@@ -74,9 +77,10 @@ type Action =
   | { type: "final"; kind: FinalKind }
   | { type: "consented" }
   | { type: "voice"; voice: SeatVoice }
-  | { type: "voice_notice"; code: VoiceNoticeCode };
+  | { type: "voice_notice"; code: VoiceNoticeCode }
+  | { type: "activity"; roleId: string; state: "thinking" | "idle"; at: number };
 
-export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null, voice: null, voiceNotice: null, voiceUnavailable: false, joins: 0 };
+export const initialUi: SessionUi = { conn: "connecting", final: null, joined: null, view: null, roster: [], notice: null, voice: null, voiceNotice: null, voiceUnavailable: false, joins: 0, activity: {} };
 
 const capped = (v: PlayerView): PlayerView => (v.transcript.length > MAX_TRANSCRIPT_LINES ? { ...v, transcript: v.transcript.slice(-MAX_TRANSCRIPT_LINES) } : v);
 
@@ -92,13 +96,16 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       // (and a reset follows when the replay could not be complete).
       const sameLog = s.joined !== null && s.joined.logIdentity === a.joined.logIdentity;
       const view = s.view !== null && sameLog ? s.view : capped(initPlayerView(a.state));
-      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false, joins: s.joins + 1 };
+      // US-0082: a fresh connection starts with no indicator (the runtime re-sends who is thinking right after joined).
+      return { ...s, conn: "live", joined: a.joined, view, notice: null, voice, voiceUnavailable: false, joins: s.joins + 1, activity: {} };
     }
     case "reset":
       return { ...s, conn: "live", view: capped(a.view), notice: null };
     case "event":
       // The stream moved on: a server error notice from before is stale.
-      return s.view === null ? s : { ...s, view: capped(applyPlayerEvent(s.view, a.event)), notice: null };
+      return s.view === null ? s : { ...s, view: capped(applyPlayerEvent(s.view, a.event)), notice: null, activity: activityAfterEvent(s.activity, a.event) };
+    case "activity":
+      return { ...s, activity: applyActivity(s.activity, { roleId: a.roleId, state: a.state }, a.at) };
     case "roster":
       return { ...s, roster: a.entries };
     case "notice":
@@ -135,6 +142,16 @@ function toVoice(v: unknown): SeatVoice | null {
   return { state: v.state as VoiceState, muted: v.muted === true };
 }
 
+/** US-0080: the runtime never sends a longer rule (`MAX_ENDS_WHEN_CHARS` in @acr/script); a longer one is dropped, not shown. */
+const MAX_ENDS_WHEN_CHARS = 200;
+
+/** A scene picked field by field (never kept whole): `endsWhen` only when it is a short string (OPTIONAL: an older runtime sends none). */
+function toScene(x: unknown): PlayerScene | null {
+  if (!isObj(x) || typeof x.id !== "string" || typeof x.title !== "string" || typeof x.goal !== "string" || typeof x.timeBoxMinutes !== "number") return null;
+  const endsWhen = typeof x.endsWhen === "string" && x.endsWhen.length <= MAX_ENDS_WHEN_CHARS ? x.endsWhen : undefined;
+  return { id: x.id, title: x.title, goal: x.goal, timeBoxMinutes: x.timeBoxMinutes, ...(endsWhen !== undefined ? { endsWhen } : {}) };
+}
+
 function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null {
   if (!isObj(d) || typeof d.roleId !== "string" || !isObj(d.state)) return null;
   const st = d.state;
@@ -142,9 +159,7 @@ function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null 
   const c = d.consent;
   const consent = isObj(c) && typeof c.noticeVersion === "string" && typeof c.notice === "string" && typeof c.given === "boolean"
     ? { noticeVersion: c.noticeVersion, notice: c.notice, given: c.given } : undefined;
-  const scenes = Array.isArray(d.scenes)
-    ? d.scenes.filter((x): x is PlayerScene => isObj(x) && typeof x.id === "string" && typeof x.title === "string" && typeof x.goal === "string" && typeof x.timeBoxMinutes === "number")
-    : [];
+  const scenes = Array.isArray(d.scenes) ? d.scenes.flatMap((x: unknown) => { const v = toScene(x); return v ? [v] : []; }) : [];
   const joined: Joined = {
     roleId: d.roleId, scenes,
     ...(typeof d.brief === "string" ? { brief: d.brief } : {}),
@@ -210,6 +225,8 @@ export function useSession(sessionId: string, deps: SessionDeps) {
     on("reconnecting", () => dispatch({ type: "dropped" }));
     // US-0071: this player's private voice notice; only the page's own known codes (an unknown one is never shown).
     on("voice_notice", (d) => { if (isObj(d) && isVoiceNoticeCode(d.code)) dispatch({ type: "voice_notice", code: d.code }); });
+    // US-0082: who is composing a reply (transient; the page clears it itself after ACTIVITY_EXPIRY_MS).
+    on("activity", (d) => { const a = toActivity(d); if (a) dispatch({ type: "activity", roleId: a.roleId, state: a.state, at: Date.now() }); });
     for (const kind of CLOSING_EVENTS) on(kind, () => finish(kind));
     es.onerror = (e) => {
       if (finished) return;
@@ -260,9 +277,10 @@ export function useSession(sessionId: string, deps: SessionDeps) {
     return actionResult(r);
   }, [fetchImpl]);
 
-  const say = useCallback(async (text: string): Promise<ActionResult> => {
+  /** `to` (US-0082): the role the line is directed at, chosen from the composer's @ list. */
+  const say = useCallback(async (text: string, to?: string): Promise<ActionResult> => {
     const sceneId = uiRef.current.view?.scene?.id;
-    return actionResult(await postJson("/api/v1/say", sceneId ? { text, expectSceneId: sceneId } : { text }, fetchImpl));
+    return actionResult(await postJson("/api/v1/say", { text, ...(sceneId ? { expectSceneId: sceneId } : {}), ...(to !== undefined ? { to } : {}) }, fetchImpl));
   }, [fetchImpl]);
 
   /** US-0071: the voice choice. `voice` sends the notice version this seat consented to (the runtime checks it names voice). */

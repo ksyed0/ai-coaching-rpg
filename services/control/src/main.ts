@@ -6,6 +6,10 @@ import { collectSecrets } from "@acr/runtime/reports";
 import { loadScenario, type Scenario } from "@acr/script";
 import { BotHost } from "./bots/bot-host.js";
 import { IntentLog } from "./bots/intent-log.js";
+import { FileAccountStore } from "./accounts/store.js";
+import { AccountError, AccountService } from "./accounts/service.js";
+import { UnusableFileError } from "./accounts/safe-json-file.js";
+import { OwnerStore } from "./accounts/owners.js";
 import { aiRolesFor } from "./ai-roles.js";
 import { createApi } from "./api.js";
 import type { EvalSpawnFn } from "./eval-child.js";
@@ -81,6 +85,18 @@ export type RunningControl = {
  * settings (no values), for a port that cannot be bound, or for an unusable session list. Existing sessions are resumed BEFORE
  * listening, so the API never answers while a resume is half done. `opts` is for tests (`port: 0`, a fake `spawn`).
  */
+/**
+ * What a failed accounts start may say about its cause. The store's refusals (UnusableFileError) and AccountError carry fixed text only,
+ * so their name and message are logged; any other error (a file system or scrypt failure, whose message can hold a path) gives only its
+ * name and its error code. Never a password, a hash or a path.
+ */
+export function startupCause(err: unknown): string {
+  if (err instanceof UnusableFileError || err instanceof AccountError) return `${err.name}: ${err.message}`;
+  const name = err instanceof Error && /^[A-Za-z]{1,40}$/.test(err.name) ? err.name : "Error";
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && /^E[A-Z]{1,15}$/.test(code) ? `${name} (${code})` : name;
+}
+
 export async function startControl(
   env: NodeJS.ProcessEnv,
   opts: {
@@ -120,8 +136,12 @@ export async function startControl(
   const mutex = new IdentityMutex();
   // US-0075: the delete's live check reads the VoiceHost the Supervisor builds below (none without voice hosting: never live).
   let voiceHost: VoiceHost | undefined;
+  // US-0083: an unusable session owners file (corrupt, group-writable, symlinked) refuses the start, like accounts.json; a missing one is empty.
+  // Read once here, before anything is resumed, so nothing has to be stopped; the file is never rewritten.
+  const owners = new OwnerStore(config.ownersFile);
+  try { owners.all(); } catch { throw new Error("the session owners file cannot be used; fix or move it and start again"); }
   const supervisor = new Supervisor({
-    config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
+    config, list, owners, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
     // US-0070: one speech worker per session whose runtime reports voice (VOICE_ENABLED=1 accepted at its bootstrap); none otherwise.
     voice: (deps) => {
@@ -175,7 +195,22 @@ export async function startControl(
   // US-0068: the overview's "AI player, not scored" rows read the same source as the link guard (one reader of the log, no shared memo).
   moderation = new ModerationService({ config, jobs, secrets, aiRoles: (id) => aiRolesFor(config, list, id) });
 
-  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio }));
+  // US-0083: the accounts, with the default admin created (or reset) BEFORE listening. The bootstrap password is never logged.
+  const accounts = new AccountService({
+    store: new FileAccountStore(config.accountsFile), now: Date.now, bootstrapPassword: config.adminBootstrapPassword, reset: config.adminReset, log,
+  });
+  try {
+    await accounts.ensureDefaultAdmin();
+    if (accounts.list().some((a) => a.login === "admin" && a.mustChange)) log("accounts: the default admin must still change its password");
+  } catch (err) {
+    // The cause, so an operator can tell a refused file from a full disk or a permission problem (fixed text or a code only: see startupCause).
+    log(`accounts: start refused: ${startupCause(err)}`);
+    await Promise.all([stopWithin(sweep, realSetTimer), supervisor.shutdown(), jobs.shutdown()]);
+    // Not "move it": moving accounts.json aside starts over with only the default admin (every account is lost).
+    throw new Error("the accounts file cannot be used; see the log line above, fix the file or its permissions, and start again");
+  }
+
+  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation, audio, accounts }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
   // are at most 64 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default

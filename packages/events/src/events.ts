@@ -50,7 +50,13 @@ export type EventBody =
   | { type: "scene.exited"; sceneId: string; reason: ExitReason }
   | { type: "utterance"; roleId: string; text: string; channel: Channel;
       /** Set only by an NPC agent's fallback path: this line is the character's canned fallback text standing in for a model reply. */
-      fallback?: true }
+      fallback?: true;
+      /**
+       * US-0082: the role this line is directed at ("@Role" addressing; public: everyone in the scene still sees the line). Written only
+       * when the engine validated it as another role of the speaker's current scene; absent otherwise, so a log without addressing is
+       * byte-identical to before. No log-format change: every reader that does not know the field ignores it.
+       */
+      to?: string }
   | { type: "inject.fired"; injectId: string; sceneId: string; to: string[]; content: string }
   | { type: "npc.updated"; roleId: string; goals: string[]; knowledge: string[]; released?: string[] }
   | { type: "gm.decision"; sceneId: string; condition: string; verdict: boolean; reasoning: string;

@@ -329,7 +329,7 @@ test("remove a participant before the start: the dialog names the person and the
   await expect(lead.page.getByRole("heading", { name: "Removed from the session" })).toBeVisible();
   const panel = fac.getByRole("region", { name: `New code for ${ROLE_LABEL.delivery_lead}` });
   await expect(panel).toBeVisible();
-  const fresh = (await panel.locator("code").innerText()).trim();
+  const fresh = (await panel.locator("code.code-value").innerText()).trim();
   expect(fresh).not.toBe("");
   expect(fresh).not.toBe(codes.delivery_lead);
   // Shown once: dismissing it, and a reload, leave no trace of it.

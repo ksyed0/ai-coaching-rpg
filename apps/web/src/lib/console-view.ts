@@ -6,7 +6,8 @@ import { initialState, reduce, type PlayerScene, type RoleKind, type SessionEven
 /** Lines kept in the browser for the transcript and for the timeline. */
 export const MAX_CONSOLE_LINES = 1_000;
 
-export type TimelineEntry = { seq: number; ts: number; kind: "line" | "notice" | "alert"; text: string; roleId?: string; level?: "info" | "warning"; source?: "gm" | "facilitator" | "session" | "alert" };
+/** `to` (US-0082): on a line, the role it was addressed to. */
+export type TimelineEntry = { seq: number; ts: number; kind: "line" | "notice" | "alert"; text: string; roleId?: string; to?: string; level?: "info" | "warning"; source?: "gm" | "facilitator" | "session" | "alert" };
 export type ConsoleView = { state: SessionState; timeline: TimelineEntry[]; gap: boolean };
 type Ctx = { scenes: PlayerScene[]; label: (roleId: string) => string };
 
@@ -16,7 +17,7 @@ export function viewFromReset(state: SessionState): ConsoleView {
   const kept = state.transcript.length > MAX_CONSOLE_LINES ? state.transcript.slice(-MAX_CONSOLE_LINES) : state.transcript;
   const notice = state.lastSeq > 0;
   // Slice the lines first, leaving room for the notice, so the notice stays at index 0 and the total stays within the cap.
-  const lines: TimelineEntry[] = kept.slice(notice ? -(MAX_CONSOLE_LINES - 1) : -MAX_CONSOLE_LINES).map((u) => ({ seq: u.seq, ts: u.ts, kind: "line", text: u.text, roleId: u.roleId }));
+  const lines: TimelineEntry[] = kept.slice(notice ? -(MAX_CONSOLE_LINES - 1) : -MAX_CONSOLE_LINES).map((u) => ({ seq: u.seq, ts: u.ts, kind: "line", text: u.text, roleId: u.roleId, ...(typeof u.to === "string" ? { to: u.to } : {}) }));
   const timeline = notice ? [{ seq: 0, ts: 0, kind: "notice" as const, source: "session" as const, text: NOT_SHOWN }, ...lines] : lines;
   return { state: kept === state.transcript ? state : { ...state, transcript: kept }, timeline, gap: false };
 }
@@ -34,7 +35,7 @@ export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): O
   const gm = mk("gm"), fac = mk("facilitator"), notice = mk("session");
   switch (e.type) {
     case "utterance":
-      return { kind: "line", text: e.text, roleId: e.roleId };
+      return { kind: "line", text: e.text, roleId: e.roleId, ...(typeof e.to === "string" ? { to: e.to } : {}) };
     case "facilitator.alert":
       return { kind: "alert", source: "alert", text: e.message, level: e.level };
     case "gm.decision": {

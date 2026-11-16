@@ -192,6 +192,15 @@ describe("useConsoleStream", () => {
     expect((r as unknown as { gaps: number }).gaps).toBe(0);
   });
 
+  it("test_joined_console_scenes_keep_an_optional_endsWhen (US-0080)", () => {
+    const { hook, es } = start();
+    emit(es(), "joined", { channel: "c1", scenes: [{ ...scenes[0], endsWhen: "the team agrees", extra: "x" }, { ...scenes[0], id: "s2", endsWhen: 5 }] });
+    expect(hook.result.current.scenes).toStrictEqual([
+      { ...scenes[0], endsWhen: "the team agrees", injects: [] },
+      { ...scenes[0], id: "s2", injects: [] },
+    ]);
+  });
+
   it("joined scenes keep their injects; a malformed inject is dropped", () => {
     const { hook, es } = start();
     const wire = [

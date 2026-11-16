@@ -100,9 +100,15 @@ export class BotSocket {
   }
 
   /** Speaks as the bot's role, only into the scene it decided in. A closed socket drops the line. */
-  say(text: string, expectSceneId: string): void {
+  say(text: string, expectSceneId: string, to?: string): void {
     if (this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify({ type: "say", text, expectSceneId }));
+    this.ws.send(JSON.stringify(to !== undefined ? { type: "say", text, expectSceneId, to } : { type: "say", text, expectSceneId }));
+  }
+
+  /** US-0082: reports that this AI player's turn began or ended (only to a runtime that said it takes them). A closed socket drops it. */
+  activity(state: "thinking" | "idle", outcome?: "timed_out" | "failed"): void {
+    if (this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify(outcome !== undefined ? { type: "activity", state, outcome } : { type: "activity", state }));
   }
 
   /** close(1000), resolving on the socket's `close` event; terminate() after 2 s if the peer never answers. Resolves at once when already closed. */

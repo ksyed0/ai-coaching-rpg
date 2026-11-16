@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatRequest, ModelProvider } from "@acr/adapters";
 import { NO_REPEAT_RULE } from "../../agents/npc-prompt.js";
 import { loadScenario, type Scenario } from "@acr/script";
-import { buildLiveRequest, buildPlayerRequest, generateLiveLine, parseAiPlayerSettings, LIVE_INTENTS, type AiPlayerSettings, type PlayerView } from "../index.js";
+import { NAMING_RULE, buildLiveRequest, buildPlayerRequest, generateLiveLine, liveRoster, nudgeIntent, parseAiPlayerSettings, LIVE_INTENTS, type AiPlayerSettings, type PlayerView } from "../index.js";
 
 let scenarioP: Promise<Scenario> | undefined;
 const scenario = () => (scenarioP ??= loadScenario(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..", "scenarios", "friday-escalation")));
@@ -181,5 +181,66 @@ describe("generateLiveLine", () => {
     const p: ModelProvider = { name: "x", stream: () => { called = true; return (async function* () { yield "hi"; })(); } };
     await expect(generateLiveLine({ provider: p, scenario: await scenario(), view: view(), trigger: "reply", settings, signal: ac.signal })).resolves.toEqual({ ok: false, reason: "model_failed" });
     expect(called).toBe(false);
+  });
+
+  it("test_generate_live_line_passes_the_nudge_target_to_the_request (US-0081)", async () => {
+    let seen: ChatRequest | undefined;
+    const p: ModelProvider = { name: "ok", stream: (r) => { seen = r; return (async function* () { yield "Account manager, what would you tell Priya?"; })(); } };
+    const r = await generateLiveLine({ provider: p, scenario: await scenario(), view: view(), trigger: "nudge", target: "account_manager", settings });
+    expect(r.ok).toBe(true);
+    expect(seen!.system).toContain(nudgeIntent("Account manager"));
+  });
+});
+
+// US-0081 (AC-0470, AC-0472, TC-0250, TC-0252): the live prompt addresses people by role title only, and a nudge prompts a named human seat.
+describe("buildLiveRequest addressing (US-0081)", () => {
+  const roster = [
+    { roleId: "account_manager", label: "Account manager" },
+    { roleId: "delivery_lead", label: "Delivery lead, an AI player" },
+    { roleId: "client_sponsor", label: "Priya Raman, VP Operations" },
+  ];
+
+  it("test_live_prompt_forbids_invented_names_and_drops_the_first_name_advice", () => {
+    const { system } = buildLiveRequest({ view: view({ roster }), trigger: "reply" });
+    expect(system).toContain(NAMING_RULE);
+    expect(system).not.toContain("by first name");
+  });
+
+  it("test_live_prompt_lists_the_scene_roster_by_role_title_and_speaker_tag", () => {
+    const { system } = buildLiveRequest({ view: view({ roster }), trigger: "reply" });
+    expect(system).toContain("## Who is in this scene");
+    expect(system).toContain("- Account manager: their lines are shown as [account_manager]");
+    expect(system).toContain("- Priya Raman, VP Operations: their lines are shown as [client_sponsor]");
+  });
+
+  it("test_live_nudge_with_a_target_asks_that_seat_a_short_question_by_role_title", () => {
+    const { system } = buildLiveRequest({ view: view({ roster }), trigger: "nudge", target: "account_manager" });
+    expect(system).toContain(nudgeIntent("Account manager"));
+    expect(nudgeIntent("Account manager")).toContain("one short question");
+    expect(nudgeIntent("Account manager")).toContain('"Account manager"');
+    expect(nudgeIntent("Account manager")).toMatch(/never by a first name/);
+    expect(system).not.toContain(LIVE_INTENTS.nudge);
+  });
+
+  it("test_live_nudge_target_without_a_roster_entry_falls_back_to_the_role_title", () => {
+    const { system } = buildLiveRequest({ view: view(), trigger: "nudge", target: "account_manager" });
+    expect(system).toContain(nudgeIntent("Account manager"));
+  });
+
+  it("test_live_reply_ignores_a_target", () => {
+    const { system } = buildLiveRequest({ view: view(), trigger: "reply", target: "account_manager" });
+    expect(system).toContain(LIVE_INTENTS.reply);
+    expect(system).not.toContain(nudgeIntent("Account manager"));
+  });
+
+  it("test_live_roster_labels_come_from_the_scenario_and_ai_roles", async () => {
+    const sc = await scenario();
+    const r = liveRoster({ scenario: sc, participants: ["delivery_lead", "tech_lead", "account_manager", "client_sponsor", "ghost"], aiRoles: ["delivery_lead", "tech_lead"], self: "tech_lead" });
+    const sponsor = sc.roles.client_sponsor as { name: string; title: string };
+    expect(r).toEqual([
+      { roleId: "delivery_lead", label: "Delivery lead, an AI player" },
+      { roleId: "account_manager", label: "Account manager" },
+      { roleId: "client_sponsor", label: `${sponsor.name}, ${sponsor.title}` },
+    ]);
   });
 });

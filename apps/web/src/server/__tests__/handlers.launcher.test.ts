@@ -111,7 +111,7 @@ function makeDeps(session: (id: string) => Promise<SessionInfo>) {
     connect: connect as unknown as Deps["connect"],
     joinThrottle: throttle(),
     consoleThrottle: throttle(),
-    consoleGlobalThrottle: throttle(),
+    consoleGlobalThrottle: throttle(), consoleLoginThrottle: throttle(),
     reportThrottle: throttle(),
     reportWriteThrottle: throttle(),
     consoleReportThrottle: throttle(),

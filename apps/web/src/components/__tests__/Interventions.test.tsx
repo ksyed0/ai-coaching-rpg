@@ -96,10 +96,10 @@ describe("Interventions", () => {
     expect(f.calls[0]!.body).toEqual({ channel: "chan-1", kind: "fire_inject", injectId: "i1", expectSceneId: "s1" });
   });
 
-  it("a fired inject says Fired and its button reads Fire again; no scene says so", () => {
+  it("a fired inject says Fired and its button reads Fire inject again; no scene says so", () => {
     const { again } = mount(uiOf({}, stateOf({ injectsFired: ["i2"] })));
-    expect(screen.getByRole("button", { name: "Fire inject i2 again" }).textContent).toBe("Fire again");
-    expect(screen.getByRole("button", { name: "Fire inject i1" }).textContent).toBe("Fire");
+    expect(screen.getByRole("button", { name: "Fire inject i2 again" }).textContent).toBe("Fire inject again");
+    expect(screen.getByRole("button", { name: "Fire inject i1" }).textContent).toBe("Fire inject");
     expect(screen.getAllByText("Fired", { exact: false })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Fire inject i2 again" }));
     expect(screen.getByRole("dialog", { name: "Fire inject “i2” again?" })).toBeTruthy();

@@ -260,9 +260,13 @@ export class SessionEngine {
     });
   }
 
-  /** `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed. */
-  say(roleId: string, text: string, channel: Channel = "text", opts: { expectSceneId?: string; fallback?: true } = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
-  private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string; fallback?: true }): Promise<SessionEvent> {
+  /**
+   * `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed. `opts.to` (US-0082): the role the
+   * line is directed at; recorded only when it is ANOTHER role of the speaker's current scene (checked here, inside the mutex), else
+   * dropped silently (the line itself is still recorded). Never trusted from a client.
+   */
+  say(roleId: string, text: string, channel: Channel = "text", opts: { expectSceneId?: string; fallback?: true; to?: string } = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
+  private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string; fallback?: true; to?: string }): Promise<SessionEvent> {
     if (this.state.status === "ended") throw new EngineError("ended");
     // Participation first: a role outside the current scene must not be able to probe the scene id through the guard.
     if (opts.expectSceneId !== undefined && own(this.state.roles, roleId)) {
@@ -274,7 +278,8 @@ export class SessionEngine {
     if (this.state.paused) throw new EngineError("paused");
     const scene = this.currentScene();
     if (!scene || !scene.participants.includes(roleId)) throw new EngineError("not_in_scene", `${roleId} is not in the current scene`);
-    return this.emit({ type: "utterance", roleId, text, channel, ...(opts.fallback ? { fallback: true as const } : {}) });
+    const to = typeof opts.to === "string" && opts.to !== roleId && own(this.state.roles, opts.to) && scene.participants.includes(opts.to) ? opts.to : undefined;
+    return this.emit({ type: "utterance", roleId, text, channel, ...(opts.fallback ? { fallback: true as const } : {}), ...(to !== undefined ? { to } : {}) });
   }
 
   /** `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed, so a late `advance` can never end the NEXT scene. */

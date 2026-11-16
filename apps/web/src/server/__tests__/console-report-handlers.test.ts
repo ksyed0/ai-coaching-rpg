@@ -12,6 +12,7 @@ import { LauncherClient } from "../launcher-client";
 import { JoinThrottle } from "../throttle";
 import { seal } from "../seal";
 import { manualTimers } from "./fakes";
+import { legacyCookieValue, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -23,8 +24,10 @@ const config: Config = {
   runtimeUrl: "ws://127.0.0.1:1", publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10,
   facilitatorSecret: SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: TOKEN,
 };
+// US-0083 Task 6: a LEGACY (shared secret) cookie, so this file keeps testing the typed-name rule (`by` from the body) and the per-cookie
+// write throttle that legacy sign-ins keep. An account's server-side `by` (accountSlug) and per-account throttle: console-ownership.test.ts.
 const consoleCookie = (name = "Cookie Name") =>
-  `${CONSOLE_COOKIE}=${seal({ name, epoch: secretEpoch(SECRET), expiresAt: T0 + 3_600_000 }, KEYS, T0, "fac")}`;
+  `${CONSOLE_COOKIE}=${legacyCookieValue(name, { keys: KEYS, now: T0, secret: SECRET, expiresAt: T0 + 3_600_000 })}`;
 
 /** One browser session: the same cookie value on every request (a fresh seal differs each time, so it is made once). */
 const COOKIE = consoleCookie();
@@ -67,7 +70,7 @@ beforeEach(() => {
     }) as typeof fetch,
   });
   deps = {
-    config, now: () => clock, launcher, setTimer: timers.setTimer,
+    config, now: () => clock, launcher: withConsoleAuth(launcher), setTimer: timers.setTimer,
     consoleReportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: () => clock }),
   } as unknown as Deps;
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -347,17 +350,19 @@ describe("console report handlers", () => {
   it("an unexpected throw is the neutral 502 and nothing of it is echoed or logged", async () => {
     const logs: string[] = [];
     vi.mocked(console.error).mockImplementation((...a) => { logs.push(a.join(" ")); });
-    (deps as { launcher: unknown }).launcher = { reportOpen: () => { throw new TypeError("secret /srv/path"); } };
+    (deps as { launcher: unknown }).launcher = withConsoleAuth({ reportOpen: () => { throw new TypeError("secret /srv/path"); } });
     const res = await handleConsoleReportOpen(post("/open", { by: "priya" }), deps);
     expect(res.status).toBe(502);
     expect(await res.text()).not.toContain("/srv");
     expect(logs.join(" ")).not.toContain("/srv");
   });
 
-  it("without a launcher every route is the unavailable answer", async () => {
+  it("without a launcher every route is the unavailable answer (US-0083: the guard cannot re-check the cookie, so 502 and the cookie kept)", async () => {
     delete (deps as { launcher?: unknown }).launcher;
-    expect((await handleConsoleReportOpen(post("/open", { by: "priya" }), deps)).status).toBe(503);
-    expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(503);
+    for (const res of [await handleConsoleReportOpen(post("/open", { by: "priya" }), deps), await handleConsoleReportOverview(get(""), deps)]) {
+      expect(res.status).toBe(502);
+      expect(res.headers.get("Set-Cookie")).toBeNull();
+    }
   });
 });
 

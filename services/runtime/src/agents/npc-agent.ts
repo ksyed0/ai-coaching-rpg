@@ -7,6 +7,11 @@ import { buildNpcRequest, type PublicPeer } from "./npc-prompt.js";
 import { cleanReplyWithSilence } from "./npc-reply.js";
 import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
 import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "./timeouts.js";
+import { addressCandidates, addressOfReply } from "./address-prompt.js";
+
+/** US-0082: why a turn's model line was replaced by the fallback (the facilitator's activity frame only). */
+export type ActivityOutcome = "timed_out" | "failed";
+type Scene = NonNullable<ReturnType<SessionEngine["currentScene"]>>;
 
 /** Engine refusals that mean "this reply is no longer wanted": drop it rather than crash. */
 const STALE_CODES = new Set(["paused", "not_in_scene", "ended", "stale_scene"]);
@@ -41,9 +46,12 @@ export class NpcAgent {
   /** How many turns this character has chosen to stay silent so far. */
   silentTurns = 0;
 
-  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; maxTokens?: number; temperature?: number; peers?: PublicPeer[]; onSilent?: (t: SilentTurn) => void }) {
+  /** US-0082: told when this character starts composing a reply and when it stops (with why, when no model line was used). Never logged. */
+  private readonly onActivity: ((a: { state: "thinking" } | { state: "idle"; outcome?: ActivityOutcome }) => void) | undefined;
+
+  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; maxTokens?: number; temperature?: number; peers?: PublicPeer[]; onSilent?: (t: SilentTurn) => void; onActivity?: NpcAgent["onActivity"] }) {
     this.role = opts.role; this.engine = opts.engine; this.provider = opts.provider;
-    this.peers = opts.peers ?? []; this.onSilent = opts.onSilent;
+    this.peers = opts.peers ?? []; this.onSilent = opts.onSilent; this.onActivity = opts.onActivity;
     this.firstTokenTimeoutMs = opts.firstTokenTimeoutMs ?? DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
     this.replyTimeoutMs = opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS;
     this.maxTokens = opts.maxTokens ?? DEFAULT_NPC_MAX_TOKENS;
@@ -74,13 +82,30 @@ export class NpcAgent {
    * `mustSpeak`: the host asks the last character of a round that has heard nothing yet to answer, so a player line never goes
    * entirely unanswered; silence is then not offered (and a silent reply is re-asked once, then falls back).
    */
-  async respond(opts: { mustSpeak?: boolean } = {}): Promise<SessionEvent | null> {
+  async respond(opts: { mustSpeak?: boolean; addressedElsewhere?: boolean } = {}): Promise<SessionEvent | null> {
     const scene = this.engine.currentScene();
     if (!scene || !scene.participants.includes(this.role.id) || this.engine.state.paused || this.engine.state.status !== "running") return null;
+    // US-0082: the thinking signal spans the model call(s) and the recording; `outcome` says a fallback replaced the model's line.
+    let outcome: ActivityOutcome | undefined;
+    this.tell({ state: "thinking" });
+    try {
+      const r = await this.compose(scene, opts, (o) => { outcome = o; });
+      return r;
+    } finally {
+      this.tell(outcome !== undefined ? { state: "idle", outcome } : { state: "idle" });
+    }
+  }
+
+  private tell(a: Parameters<NonNullable<NpcAgent["onActivity"]>>[0]): void {
+    try { this.onActivity?.(a); } catch { /* a reporting hook must never break the turn */ }
+  }
+
+  private async compose(scene: Scene, opts: { mustSpeak?: boolean; addressedElsewhere?: boolean }, fellBack: (o: ActivityOutcome) => void): Promise<SessionEvent | null> {
     const inRoom = this.peers.some((p) => p.id !== this.role.id && scene.participants.includes(p.id));
     const run = this.silentRun.sceneId === scene.id ? this.silentRun.n : 0;
-    // Silence is offered only when another AI character is in the room, and never after MAX_CONSECUTIVE_SILENT_TURNS silent turns in a row.
-    const offered = inRoom && run < MAX_CONSECUTIVE_SILENT_TURNS && !opts.mustSpeak;
+    // Silence is offered only when another AI character is in the room (US-0082: or the line was addressed to someone else, who is expected
+    // to answer), and never after MAX_CONSECUTIVE_SILENT_TURNS silent turns in a row.
+    const offered = (inRoom || opts.addressedElsewhere === true) && run < MAX_CONSECUTIVE_SILENT_TURNS && !opts.mustSpeak;
     const req = buildNpcRequest({ role: this.role, scene, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, peers: this.peers, allowSilence: offered });
     const expectSceneId = scene.id;
     const started = performance.now();
@@ -125,12 +150,16 @@ export class NpcAgent {
       if (removedOtherSpeakers) await this.engine.alert(`NPC ${this.role.id}: the reply included lines for other speakers; they were removed`, "warning", { expectSceneId });
       if (repeated) await this.engine.alert(`character ${this.role.id} repeated an earlier reply verbatim`, "warning", { expectSceneId });
       if (failure) {
+        fellBack(/time|deadline/i.test(failure) ? "timed_out" : "failed");
         await this.engine.alert(`NPC ${this.role.id}: ${failure}; used fallback line`, "warning", { expectSceneId });
         this.silentRun = { sceneId: scene.id, n: 0 };
         return await this.engine.say(this.role.id, this.role.fallback_line, "text", { expectSceneId, fallback: true });
       }
       this.silentRun = { sceneId: scene.id, n: 0 };
-      return await this.engine.say(this.role.id, text.trim(), "text", { expectSceneId });
+      // US-0082: a leading "@role" of another role of this scene directs the line (stripped); anything else is left as the model wrote it.
+      const names = Object.fromEntries(this.peers.map((p) => [p.id, p.name]));
+      const addressed = addressOfReply(text.trim(), addressCandidates(scene.participants, this.role.id, names));
+      return await this.engine.say(this.role.id, addressed.text.trim(), "text", { expectSceneId, ...(addressed.to !== undefined ? { to: addressed.to } : {}) });
     } catch (err) {
       if (err instanceof EngineError && STALE_CODES.has(err.code)) return null;
       throw err;

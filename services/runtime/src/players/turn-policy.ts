@@ -4,11 +4,18 @@ export const DEFAULT_TURN_SETTINGS: TurnSettings = { minGapMs: 15_000, nudgeMs: 
 /** What made the AI player speak: a reply to a line, a nudge after a quiet spell, or the facilitator's prompt. */
 export type Trigger = "reply" | "nudge" | "prompt";
 
-/** What the bot's room feed tells the policy. `ai` = the speaker is an AI player (self included); `replayed` = seeded from the joined snapshot. */
+/**
+ * What the bot's room feed tells the policy. `ai` = the speaker is an AI player (self included); `human` = the speaker is a HUMAN player
+ * seat (not an AI player, not an AI character); `replayed` = seeded from the joined snapshot. `nudged` (US-0081): another AI player of the
+ * session said a nudge in the current scene.
+ */
 export type PolicyEvent =
   | { kind: "started" }
   | { kind: "scene"; sceneId: string; participants: string[] }
-  | { kind: "line"; roleId: string; ai: boolean; replayed?: true }
+  /** `to` (US-0082): the role the line was addressed to. Addressed to this AI player: it replies without the settle wait (gap and caps
+   *  still apply). Addressed to anyone else: it is theirs to answer, so it sets no pending reply here (the quiet clock still moves). */
+  | { kind: "line"; roleId: string; ai: boolean; human?: true; replayed?: true; to?: string }
+  | { kind: "nudged" }
   | { kind: "paused" }
   | { kind: "resumed" }
   | { kind: "ended" }
@@ -32,6 +39,9 @@ export type TurnTicket = { epoch: number; sceneId: string; trigger: Trigger };
  *   `false` (or at the start) restarts the quiet clock, so a nudge is due `nudgeMs` after the humans became ready.
  * - `finish(t, true)` drops a pending reply that arrived mid-flight; `finish(t, false)` for a reply also clears
  *   pending (a skipped turn must not spin).
+ * - US-0081: one nudge per human silence. Once a nudge was said in the scene (this bot's own, or another AI player's, which the host
+ *   reports as `nudged`), no nudge is due until a line with `human: true` arrives; a new scene and `reset` reopen it. Replayed history
+ *   restores it conservatively: an AI player line after the last human line of the scene closes it. Replies are unaffected.
  */
 export class TurnPolicy {
   private readonly roleId: string;
@@ -43,6 +53,8 @@ export class TurnPolicy {
   private sceneId: string | null = null;
   private inScene = false;
   private pending = false;
+  /** US-0082: the pending reply answers a line addressed to this role (no settle wait). Meaningful only while `pending`. */
+  private addressed = false;
   private humans = false;
   private held = false;
   private flying = false;
@@ -50,6 +62,8 @@ export class TurnPolicy {
   private lines = 0;
   private lastActivityAt = 0;
   private lastSpokeAt: number | null = null;
+  /** US-0081: a nudge was said in this scene and no human line has arrived since. */
+  private nudgeSpent = false;
 
   constructor(o: { roleId: string; settings: TurnSettings; now: () => number }) {
     this.roleId = o.roleId;
@@ -75,6 +89,7 @@ export class TurnPolicy {
         this.inScene = e.participants.includes(this.roleId);
         this.lines = 0;
         this.pending = false;
+        this.nudgeSpent = false;
         this.lastActivityAt = this.now();
         this.invalidate();
         return;
@@ -85,10 +100,23 @@ export class TurnPolicy {
             this.lines += 1;
             this.lastSpokeAt = this.now();
           }
+          // US-0081: whether the last nudge may still be unanswered is unknown after a rejoin; an AI player line after the last human line closes the floor
+          if (e.human) this.nudgeSpent = false;
+          else if (e.ai) this.nudgeSpent = true;
           return;
         }
         this.lastActivityAt = this.now();
-        if (this.active && !e.ai && e.roleId !== this.roleId) this.pending = true;
+        if (e.human) this.nudgeSpent = false;
+        if (this.active && !e.ai && e.roleId !== this.roleId) {
+          // US-0082: a line addressed to someone else is theirs to answer; one addressed to this role is answered at once.
+          const to = typeof e.to === "string" ? e.to : undefined;
+          if (to === undefined) { this.pending = true; this.addressed = false; }
+          else if (to === this.roleId) { this.pending = true; this.addressed = true; }
+          else { this.pending = false; this.addressed = false; }
+        }
+        return;
+      case "nudged":
+        this.nudgeSpent = true;
         return;
       case "paused":
         this.paused = true;
@@ -118,8 +146,8 @@ export class TurnPolicy {
   private deadline(): { trigger: "reply" | "nudge"; at: number } | null {
     if (!this.active || this.lines >= this.settings.linesPerScene) return null;
     const gap = this.lastSpokeAt === null ? -Infinity : this.lastSpokeAt + this.settings.minGapMs;
-    if (this.pending) return { trigger: "reply", at: Math.max(this.lastActivityAt + this.settings.settleMs, gap) };
-    if (this.humans) return { trigger: "nudge", at: Math.max(this.lastActivityAt + this.settings.nudgeMs, gap) };
+    if (this.pending) return { trigger: "reply", at: Math.max(this.lastActivityAt + (this.addressed ? 0 : this.settings.settleMs), gap) };
+    if (this.humans && !this.nudgeSpent) return { trigger: "nudge", at: Math.max(this.lastActivityAt + this.settings.nudgeMs, gap) };
     return null;
   }
 
@@ -154,6 +182,7 @@ export class TurnPolicy {
       this.lastSpokeAt = this.now();
       this.lines += 1;
       this.pending = false;
+      if (t.trigger === "nudge") this.nudgeSpent = true;
     } else if (t.trigger === "reply") {
       this.pending = false;
     } else if (t.trigger === "nudge") {
@@ -175,6 +204,7 @@ export class TurnPolicy {
     this.lines = 0;
     this.lastActivityAt = 0;
     this.lastSpokeAt = null;
+    this.nudgeSpent = false;
     this.invalidate();
   }
 }

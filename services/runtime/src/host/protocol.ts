@@ -5,6 +5,7 @@ import { REBIND_PENDING } from "../engine/consent.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
 import type { FacilitatorRosterEntry, PeerRosterEntry } from "./roster.js";
 import type { VoiceNoticeCode, VoiceState } from "./voice.js";
+import type { ActivityFrame } from "./activity.js";
 
 export const MAX_UTTERANCE_CHARS = 2_000;
 const Id = z.string().min(1).max(CLIENT_ID_MAX_CHARS);
@@ -45,7 +46,10 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("join_facilitator"), sessionId: Id, token: z.string().max(256).optional(), lastSeq: LastSeq }),
   z.object({ type: z.literal("start") }),
-  z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS), expectSceneId: Id.optional() }),
+  // US-0082: `to` is the role the line is directed at; the engine records it only for another role of the speaker's current scene.
+  z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS), expectSceneId: Id.optional(), to: Id.optional() }),
+  // US-0082: a live AI player's bot says its turn began or ended (an AI player seat only, else forbidden). Never logged. Strict.
+  z.strictObject({ type: z.literal("activity"), state: z.enum(["thinking", "idle"]), outcome: z.enum(["timed_out", "failed"]).optional() }),
   // US-0059: `by` is the facilitator's name as the control service gave it (raw at most 200 UTF-16 units; the host cleans it to 60 code points).
   z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional(), ref: Ref.optional() }),
   // US-0059: the facilitator ends the session now (never auto-starts). `message` is raw (the host cleans it to 300 code points); `by` as on `command`.
@@ -87,8 +91,13 @@ export type ServerMessage =
       /** US-0054: players only, when the server keeps seats: the notice to agree to and whether this participant has agreed. Never another role's. */
       consent?: { noticeVersion: string; notice: string; given: boolean };
       /** US-0070: players only, when voice is enabled and the server keeps seats, for a human seat: this seat's own voice state. Never another role's. */
-      voice?: { state: VoiceState; muted: boolean } }
+      voice?: { state: VoiceState; muted: boolean };
+      /** US-0082: an AI player seat's join only: this runtime takes the bot's `activity` reports (an older one would refuse them). */
+      activity?: true }
   | { type: "event"; event: SessionEvent }
+  // US-0082: a short-lived "is composing a reply" signal, NOT an event (no seq, never logged or replayed). The facilitator gets every one,
+  // with `outcome` when a turn ended without its model line; a player gets roleId and state only, and only while both share the current scene.
+  | ActivityFrame
   // US-0070: answers an accepted voice_opt_in ("voice") or voice_opt_out ("text_only"), to the sender only. US-0071: an accepted
   // voice_mute answers the seat's current state; F5: every `voice` answer carries the seat's real `muted` (sent whenever voice is on).
   | { type: "voice"; state: VoiceState; muted?: boolean }

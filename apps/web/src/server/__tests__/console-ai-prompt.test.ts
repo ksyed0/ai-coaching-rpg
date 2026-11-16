@@ -8,6 +8,7 @@ import { COOKIE_NAME, type Deps } from "../handlers";
 import { LauncherError, type LauncherReason } from "../launcher-client";
 import { consoleAiPromptPOST } from "../routes";
 import { seal } from "../seal";
+import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -21,7 +22,7 @@ const config: Config = {
   runtimeUrl: "ws://127.0.0.1:1", publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10,
   maxStreamsPerAddress: 10, facilitatorSecret: SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: "launcher-token-" + "t".repeat(20),
 };
-const consoleCookie = (name = "Ann Lee") => `${CONSOLE_COOKIE}=${seal({ name, epoch: secretEpoch(SECRET), expiresAt: T0 + 3_600_000 }, KEYS, T0, "fac")}`;
+const consoleCookie = (name = "Ann Lee") => `${CONSOLE_COOKIE}=${accountCookieValue(adminNamed(name), { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 })}`;
 const playerCookie = () => `${COOKIE_NAME}=${seal({ sessionId: SID, roleId: "r", participantId: "p", credential: "c", logIdentity: "l", expiresAt: T0 + 3_600_000 }, KEYS, T0)}`;
 
 let order: string[];
@@ -39,7 +40,7 @@ beforeEach(() => {
     releaseTurn: vi.fn(async () => { order.push("release"); }),
   };
   send = vi.fn(async (): Promise<CommandOutcome> => { order.push("command"); return { kind: "ok" }; });
-  deps = { config, now: () => T0, launcher: launcher as never, facilitatorHub: { send } } as unknown as Deps;
+  deps = { config, now: () => T0, launcher: withConsoleAuth(launcher) as never, facilitatorHub: { send } } as unknown as Deps;
   logs = [];
   for (const m of ["error", "warn", "log", "info"] as const) vi.spyOn(console, m).mockImplementation((...a) => { logs.push(a.join(" ")); });
 });
