@@ -22,6 +22,8 @@ export type FacilitatorRosterEntry = {
   roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true;
   /** US-0071: with voice on, the seat's voice state and whether it speaks now (picked by `entryOf` below: valid values only). */
   voice?: "none" | "voice" | "text_only" | "off"; speaking?: true;
+  /** A3A: with voice on, whether the facilitator has muted this seat. */
+  facilitatorMuted?: boolean;
 };
 /** Mirrors ConsoleScene/ConsoleCharacter in src/server/facilitator-copies.ts. A character's facts carry only their number and whether they are released: never text. */
 export type ConsoleInject = { id: string; to: string[]; content: string; atMinute?: number };

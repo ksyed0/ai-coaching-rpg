@@ -138,6 +138,11 @@ export const MESSAGES = {
   micUnavailableWords: "Microphone on, not recorded while voice is unavailable",
   micMuted: "Microphone muted",
   micNotConnected: "Voice not connected",
+  // A3A: equals VOICE_ANSWERS.muted_by_facilitator in src/server/handlers.ts (a test keeps them together).
+  voiceMutedByFacilitator: "The facilitator has muted your microphone.",
+  // A3A: equal COMMAND_ANSWERS.voice_off and .forbidden in src/server/console-command.ts (a test keeps them together).
+  consoleMuteVoiceOff: "Voice is not on in this session, so there is nothing to mute.",
+  consoleMuteForbidden: "Only the facilitator can mute a seat.",
 } as const;
 
 /**

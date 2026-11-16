@@ -8,10 +8,10 @@ import type { CommandMessage } from "./wire";
 // from the sealed cookie: a body carrying `by` is refused. A refusal is answered with our own fixed copy, never the runtime's text.
 // Nothing is logged here: no line could carry the channel, a name or the command text.
 
-export const COMMAND_KINDS = ["pause", "resume", "advance", "fire_inject", "whisper", "release_hidden", "set_npc_stance", "end_now"] as const;
+export const COMMAND_KINDS = ["pause", "resume", "advance", "fire_inject", "whisper", "release_hidden", "set_npc_stance", "end_now", "mute_seat"] as const;
 export const COMMAND_MAX_BODY_BYTES = 32 * 1024;
 /** The union of every kind's keys; parseConsoleCommand refuses any key the kind does not take. */
-export const COMMAND_BODY_KEYS = ["channel", "kind", "expectSceneId", "injectId", "roleId", "text", "fact", "goals", "message"] as const;
+export const COMMAND_BODY_KEYS = ["channel", "kind", "expectSceneId", "injectId", "roleId", "text", "fact", "goals", "message", "muted"] as const;
 
 const MAX_WHISPER_UNITS = 2000;
 const MAX_GOALS = 10;
@@ -27,7 +27,8 @@ export type ConsoleCommand =
   | { kind: "whisper"; roleId: string; text: string; expectSceneId?: string }
   | { kind: "release_hidden"; roleId: string; fact: number; expectSceneId?: string }
   | { kind: "set_npc_stance"; roleId: string; goals: string[]; expectSceneId?: string }
-  | { kind: "end_now"; message?: string };
+  | { kind: "end_now"; message?: string }
+  | { kind: "mute_seat"; roleId: string; muted: boolean };
 
 const KIND_KEYS: Record<ConsoleCommand["kind"], readonly string[]> = {
   pause: [], resume: [],
@@ -37,6 +38,7 @@ const KIND_KEYS: Record<ConsoleCommand["kind"], readonly string[]> = {
   release_hidden: ["roleId", "fact", "expectSceneId"],
   set_npc_stance: ["roleId", "goals", "expectSceneId"],
   end_now: ["message"],
+  mute_seat: ["roleId", "muted"],
 };
 
 
@@ -81,6 +83,9 @@ export function parseConsoleCommand(body: Record<string, unknown>): { channel: s
       }
       return { channel, command: { kind: k, roleId: body.roleId, goals, ...withScene } };
     }
+    case "mute_seat":
+      if (!isId(body.roleId) || typeof body.muted !== "boolean") return null;
+      return { channel, command: { kind: k, roleId: body.roleId, muted: body.muted } };
     case "end_now": {
       const m = body.message;
       if (m === undefined) return { channel, command: { kind: k } };
@@ -95,6 +100,7 @@ export function toWire(c: ConsoleCommand, by: string): CommandMessage {
   switch (c.kind) {
     case "pause": return { type: "command", command: { command: "pause" }, by };
     case "resume": return { type: "command", command: { command: "resume" }, by };
+    case "mute_seat": return { type: "command", command: { command: "mute_seat", roleId: c.roleId, muted: c.muted }, by };
     case "end_now": return { type: "end_now", ...(c.message !== undefined && { message: c.message }), by };
     default: {
       const scene = c.expectSceneId === undefined ? {} : { expectSceneId: c.expectSceneId };
@@ -125,6 +131,9 @@ export const COMMAND_ANSWERS = {
   paused: { status: 409, code: "paused", message: "The session is paused. Resume it before you prompt an AI player." },
   not_in_scene: { status: 409, code: "not_in_scene", message: "That AI player is not in the current scene." },
   unknown_fact: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
+  // A3A: fixed copy shared with the console page (MESSAGES.consoleMuteVoiceOff / consoleMuteForbidden; a test keeps them equal).
+  voice_off: { status: 409, code: "voice_off", message: "Voice is not on in this session, so there is nothing to mute." },
+  forbidden: { status: 409, code: "forbidden", message: "Only the facilitator can mute a seat." },
   rate_limited: { status: 429, code: "rate_limited", message: "Too many actions at once. Wait a moment and try again." },
   other: { status: 502, code: "command_failed", message: "The session could not take that action. Check the live view, then try again." },
   unconfirmed: { status: 504, code: "command_unconfirmed", message: "The session did not confirm the action. Check the live view before you try again." },

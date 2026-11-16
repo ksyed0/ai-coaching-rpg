@@ -27,6 +27,20 @@ describe("console copies", () => {
     const bare = { type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "prompt_ai", roleId: "tech_lead" } as unknown as SessionEvent;
     expect(Object.hasOwn(consoleEvent(bare), "by")).toBe(false);
   });
+  it("consoleEvent copies mute_seat with roleId, muted and by only, and always returns a defined value (A3A)", () => {
+    const e = { type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "mute_seat", roleId: "lead", muted: true, by: "Sam", extra: "LEAK-X" } as unknown as SessionEvent;
+    expect(consoleEvent(e)).toEqual({ type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "mute_seat", roleId: "lead", muted: true, by: "Sam" });
+    expect(JSON.stringify(consoleEvent(e))).not.toMatch(/LEAK/);
+    const bare = { type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "mute_seat", roleId: "lead", muted: false } as unknown as SessionEvent;
+    expect(consoleEvent(bare)).toEqual({ type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "mute_seat", roleId: "lead", muted: false });
+    expect(consoleEvent({ ...bare, muted: "yes" } as never)).toMatchObject({ muted: false });
+  });
+  it("consoleRoster keeps facilitatorMuted only as a boolean (A3A)", () => {
+    const e = { roleId: "a", joined: true, consented: true, connected: true, voice: "voice" };
+    expect(consoleRoster([{ ...e, facilitatorMuted: true } as never])[0]).toMatchObject({ facilitatorMuted: true });
+    expect(consoleRoster([{ ...e, facilitatorMuted: false } as never])[0]).toMatchObject({ facilitatorMuted: false });
+    for (const bad of ["yes", 1, null, {}]) expect(Object.hasOwn(consoleRoster([{ ...e, facilitatorMuted: bad } as never])[0]!, "facilitatorMuted")).toBe(false);
+  });
   it("the console state has no participantId, npcs is empty and every other key equals the input", () => {
     const s = state();
     const c = consoleState(s);

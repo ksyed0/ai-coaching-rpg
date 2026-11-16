@@ -21,4 +21,6 @@ export const entryOf = (e: FacilitatorRosterEntry): FacilitatorRosterEntry => ({
   // entry has neither key: the runtime sends them only with voice on).
   ...(isVoiceState(e.voice) && { voice: e.voice }),
   ...(e.speaking === true && { speaking: true as const }),
+  // A3A: whether the facilitator muted this seat, only as a boolean (the runtime sends it only with voice on).
+  ...(typeof e.facilitatorMuted === "boolean" && { facilitatorMuted: e.facilitatorMuted }),
 });

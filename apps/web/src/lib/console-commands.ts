@@ -19,6 +19,7 @@ export const COMMAND_KINDS = [
   "release_hidden",
   "set_npc_stance",
   "end_now",
+  "mute_seat",
 ] as const;
 
 export type ConsoleCommand =
@@ -39,7 +40,8 @@ export type ConsoleCommand =
       goals: string[];
       expectSceneId?: string;
     }
-  | { kind: "end_now"; message?: string };
+  | { kind: "end_now"; message?: string }
+  | { kind: "mute_seat"; roleId: string; muted: boolean };
 
 export type ConsoleFactText = {
   roleId: string;
@@ -117,6 +119,7 @@ const ANNOUNCE: Record<ConsoleCommand["kind"], string | null> = {
   whisper: "Whisper sent.",
   release_hidden: "Fact released.",
   set_npc_stance: "Stance changed.",
+  mute_seat: "Mute updated.",
   end_now: null, // the stream's "ended" final is announced once by the page
 };
 

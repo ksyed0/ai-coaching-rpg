@@ -67,7 +67,7 @@ export type JoinedFrame = {
   /** The notice to agree to and whether this participant has agreed. */
   consent?: { noticeVersion: string; notice: string; given: boolean };
   /** US-0070/US-0071: a player join with voice on, for a human seat: this seat's own voice state and mute. Absent otherwise. */
-  voice?: { state: VoiceState; muted?: boolean };
+  voice?: { state: VoiceState; muted?: boolean; /** A3A: the facilitator muted this seat. */ mutedBy?: "facilitator" };
 };
 
 /** What the facilitator sees of a seat. */
@@ -75,9 +75,11 @@ export type FacilitatorRosterEntry = {
   roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true;
   /** US-0071 (K6): with voice on, this seat's voice state and whether it is speaking now. The facilitator's roster only, never a peer's. */
   voice?: VoiceState; speaking?: true;
+  /** A3A: with voice on, whether the facilitator has muted this seat. */
+  facilitatorMuted?: boolean;
 };
 /** What a player sees of another seat. */
-export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
+export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; /** US-0060: an AI player holds this seat. */ ai?: true; /** A3A: with voice on, whether the facilitator has muted this seat. */ facilitatorMuted?: boolean };
 
 export type ServerMessage =
   | JoinedFrame
@@ -87,7 +89,7 @@ export type ServerMessage =
   /** US-0059: the runtime's answer to a `command` or `end_now` that carried a `ref`, to the sender only. */
   | { type: "ack"; ref: string }
   /** US-0070/US-0071: the answer to this player's own voice_opt_in, voice_opt_out or voice_mute, to the sender only. */
-  | { type: "voice"; state: VoiceState; muted?: boolean }
+  | { type: "voice"; state: VoiceState; muted?: boolean; /** A3A: present when the facilitator muted this seat. */ mutedBy?: "facilitator" }
   /** US-0070/US-0071: why this player's speech was not recorded, or whether voice is available; to the holder's socket only. */
   | { type: "voice_notice"; code: string }
   /** US-0082: someone is (or stopped) composing a reply; not an event (no seq, never logged). `outcome` only on a facilitator socket. SOURCE: host/activity.ts. */

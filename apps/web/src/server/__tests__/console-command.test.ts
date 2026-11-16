@@ -7,7 +7,8 @@ import { COOKIE_NAME, type Deps } from "../handlers";
 import { seal } from "../seal";
 import { COMMAND_KINDS as CLIENT_KINDS } from "../../lib/console-commands";
 import { COMMAND_ANSWERS, COMMAND_KINDS, COMMAND_MAX_BODY_BYTES, handleConsoleCommand, handleConsoleFacts } from "../console-command";
-import { accountCookieValue, adminNamed, withConsoleAuth } from "../test-support/console-fixtures";
+import { MESSAGES } from "../../lib/messages";
+import { accountCookie, accountCookieValue, adminNamed, FACILITATOR, legacyCookie, withConsoleAuth } from "../test-support/console-fixtures";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -94,6 +95,8 @@ describe("the command route", () => {
       [{ kind: "set_npc_stance", roleId: "npc", goals: ["  one ", "two"] }, { type: "command", command: { command: "set_npc_stance", roleId: "npc", goals: ["one", "two"] }, by: NAME }],
       [{ kind: "end_now" }, { type: "end_now", by: NAME }],
       [{ kind: "end_now", message: "Thanks all" }, { type: "end_now", message: "Thanks all", by: NAME }],
+      [{ kind: "mute_seat", roleId: "lead", muted: true }, { type: "command", command: { command: "mute_seat", roleId: "lead", muted: true }, by: NAME }],
+      [{ kind: "mute_seat", roleId: "lead", muted: false }, { type: "command", command: { command: "mute_seat", roleId: "lead", muted: false }, by: NAME }],
     ];
     for (const [body, wire] of cases) {
       send.mockClear();
@@ -136,6 +139,14 @@ describe("the command route", () => {
       ["non-UUID channel", { channel: "abc", kind: "pause" }],
       ["upper-case channel", { channel: CH.toUpperCase(), kind: "pause" }],
       ["bad role id", { channel: CH, kind: "whisper", roleId: "../x", text: "hi" }],
+      ["mute_seat with a body by", { channel: CH, kind: "mute_seat", roleId: "a", muted: true, by: "Mallory" }],
+      ["mute_seat with an extra key", { channel: CH, kind: "mute_seat", roleId: "a", muted: true, text: "x" }],
+      ["mute_seat with expectSceneId", { channel: CH, kind: "mute_seat", roleId: "a", muted: true, expectSceneId: "s1" }],
+      ["mute_seat without muted", { channel: CH, kind: "mute_seat", roleId: "a" }],
+      ["mute_seat muted as a string", { channel: CH, kind: "mute_seat", roleId: "a", muted: "true" }],
+      ["mute_seat without roleId", { channel: CH, kind: "mute_seat", muted: true }],
+      ["mute_seat bad role id", { channel: CH, kind: "mute_seat", roleId: "../x", muted: true }],
+      ["muted on pause", { channel: CH, kind: "pause", muted: true }],
       ["text/plain", { channel: CH, kind: "pause" }, { headers: { "Content-Type": "text/plain" } }],
     ];
     for (const [name, body, o] of bad) expect((await command(body, o)).status, name).toBe(400);
@@ -248,6 +259,8 @@ describe("the command route", () => {
     ["unknown_role", { kind: "refused", code: "unknown_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["npc_role", { kind: "refused", code: "npc_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["unknown_fact", { kind: "refused", code: "unknown_fact" }, 409, "conflict", "That action is not possible in the session's current state."],
+    ["voice_off", { kind: "refused", code: "voice_off" }, 409, "voice_off", "Voice is not on in this session, so there is nothing to mute."],
+    ["forbidden", { kind: "refused", code: "forbidden" }, 409, "forbidden", "Only the facilitator can mute a seat."],
     ["not_ai_role", { kind: "refused", code: "not_ai_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["paused", { kind: "refused", code: "paused" }, 409, "paused", "The session is paused. Resume it before you prompt an AI player."],
     ["not_in_scene", { kind: "refused", code: "not_in_scene" }, 409, "not_in_scene", "That AI player is not in the current scene."],
@@ -346,6 +359,37 @@ describe("the facts route", () => {
       expect(res.headers.get("Cache-Control")).toBe("no-store");
       expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     }
+  });
+});
+
+describe("mute_seat (A3A)", () => {
+  const body = { channel: CH, kind: "mute_seat", roleId: "lead", muted: true };
+  it("a legacy shared-secret sign-in may mute, with the typed name as by (C4)", async () => {
+    const res = await command(body, { cookie: legacyCookie("Typed Name", { keys: KEYS, now: T0 }) });
+    expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalledWith({ sessionId: SID, channel: CH, message: { type: "command", command: { command: "mute_seat", roleId: "lead", muted: true }, by: "Typed Name" } });
+  });
+  it("a facilitator who does not own the session gets the neutral 404 and nothing is sent", async () => {
+    deps = { ...deps, launcher: withConsoleAuth({ session: async () => ({ owner: "someone-else" }) }) as never } as Deps;
+    const res = await command(body, { cookie: accountCookie(FACILITATOR, { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 }) });
+    expect(res.status).toBe(404);
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("its owner may mute", async () => {
+    deps = { ...deps, launcher: withConsoleAuth({ session: async () => ({ owner: FACILITATOR.id }) }) as never } as Deps;
+    const res = await command(body, { cookie: accountCookie(FACILITATOR, { keys: KEYS, now: T0, expiresAt: T0 + 3_600_000 }) });
+    expect(res.status).toBe(200);
+    expect(send.mock.calls[0]![0].message.by).toBe(FACILITATOR.name);
+  });
+  it("unknown_role keeps the shared generic sentence and ended keeps its own", async () => {
+    send.mockResolvedValueOnce({ kind: "refused", code: "unknown_role" });
+    expect((await json(await command(body))).error).toEqual({ code: "conflict", message: "That action is not possible in the session's current state." });
+    send.mockResolvedValueOnce({ kind: "refused", code: "ended" });
+    expect((await json(await command(body))).error).toEqual({ code: "ended", message: "The session has ended." });
+  });
+  it("the fixed sentences equal the page's copy", () => {
+    expect(COMMAND_ANSWERS.voice_off.message).toBe(MESSAGES.consoleMuteVoiceOff);
+    expect(COMMAND_ANSWERS.forbidden.message).toBe(MESSAGES.consoleMuteForbidden);
   });
 });
 

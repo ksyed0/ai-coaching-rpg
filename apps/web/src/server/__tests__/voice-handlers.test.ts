@@ -3,7 +3,8 @@ import type { Config } from "../config";
 import { setEnvelopeClock } from "../envelope";
 import { FacilitatorBudget } from "../facilitator-budget";
 import { FacilitatorHub } from "../facilitator-hub";
-import { COOKIE_NAME, handleVoice, handleVoiceToken, VOICE_TOKEN_THROTTLE, type Deps } from "../handlers";
+import { COOKIE_NAME, handleVoice, handleVoiceToken, VOICE_ANSWERS, VOICE_TOKEN_THROTTLE, type Deps } from "../handlers";
+import { MESSAGES } from "../../lib/messages";
 import { LauncherError, type LauncherClient, type LauncherReason } from "../launcher-client";
 import { realTimer } from "../runtime-connection";
 import { seal } from "../seal";
@@ -103,6 +104,19 @@ describe("POST /api/v1/voice", () => {
     expect(s.conn.sent).toEqual([{ type: "voice_opt_out" }, { type: "voice_mute", muted: true }, { type: "voice_mute", muted: false }]);
   });
 
+  it("a voice answer carrying mutedBy facilitator answers it; any other mutedBy is dropped (A3A)", async () => {
+    const { deps, hub } = makeDeps();
+    let next: ServerMessage = { type: "voice", state: "voice", muted: true, mutedBy: "facilitator" } as never;
+    openStream(hub, () => next);
+    expect((await body(await handleVoice(req("voice", { body: { mute: false } }), deps))).data).toEqual({ state: "voice", muted: true, mutedBy: "facilitator" });
+    next = { type: "voice", state: "voice", muted: true, mutedBy: "other" } as never;
+    expect((await body(await handleVoice(req("voice", { body: { mute: false } }), deps))).data).toEqual({ state: "voice", muted: true });
+  });
+
+  it("MESSAGES.voiceMutedByFacilitator equals the BFF's muted_by_facilitator sentence (A3A)", () => {
+    expect(MESSAGES.voiceMutedByFacilitator).toBe(VOICE_ANSWERS.muted_by_facilitator!.message);
+  });
+
   it("a voice frame whose muted is not a boolean answers the state only; one with an unknown state is unconfirmed", async () => {
     const { deps, hub } = makeDeps();
     let next: ServerMessage = { type: "voice", state: "voice", muted: "yes" } as never;
@@ -134,6 +148,7 @@ describe("POST /api/v1/voice", () => {
     ["consent_version", 409, "The notice has changed. Reload the page to read the current one."],
     ["rate_limited", 429, "Too many messages. Wait a moment and try again."],
     ["bad_message", 400, "The request could not be read."],
+    ["muted_by_facilitator", 409, "The facilitator has muted your microphone."],
     ["forbidden", 409, "The server did not accept that. Try again."],
     ["not_joined", 409, "The server did not accept that. Try again."],
   ])("the runtime's %s maps to %i with the BFF's own sentence", async (code, status, message) => {
