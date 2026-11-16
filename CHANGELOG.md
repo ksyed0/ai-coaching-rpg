@@ -70,6 +70,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   - **Client demo kit:** `docs/demo/CLIENT_DEMO.md` and `docs/demo/demo-up.sh` now say to sign in as `admin` with the default password the first time, change it, and create the facilitators; `demo-up.sh secret` is for the legacy sign-in only.
 
 ### Changed
+- Next.js is upgraded from 16.4.1 to 16.4.6 in `apps/web`, clearing the security advisory that `next build` printed for 16.4.1. No app code changed; the web unit tests, the production build and the Playwright e2e pass on the new version.
 - The web app's `start` script now listens on 127.0.0.1 only (`next start -H 127.0.0.1`; EPIC-0003, US-0072). LAN devices are meant to reach it through the TLS proxy, never directly, because a client that reaches the web port directly can choose its own `X-Forwarded-For` throttle key. Anyone who ran the plain `pnpm --filter @acr/web start` to serve a LAN must now put a proxy in front (or pass `-H <address>` themselves, which the threat model advises against). The `dev` script is unchanged and still listens on every interface.
 
 ### Fixed
