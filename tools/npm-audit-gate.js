@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // npm audit gate: fails on high/critical advisories except those listed in
 // .audit-ignore (one GHSA id per line, '#' comments). npm has no native ignore.
+// 2026-11-17: only GHSA-fc5q-39xc-vjpf (picomatch ReDoS, no patched release) is listed;
+// remove it, and this gate, when a patched picomatch ships.
 // The same advisories are ignored for pnpm via auditConfig in pnpm-workspace.yaml.
 'use strict';
 const { spawnSync } = require('node:child_process');
