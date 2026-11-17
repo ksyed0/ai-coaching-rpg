@@ -831,3 +831,33 @@ The whole-branch review of US-0090 and US-0091 and its fixes; then the PR into `
 - **Verification:** `npm run plan:generate` (9 epics, 87 stories, 320 TCs, 34 bugs, 43 lessons) and `npm run plan:test:coverage` (61 suites, 1247 tests pass). No code changed, so the pnpm workspace suites were not run. No CHANGELOG entry (nothing user-visible changed).
 - **Next:** the controller opens the PR into `develop`.
 
+## Session 52 — 2026-11-17 (EPIC-0002: a facilitator hides a participant response, US-0069)
+
+### What Was Done
+
+- **Built US-0069 on `feature/EPIC-0002-US-0069-hide-response`** (spec `docs/superpowers/specs/2026-11-17-hide-participant-response-design.md`; plan `docs/superpowers/plans/2026-11-17-hide-participant-response.md`, reviewed by an Opus agent before the build; Tasks 1 to 5 each had a review; Task 6 is the end-to-end test, the mutation checks and these documents; no PR yet, nothing pushed or merged). A facilitator can take one participant response out of every page and export, with a required reason, without touching the record.
+  - **Runtime (Tasks 1 to 3):** the facilitator-only review event `response.hidden { response, reason }` (schema stays `acr.review/2`, no unhide); the fold keeps the response in `sv.responses` with `hidden`, so neither cap is refunded; `supersede` carries a hide with its response; one filter in `viewReport` drops hidden responses for BOTH audiences (the facilitator branch reads `sv.responses`, also through the frozen snapshot after an amend: the Opus plan review's C1); the console DTO gives a hidden response `{ reason, by, at }` and no `text`; the BUG-0029 resend check ignores hidden responses; a hidden dispute leaves the open list and cannot be resolved; `hideResponse`, `pnpm moderate hide` and the `status` lines (`response #N by <role> ... hidden`).
+  - **Control and web (Tasks 4 and 5):** `ModerationService.hide`, `POST /sessions/:id/report/hide`, the BFF route and handler, the launcher and console client parsers, and the console responses list with a Hide button and a confirm dialog (shows the text, required reason with a 500-character counter, focus returns to the button).
+  - **End to end and mutation checks (Task 6):** `services/control/src/__tests__/hide-response.e2e.test.ts` (3 tests, real review folder and services): a canary posted through a link reaches no participant page or export and no facilitator export taken after an amend and a second release (with a control that does contain it without a hide); the log keeps the text and one `response.hidden`; a second hide is refused; 25 through one link then the 26th is `link_full`, 50 in all then a fresh link is `too_many`, with one hidden in each. Seven mutations (the brief's list, with the dispute guard run at both the fold and the write layer) and an eighth on the per-role cap each fail a named test and were reverted (TC-0344).
+  - **Documents (Task 6):** `docs/THREAT_MODEL.md` ("Participant ratings and responses": what a hide does and does not do), `docs/ROLLBACK.md` ("US-0069"), `docs/EVALUATOR.md` (`hide` entry), `CHANGELOG.md`, TC-0336 to TC-0345 and TASK-0144 to TASK-0146 filed, AC-0392 to AC-0395 ticked with evidence, MEMORY fact 37.
+- **Decisions (owner, 2026-11-17):** a confirm dialog and no unhide; hidden responses still count toward both caps; the participant is not told.
+
+### Verification (2026-11-17, macOS arm64, the Task 6 run)
+
+`pnpm --filter <pkg> exec vitest run --coverage` all passed: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010; line coverage 98.47, 98.13 and 98.1 percent. `tsc --noEmit` clean for runtime, control and web. `npm run plan:generate` and `npm run plan:test` were run (see the Task 6 report for the counts). Not run: the forked `*.real.test.ts` variants and a real browser (the console dialog is proven in jsdom only).
+
+### Known gaps (deferred follow-ups worth keeping)
+
+- **Residuals, stated in the threat model:** the text stays in the log; the participant is not told; a forwarded link can post again and be hidden again (the per-link cap bounds it); the participant's "used N of 50" counter counts visible responses only; a carried hide's `at` after a re-run is the re-run time.
+- **Accepted gaps:** a runtime older than this change refuses a log that holds `response.hidden` (roll back before the first hide or restore the log; web, control and runtime roll back together); no unhide and no bulk hide.
+- **Deferred review minors** (the SDD ledger `.superpowers/sdd/2026-11-17-hide-participant-response/progress.md`, rulings R1 to R5): the reason dialog's counter counts code points while the native limit counts UTF-16 units; redundant re-validation in the two client parsers; a direct malformed-2xx test for `reportHide`; the duplicate open-dispute line in `status` by design.
+- **The e2e is in-process** (real files and services, no HTTP between control and the web app and no forked processes).
+
+### Open owner items
+
+1. TO RUN (owner, optional): a real-browser pass of the hide dialog (keyboard use and focus return) in a real console; no case is filed because the jsdom tests cover the dialog's behaviour.
+2. Still open from before: TC-0320, TC-0321, TC-0332, TC-0218, TC-0232, TC-0242, A1c's real run (TC-0204), the OpenRouter key rotation, the domain and certificate (US-0048), TC-0289 and TC-0290.
+
+### Next
+
+The whole-branch review of US-0069 and its fixes; then the PR into `develop` (the story stays In Progress until the review has passed; nothing is pushed or merged).

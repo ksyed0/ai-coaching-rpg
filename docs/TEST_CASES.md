@@ -4789,3 +4789,148 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-16 (Task 8). Not run by the agents: no real room, real microphone or real browser session exists for A3a. The owner runs it with the room test, after TC-0242.
+
+## US-0069: hide a participant response (EPIC-0002)
+
+TC-0336: The response.hidden event and the fold: who, when, why, and both caps unchanged
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0394, AC-0395
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/fold-hide`.
+Expected Result: `response.hidden { response, reason }` is accepted only from a facilitator actor, for an existing response not already hidden, with a cleaned reason of 1 to 500 characters; the fold keeps the response in `sv.responses` with `hidden` set to `{ seq, ts, reason, by }`; a participant or system actor, a missing response, a second hide and an empty or over-long reason are refused as illegal folds; `dispute.resolved` on a hidden response is refused; the per-role count (`sv.responses.length`) and the per-link count (`response.added` events) do not change, so a hide refunds neither cap; the schema stays `acr.review/2`.
+Actual Result: As expected (`fold-hide.test.ts`). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
+
+TC-0337: Supersede carries a hide to the new review and drops it with an uncarried response
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0394
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/supersede-hide`.
+Expected Result: After `supersede`, a hidden response arrives in the new review already hidden, its `response.hidden` pointed at the response's new seq with the same reason and `by` (its `ts` is the time of the carry, not of the original hide); a hide whose response is not carried (criterion renamed in the re-run, or the player is not in the re-run) is dropped with it, leaving no dangling `response.hidden`; the carried log folds without an illegal event.
+Actual Result: As expected (`supersede-hide.test.ts`). Mutation check: removing the `response.hidden` remap in `store.ts` fails both carry tests (TC-0344). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
+
+TC-0338: Read paths: no reader of responses shows hidden text (participant page, group report, Markdown, JSON, facilitator export after an amend, console DTO)
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0393
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/view-hide src/moderation/__tests__/read-hide`.
+Expected Result: `viewReport` drops hidden responses on BOTH branches (the released audience's live list and the facilitator audience's `sv.responses`); a canary in a hidden response is in no JSON, no Markdown, no written export file and no CLI `show` output for the released audience, the facilitator audience, and the facilitator export of a released snapshot taken after an amend and a second release (the control for that case, the same flow without a hide, does contain it); hiding the only response leaves no `responses` key and renders; a visible reply beside it still appears; the group report never carries responses; the console DTO gives a hidden response `{ reason, by, at }` and no `text`, a visible one has `text` and no `hidden`; a hidden dispute is not in the open-disputes list.
+Actual Result: As expected (`view-hide.test.ts`, `read-hide.test.ts`). Mutation checks: dropping the filter, filtering only the live list, nulling `hidden` in `frozenView` and sending `text` in the DTO each fail named tests (TC-0344). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6. The console DTO and the facilitator's own `show` are the only readers that show a hide at all, and they show the reason and the name, never the text.
+
+TC-0339: A resend after a hide is written again; the caps still count the hidden response
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0395
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write-hide`.
+Expected Result: The BUG-0029 identical-response check ignores a hidden response, so the same words sent again after a hide are written as a new response (the participant is not told the first was hidden); an identical visible unresolved response is still a no-op; the per-role cap of 50 counts hidden responses and the per-link cap of 25 counts every `response.added` of the link.
+Actual Result: As expected (`write-hide.test.ts`). Mutation check: dropping the `hidden === null` guard in the dedupe fails the first test (TC-0344). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
+
+TC-0340: The hide command in the runtime and the CLI: refusals, status lines, resolve on a hidden dispute
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0394
+Type: Unit
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/moderation/__tests__/hide src/review/__tests__/cli-hide`.
+Expected Result: `pnpm moderate hide <dir> <number> --reason <text> --by <name>` exits 0 and prints `response #N hidden`; a missing response, a second hide and a hide on a superseded review are refused (exit 1; superseded has its own code); a non-integer number or a missing or blank reason is a usage error (exit 2); two sequential hides write exactly one event; `status` prints one text-free line per response (`response #N by <role> ...  hidden`) and a hidden dispute leaves the open list; `resolve` on a hidden dispute exits 1 with the hidden message; `show` has no canary; the usage text lists `hide`.
+Actual Result: As expected (`hide.test.ts`, `cli-hide.test.ts`). Mutation check: letting `resolveDispute` accept a hidden response fails `hide.test.ts` and `cli-hide.test.ts` (TC-0344). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
+
+TC-0341: Control and the web BFF: the hide route, the service and the console client
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0393
+Type: Integration
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-hide src/__tests__/api.reports`.
+  2. From `apps/web`: `pnpm exec vitest run src/lib/__tests__/console-api-hide src/server/__tests__/console-report-handlers-hide src/server/__tests__/console-report-handlers`.
+Expected Result: Control's `ModerationService.hide` writes one `response.hidden` event under the `<name>-console` author, answers a second hide and a missing response `409 refused`, a bad number, a missing reason or a bad name `400 invalid` (nothing written), and a superseded review `409 superseded`; the report routes guard counts the hide route; the web BFF handler forwards the hide with the signed-in facilitator's name and maps each refusal to a fixed sentence; the console client parser accepts a hidden response without `text` and rejects one that has both or neither.
+Actual Result: As expected (control `moderation-hide.test.ts`, `api.reports.test.ts`; web `console-api-hide.test.ts`, `console-report-handlers-hide.test.ts`, `console-report-handlers.test.ts`). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
+
+TC-0342: Console: the responses list and the hide confirm dialog (jsdom)
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0393
+Type: Component
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report`.
+Expected Result: Every response (not only disputes) is listed with its criterion name; Hide opens a dialog that shows the response text and an empty required reason; Confirm is off until the reason is non-empty; confirming calls the hide once; a refusal keeps the dialog open with the typed reason and shows the sentence; focus returns to the Hide button on cancel; the counter reads "0 of 500", 501 characters cannot be typed and the Amend and Withdraw dialogs show no counter; a hidden response shows "Hidden by facilitator", the reason, who and when and never its text; Hide is off with the cannot-write sentence when the facilitator cannot write; no responses renders nothing.
+Actual Result: As expected (`responses-hide.test.tsx`, `lists.test.tsx`, `ReportPanel.test.tsx`). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6. jsdom only: no real browser was driven (focus return and the dialog's keyboard behaviour in a real browser are not separately checked; there is no Playwright spec for the hide).
+
+TC-0343: End to end: a hidden response reaches no page or export, and the caps hold
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0393, AC-0394, AC-0395
+Type: E2E
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/hide-response.e2e.test.ts`.
+Expected Result: With a real review folder, a real report-link store and the real participant-write, report and moderation services: a participant posts a canary through the link; before the hide the participant's page and participant export contain it; after `hide` neither does; after an amend and a second release the participant page, the participant export and the facilitator export (through the control export, read from the frozen snapshot) contain none; the control (same flow, no hide) does put the canary in the facilitator export; the log still holds the `response.added` text and exactly one `response.hidden` with `by` (`priya-console`) and `reason`; a second hide and a hide of a missing response are `409 refused` and write nothing; 25 responses through one link, one hidden, the 26th through that link is `409 link_full`; a reissued link takes 25 more (50 in all), one more hidden, and a response through a fresh third link is `409 too_many`.
+Actual Result: As expected (`hide-response.e2e.test.ts`, 3 tests). Not vacuous: dropping the `viewReport` filter, filtering only the live list, and counting only visible responses toward the per-role cap each fail the e2e (TC-0344). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6. In-process (real files and services, no forked processes and no HTTP between control and the web app).
+
+TC-0344: Mutation checks: each makes a named test fail
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0393, AC-0394, AC-0395
+Type: Mutation
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Apply one mutation at a time (below), run the runtime suites `src/review src/moderation src/participant` (and, for M1, M2 and M8, the control e2e), then revert.
+  2. Check `git diff` is clean afterwards.
+Expected Result: Every mutation makes at least one named test fail.
+Actual Result: As expected (2026-11-17, macOS arm64; each mutation reverted, the tree clean afterwards, none committed). Mutation table: (M1) drop the `.filter((x) => x.hidden === null)` in `viewReport` (`review/view.ts`): 6 runtime failures, view-hide "the released audience carries no canary in the JSON or the Markdown, and still shows a visible response", "the facilitator audience (CLI show, console read) carries no canary either", "hiding the only response leaves no responses key and still renders", "the facilitator export (report, Markdown, written JSON and files) and CLI show carry no canary", "the participant audience of v2 and its export carry no canary", and cli-hide "hides a response: exit 0, prints the number, and show carries no canary"; the control e2e "a hidden response reaches no participant page and no export..." fails too. (M2) filter only `liveResponses` and leave the facilitator branch `sv.responses` unfiltered (`review/view.ts`): 3 failures, view-hide "the facilitator audience (CLI show, console read) carries no canary either", view-hide "the facilitator export (report, Markdown, written JSON and files) and CLI show carry no canary" (the facilitator-export-after-amend case) and cli-hide "hides a response..."; the control e2e fails too. (M3) set `hidden: null` on every response in `frozenView` (`review/view.ts`): 1 failure, the same view-hide facilitator-export-after-amend test. (M4) remove `response.hidden` from the supersede remap (`review/store.ts`): 2 failures, supersede-hide "a hidden response arrives hidden, pointed at the response's new seq, with the same reason and by" and "a hide whose response is not carried ... is dropped with it, leaving no dangling response.hidden". (M5) drop `r.hidden === null` from the BUG-0029 dedupe (`participant/write.ts`): 1 failure, write-hide "the identical text is written again, not swallowed as a resend of the hidden one". (M6) remove the fold's refusal of `dispute.resolved` on a hidden response (`review/fold.ts`): 1 failure, fold-hide "refuses to resolve a hidden dispute, naming that it is hidden"; (M6b) remove the write layer's refusal in `resolveDispute` (`moderation/write-b.ts`): 2 failures, hide.test "is a ReviewRefusedError (not an illegal-fold error) and writes nothing" and cli-hide "resolve on a hidden dispute exits 1 with the hidden message". (M7) send `text` for a hidden response in the console DTO (`moderation/read.ts`): 1 failure, read-hide "the DTO gives a hidden response {reason, by, at} and no text; a visible one has no hidden key". (M8) count only visible responses toward the per-role cap of 50 (`participant/write.ts`): the control e2e caps test "hiding never refunds either cap" fails. The runtime runs were `pnpm --filter @acr/runtime exec vitest run src/review src/moderation src/participant` (47 files, 699 tests; 1 to 6 failed per mutation).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6. Seven mutations were listed in the brief; M6 was run at both the fold and the write layer, and M8 (the per-role cap) was added because the e2e is the only test that proves hiding refunds neither cap through the real services.
+
+TC-0345: The documents are filed and consistent
+Related Story: US-0069
+Related Task: TASK-0146
+Related AC: AC-0392, AC-0393, AC-0394, AC-0395
+Type: Review
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Read `docs/THREAT_MODEL.md` ("Participant ratings and responses"), `docs/ROLLBACK.md` ("US-0069"), `docs/EVALUATOR.md` (the `hide` entry), `CHANGELOG.md` `[Unreleased]`, `docs/ID_REGISTRY.md`, `docs/RELEASE_PLAN.md` (US-0069, TASK-0144 to TASK-0146), `progress.md` and `MEMORY.md`.
+  2. Run `npm run plan:generate`.
+Expected Result: The threat model says what a hide does (out of every export, page and report; the reason and the name stay for the facilitator) and does not do (the text stays in the log; the participant is not told; a forwarded link can post again and be hidden again, bounded by the per-link cap; the "used N of 50" counter counts visible responses only; a carried hide's time after a re-run is the re-run time); the rollback says a runtime older than this change refuses a log that holds `response.hidden` (roll back before the first hide or restore the log from before it) and that web, control and runtime roll back together; the registry's Next row is one above each last assigned id.
+Actual Result: As expected (read through and generated 2026-11-17).
+Status: [x] Pass
+Defect Raised: None
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.

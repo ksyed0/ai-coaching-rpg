@@ -724,3 +724,30 @@ Rollback trigger: a mute that does not stop a seat being recorded, a mute that c
 ### Rolling forward again
 
 Redeploy web, then runtime. Nothing to migrate. A resumed session rebuilds every facilitator mute from its log, so **check each seat after the roll forward**: a mute that the facilitator thought a rollback had dropped applies again if its line is still the last command for the seat.
+
+## US-0069: hide a participant response (EPIC-0002)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0069-hide-response)
+Date: not deployed
+Rollback trigger: a hidden response that still shows on a page or in an export, a hide that cannot be made or that refunds a response cap, a console that fails to open a report after a hide, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No setting and no migration.** One new event shape in `review.jsonl`: `response.hidden` (`response`, `reason`, and the facilitator's name and time in the usual envelope). It is written only when a facilitator hides a response. The review schema stays `acr.review/2` and `LOG_FORMAT` is unchanged. The session log and the report access store are untouched. Control gets one new route (`POST /sessions/:id/report/hide`) and the web app one new console route; the console's response objects change shape (a hidden one has `hidden` and no `text`).
+
+### Deploy order
+
+Deploy **runtime, control and web together** (the runtime package is what control and the `pnpm moderate` command both load, so one build covers it). Nothing breaks if a hide is never made.
+
+### Rolling back
+
+- **A runtime older than this change refuses a review log that contains `response.hidden`.** Its fold has no case for the event and treats the log as damaged: `pnpm moderate` commands on that review exit 2, and control's report reads for it answer unavailable (the participant's page shows the "report unavailable" sentence and the console cannot open the review). Nothing is corrupted, and the log is not rewritten by the failed read. **Roll back only before the first hide has been made, or restore the review folder's `review.jsonl` from a copy made before the first hide** (a restore loses every moderation and participant event written after that copy, so copy the live log aside first). Without a copy, roll forward instead.
+- **An older web service refuses a console response without `text`.** `launcher-client.ts` requires `text` on every response, so the console view of a subject that has a hidden response (no `text`) fails to load on the older web build. Roll the web app, control and runtime back together, never the web app alone while a hidden response exists.
+- **An older control or older web with this change's other half:** a new web app calling an older control reaches no hide route there, so the hide fails (nothing is written); an older web app with a newer control cannot hide (it has no button) and fails on a subject that has a hidden response, as above.
+- **No data step is needed** when no hide was made. Hides already made are lost to view if the log is restored from before them: the hidden text would show again on a runtime that can read the restored log, so re-hide what must stay hidden after the restore.
+
+### Rolling forward again
+
+Redeploy runtime, control and web together. Nothing to migrate. A hide in the log applies again as soon as a new runtime reads it, so check the report for each subject you had hidden something from.
