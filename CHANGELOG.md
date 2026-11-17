@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Security
+- CI audits no longer fail on picomatch <=4.0.7 ReDoS (GHSA-fc5q-39xc-vjpf, high): no patched release exists. It is ignored for `pnpm audit` (`pnpm.auditConfig.ignoreGhsas` in `package.json`) and for `npm audit` through `tools/npm-audit-gate.js`, which reads `.audit-ignore`. Remove both entries once picomatch publishes a fix. The moderate `glob` and `minimatch` advisories stay open (the fixes need major jest-tree bumps).
+
 ### Added
 - An open facilitator console stream now closes when the control service has been unreachable for 3 minutes, instead of staying open indefinitely (EPIC-0002, US-0083); the console reconnects by itself. Set `CONSOLE_STREAM_OUTAGE_MS` (30000 to 900000 ms, default 180000) to change the window.
 - The console shows each player's join link beside their code (EPIC-0002, US-0083, AC-0518): after Create, after a reissue and in the session list, with a Copy link button. The link holds no code.
