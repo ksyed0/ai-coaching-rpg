@@ -27,7 +27,7 @@ export type ResolveDisputePanelProps = {
 };
 
 export function ResolveDisputePanel({ responses, versions, canWrite, pending, criterionName, onResolve }: ResolveDisputePanelProps) {
-  const open = responses.filter((r) => r.dispute && r.resolution === undefined);
+  const open = responses.filter((r) => r.dispute && r.resolution === undefined && r.hidden === undefined);
   if (open.length === 0) return null;
   return (
     <div className="stack report-disputes">

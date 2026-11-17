@@ -21,6 +21,8 @@ export type ReasonDialogProps = {
   error: string;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
+  /** When set: the textarea's limit and a live "n of max" counter (the hide dialog). Amend and withdraw leave it out. */
+  maxLength?: number;
 };
 
 export function ReasonDialog(p: ReasonDialogProps) {
@@ -52,7 +54,12 @@ export function ReasonDialog(p: ReasonDialogProps) {
       </div>
       <div className="field">
         <label htmlFor={`${id}-reason`}>{p.reasonLabel}</label>
-        <textarea id={`${id}-reason`} className="t" rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} />
+        <textarea id={`${id}-reason`} className="t" rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} {...(p.maxLength === undefined ? {} : { maxLength: p.maxLength })} />
+        {p.maxLength === undefined ? null : (
+          <p className="small muted" aria-live="polite">
+            {REPORT_CONSOLE.reasonCount([...reason].length, p.maxLength)}
+          </p>
+        )}
       </div>
       <p className="err" aria-live="polite">
         {p.error}
