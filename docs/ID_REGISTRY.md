@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
 | US           | US-0092               | US-0091           |
-| TASK         | TASK-0144             | TASK-0143         |
+| TASK         | TASK-0147             | TASK-0146         |
 | AC           | AC-0560               | AC-0559           |
-| TC           | TC-0336               | TC-0335           |
+| TC           | TC-0346               | TC-0345           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0044                | L-0043            |
 
@@ -125,3 +125,5 @@ Assigned 2026-11-16 (voice slice A2b-2, the facilitator audio review and delete 
 Assigned 2026-11-16 (voice slice A3a, the facilitator mute of a participant's microphone, same branch feature/EPIC-0003-US-0090-voice-audio-panel): US-0091 (EPIC-0003); TASK-0143 (one task for the whole slice; the plan's Tasks 1 to 8 are its commits); AC-0550..AC-0559 (one per concern: AC-0550 the command and the reducer state, AC-0551 the host ordering, AC-0552 the union and the seat's lifetime, AC-0553 players, roster and bots, AC-0554 the web command and stream, AC-0555 the console button, AC-0556 the participant notices, AC-0557 end to end, AC-0558 the mutation checks, AC-0559 documented); TC-0322..TC-0332 (TC-0322..TC-0331 one per AC in order, TC-0332 the owner-run real-room mute with a real browser, Not Run). The next US is US-0092, the next TASK is TASK-0144, the next AC is AC-0560, the next TC is TC-0333, the next BUG is BUG-0035, the next L is L-0044. Nothing else changed: keep the maximum of every row and every reserved block when branches merge.
 
 Assigned 2026-11-16 (filing the client-demo stories on develop, docs/file-us-0080-82-and-clamp-decision): US-0080, US-0081 and US-0082 (EPIC-0002), TASK-0120..TASK-0122 and AC-0460..AC-0499 are now filed in `docs/RELEASE_PLAN.md`, with the ids the branch `feature/EPIC-0002-demo-feedback-fixes` gave them in `docs/superpowers/notes/US-0080-notes.md`, `US-0081-notes.md` and `US-0082-notes.md` (their code reached develop in PR #140 and PR #142). Their test cases are filed in `docs/TEST_CASES.md` as TC-0243..TC-0269 (the notes' ids, all free on develop) and TC-0333..TC-0335: the notes' TC-0240, TC-0241 and TC-0242 (US-0080) collide with develop's US-0075 cases of the same ids, so they were renumbered to TC-0333, TC-0334 and TC-0335 in that order. US-0076..US-0079, TASK-0112..TASK-0119 and TASK-0123..TASK-0129 stay unfiled and are not reassigned. The next US is US-0092, the next TASK is TASK-0144, the next AC is AC-0560, the next TC is TC-0336, the next BUG is BUG-0035, the next L is L-0044.
+
+Reserved blocks (2026-11-17, hide response): TASK-0144..TASK-0146 and TC-0336..TC-0345 (US-0069, hiding a participant response; the story and its AC-0392..AC-0395 were reserved on 2026-11-07). Ids in a block that its story does not use stay unused. The Next and Last rows above point past this block.

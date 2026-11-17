@@ -113,6 +113,7 @@ export type Body =
       outcome: Outcome;
       reason: string;
     }
+  | { type: "response.hidden"; response: number; reason: string }
   | { type: "review.superseded"; by: string };
 
 /** Moderation of one subject, carried by supersede when that subject's draft is byte-identical. */
@@ -129,6 +130,7 @@ export const CARRIED_PARTICIPANT: ReadonlySet<string> = new Set([
   "self.rated",
   "response.added",
   "dispute.resolved",
+  "response.hidden",
 ]);
 
 /** A body plus who did it, before the log assigns seq, ts and prev. `carriedFrom` marks moderation copied from a superseded review. */

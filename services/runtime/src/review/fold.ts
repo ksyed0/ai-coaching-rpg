@@ -76,6 +76,8 @@ export type ResponseView = {
     reason: string;
     by: string;
   } | null;
+  /** The facilitator hid the response from the player's own view (it stays here); null when shown. `ts` is the event's. */
+  hidden: { seq: number; ts: number; reason: string; by: string } | null;
 };
 export type GroupTable = {
   objectives: {
@@ -765,6 +767,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           version: ver,
           carried,
           resolution: null,
+          hidden: null,
         });
         break;
       }
@@ -775,6 +778,8 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           .find((x) => x.r.seq === e.response);
         if (!found) return ill(e, "no such response");
         if (!found.r.dispute) ill(e, "that response is not a dispute");
+        if (found.r.hidden)
+          ill(e, "that response is hidden, so its dispute cannot be resolved");
         if (found.r.resolution) ill(e, "that dispute is already resolved");
         if (
           e.outcome !== "upheld" &&
@@ -796,6 +801,21 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         found.r.resolution = {
           seq: e.seq,
           outcome: e.outcome,
+          reason: reason(e, e.reason),
+          by,
+        };
+        break;
+      }
+      case "response.hidden": {
+        const by = facilitator(e);
+        const found = [...subjects.values()]
+          .flatMap((sv) => sv.responses)
+          .find((r) => r.seq === e.response);
+        if (!found) return ill(e, "no such response");
+        if (found.hidden) ill(e, "that response is already hidden");
+        found.hidden = {
+          seq: e.seq,
+          ts: e.ts,
           reason: reason(e, e.reason),
           by,
         };
