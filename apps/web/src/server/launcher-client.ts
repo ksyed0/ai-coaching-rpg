@@ -394,7 +394,8 @@ export type SubjectView = {
   summary: { strengths: string[]; developments: string[]; actions: { lo: string; text: string }[] };
   objectives: { id: string; label: string }[];
   comments: { visibility: "internal" | "feedback"; text: string; criterion?: string }[];
-  responses: { seq: number; role: string; text: string; criterion?: string; dispute: boolean; resolution?: { outcome: string; reason: string } }[];
+  /** A hidden response has `hidden` and no `text`; a visible one has `text` and no `hidden`. */
+  responses: { seq: number; role: string; text?: string; hidden?: { reason: string; by: string; at: number }; criterion?: string; dispute: boolean; resolution?: { outcome: string; reason: string } }[];
   versions: number[];
 };
 export type ReportEditInput = { criterion: string; level: CriterionLevel; reason: string; rationale?: string; expect: "1" | "2" | "3" | "4" | "na" | "invalid"; by: string };
@@ -492,11 +493,15 @@ function toSubjectView(v: unknown): SubjectView {
         ? { visibility: c.visibility as "internal" | "feedback", text: c.text, ...(c.criterion !== undefined && { criterion: c.criterion }) }
         : bad()),
     responses: list(v.responses, (r) => {
-      if (!isObject(r) || !isCount(r.seq) || !isStr(r.role) || !isStr(r.text) || typeof r.dispute !== "boolean" || !(r.criterion === undefined || isStr(r.criterion))) return bad();
+      if (!isObject(r) || !isCount(r.seq) || !isStr(r.role) || typeof r.dispute !== "boolean" || !(r.criterion === undefined || isStr(r.criterion))) return bad();
+      // US-0069: a hidden response carries its marker and never its text; a visible one carries its text.
+      if (r.hidden !== undefined ? r.text !== undefined || !(isObject(r.hidden) && isStr(r.hidden.reason) && isStr(r.hidden.by) && isTime(r.hidden.at)) : !isStr(r.text)) return bad();
+      const hid = r.hidden as { reason: string; by: string; at: number } | undefined;
       if (r.resolution !== undefined && !(isObject(r.resolution) && isStr(r.resolution.outcome) && isStr(r.resolution.reason))) return bad();
       const res = r.resolution as { outcome: string; reason: string } | undefined;
       return {
-        seq: r.seq, role: r.role, text: r.text, dispute: r.dispute,
+        seq: r.seq, role: r.role, dispute: r.dispute,
+        ...(hid !== undefined ? { hidden: { reason: hid.reason, by: hid.by, at: hid.at } } : { text: r.text as string }),
         ...(r.criterion !== undefined && { criterion: r.criterion }),
         ...(res !== undefined && { resolution: { outcome: res.outcome, reason: res.reason } }),
       };
@@ -1011,6 +1016,9 @@ export class LauncherClient {
   }
   async reportResolve(id: string, b: { seq: number; outcome: "upheld" | "amended" | "declined"; reason: string; by: string }): Promise<void> {
     await this.reportWrite(id, "/resolve", { seq: b.seq, outcome: b.outcome, reason: b.reason, by: b.by });
+  }
+  async reportHide(id: string, b: { seq: number; reason: string; by: string }): Promise<void> {
+    await this.reportWrite(id, "/hide", { seq: b.seq, reason: b.reason, by: b.by });
   }
   /** The audience's Markdown for one subject; the file name is kept as control said it (the BFF checks it before it names a download). */
   async reportExport(id: string, b: { subject: string; audience: string; by: string }): Promise<{ fileName: string; markdown: string }> {

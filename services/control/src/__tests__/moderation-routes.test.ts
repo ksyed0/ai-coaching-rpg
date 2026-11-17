@@ -323,12 +323,13 @@ describe("report routes, part B (release, resolve, export, amend, withdraw)", ()
   const BY = { by: "priya" };
   const withB = (): Fakes => {
     const f = fakes();
-    for (const m of ["release", "resolve", "export", "amend", "withdraw"]) f.moderation[m] = vi.fn(async () => ({ status: 200, value: { fine: true } }));
+    for (const m of ["release", "resolve", "hide", "export", "amend", "withdraw"]) f.moderation[m] = vi.fn(async () => ({ status: 200, value: { fine: true } }));
     return f;
   };
   const PART_B: { name: string; path: string; body: unknown; fn: string }[] = [
     { name: "release", path: R("/release"), body: { subjects: ["alice", "group"], ...BY }, fn: "release" },
     { name: "resolve", path: R("/resolve"), body: { seq: 4, outcome: "declined", reason: "Stands.", ...BY }, fn: "resolve" },
+    { name: "hide", path: R("/hide"), body: { seq: 4, reason: "Has a phone number.", ...BY }, fn: "hide" },
     { name: "export", path: R("/export"), body: { subject: "alice", audience: "participant:alice", ...BY }, fn: "export" },
     { name: "amend", path: R("/subjects/alice/amend"), body: { reason: "Fix.", ...BY }, fn: "amend" },
     { name: "withdraw", path: R("/subjects/alice/withdraw"), body: { reason: "Gone.", ...BY }, fn: "withdraw" },
@@ -343,6 +344,7 @@ describe("report routes, part B (release, resolve, export, amend, withdraw)", ()
     }
     expect(f.moderation.release).toHaveBeenCalledWith(ID, { subjects: ["alice", "group"] }, "priya");
     expect(f.moderation.resolve).toHaveBeenCalledWith(ID, { seq: 4, outcome: "declined", reason: "Stands." }, "priya");
+    expect(f.moderation.hide).toHaveBeenCalledWith(ID, { seq: 4, reason: "Has a phone number." }, "priya");
     expect(f.moderation.export).toHaveBeenCalledWith(ID, { subject: "alice", audience: "participant:alice" }, "priya");
     expect(f.moderation.amend).toHaveBeenCalledWith(ID, "alice", { reason: "Fix." }, "priya");
     expect(f.moderation.withdraw).toHaveBeenCalledWith(ID, "alice", { reason: "Gone." }, "priya");
@@ -363,12 +365,14 @@ describe("report routes, part B (release, resolve, export, amend, withdraw)", ()
     const bad: [string, unknown][] = [
       [R("/resolve"), { seq: 0, outcome: "upheld", reason: "r", ...BY }], [R("/resolve"), { seq: 1.5, outcome: "upheld", reason: "r", ...BY }],
       [R("/resolve"), { seq: 1, outcome: "maybe", reason: "r", ...BY }], [R("/resolve"), { seq: 1, outcome: "upheld", ...BY }],
+      [R("/hide"), { seq: 0, reason: "r", ...BY }], [R("/hide"), { seq: 1.5, reason: "r", ...BY }], [R("/hide"), { seq: 1_000_000_000, reason: "r", ...BY }],
+      [R("/hide"), { seq: 1, ...BY }], [R("/hide"), { seq: 1, reason: "r", outcome: "upheld", ...BY }], [R("/hide"), { seq: 1, reason: "r" }],
       [R("/export"), { subject: "alice", audience: "hr", ...BY }], [R("/export"), { subject: "../x", audience: "facilitator", ...BY }],
       [R("/export"), { subject: "alice", audience: "facilitator", download: true, ...BY }],
       [R("/subjects/alice/amend"), { ...BY }], [R("/subjects/alice/withdraw"), { reason: "r", extra: 1, ...BY }],
     ];
     for (const [p, body] of bad) expect([p, (await call(port, "POST", p, { body })).status]).toEqual([p, 400]);
-    for (const fn of ["resolve", "export", "amend", "withdraw"]) expect(f.moderation[fn]).not.toHaveBeenCalled();
+    for (const fn of ["resolve", "hide", "export", "amend", "withdraw"]) expect(f.moderation[fn]).not.toHaveBeenCalled();
   });
 
   it("ids are checked and the session looked up before the body is read; wrong methods and unknown paths are 404", async () => {

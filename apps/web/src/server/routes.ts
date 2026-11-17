@@ -9,7 +9,7 @@ import { handleAdminAccountAction, handleAdminAccountCreate, handleAdminAccounts
 import {
   handleConsoleReportAccept, handleConsoleReportCancel, handleConsoleReportComment, handleConsoleReportEdit, handleConsoleReportEditSummary,
   handleConsoleReportEvaluate, handleConsoleReportOpen, handleConsoleReportOverview, handleConsoleReportSubject,
-  handleConsoleReportAmend, handleConsoleReportExport, handleConsoleReportRelease, handleConsoleReportResolve, handleConsoleReportWithdraw,
+  handleConsoleReportAmend, handleConsoleReportExport, handleConsoleReportHide, handleConsoleReportRelease, handleConsoleReportResolve, handleConsoleReportWithdraw,
 } from "./console-report-handlers";
 import { handleConsoleAudioDelete, handleConsoleAudioList, handleConsoleAudioPlay } from "./console-audio-handlers";
 import { handleConsoleCommand, handleConsoleFacts } from "./console-command";
@@ -247,6 +247,7 @@ export const consoleReportCommentPOST = route(handleConsoleReportComment);
 export const consoleReportEditSummaryPOST = route(handleConsoleReportEditSummary);
 export const consoleReportReleasePOST = route(handleConsoleReportRelease);
 export const consoleReportResolvePOST = route(handleConsoleReportResolve);
+export const consoleReportHidePOST = route(handleConsoleReportHide);
 export const consoleReportExportPOST = route(handleConsoleReportExport);
 export const consoleReportAmendPOST = route(handleConsoleReportAmend);
 export const consoleReportWithdrawPOST = route(handleConsoleReportWithdraw);

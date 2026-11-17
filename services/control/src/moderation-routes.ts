@@ -46,6 +46,7 @@ const ReasonBody = z.strictObject({ reason: z.string(), by: By });
 const ResolveBody = z.strictObject({
   seq: z.number().int().min(1).max(999_999_999), outcome: z.enum(["upheld", "amended", "declined"]), reason: z.string(), by: By,
 });
+const HideBody = z.strictObject({ seq: z.number().int().min(1).max(999_999_999), reason: z.string(), by: By });
 const ExportBody = z.strictObject({
   subject: CriterionId,
   audience: z.union([z.literal("facilitator"), z.string().refine((a) => a.startsWith("participant:") && isSafeId(a.slice("participant:".length))).transform((a) => a as `participant:${string}`)]),
@@ -127,7 +128,7 @@ async function route(seg: string[], method: string, req: IncomingMessage, res: S
     respond(res, await moderation.open(id, b.by));
     return true;
   }
-  if (n === 4 && method === "POST" && (seg[3] === "release" || seg[3] === "resolve" || seg[3] === "export")) {
+  if (n === 4 && method === "POST" && (seg[3] === "release" || seg[3] === "resolve" || seg[3] === "hide" || seg[3] === "export")) {
     if (!moderation) return false;
     exists();
     if (seg[3] === "release") {
@@ -136,6 +137,9 @@ async function route(seg: string[], method: string, req: IncomingMessage, res: S
     } else if (seg[3] === "resolve") {
       const b = parse(ResolveBody, await jsonBody(req, MAX_TEXT_BODY_BYTES));
       respond(res, await moderation.resolve(id, { seq: b.seq, outcome: b.outcome, reason: b.reason }, b.by));
+    } else if (seg[3] === "hide") {
+      const b = parse(HideBody, await jsonBody(req, MAX_TEXT_BODY_BYTES));
+      respond(res, await moderation.hide(id, { seq: b.seq, reason: b.reason }, b.by));
     } else {
       const b = parse(ExportBody, await jsonBody(req));
       respond(res, await moderation.export(id, { subject: b.subject, audience: b.audience }, b.by));
