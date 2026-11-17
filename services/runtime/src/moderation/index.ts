@@ -15,6 +15,7 @@ export {
 export {
   amendSubject,
   exportReport,
+  hideResponse,
   releaseSubjects,
   resolveDispute,
   withdrawSubject,

@@ -201,6 +201,10 @@ export async function resolveDispute(
       throw new ReviewRefusedError(
         "there is no response with that number; run status for the open disputes",
       );
+    if (found.r.hidden)
+      throw new ReviewRefusedError(
+        "that response is hidden, so there is nothing to resolve",
+      );
     if (!found.r.dispute)
       throw new ReviewRefusedError(
         "that response is not a dispute, so there is nothing to resolve",
@@ -218,6 +222,29 @@ export async function resolveDispute(
         body: { type: "dispute.resolved", response: seq, outcome, reason },
       },
     ];
+  });
+}
+
+/** Hides a participant's response from every report and page (the text stays in the log). A reason is required. */
+export async function hideResponse(
+  o: Base & { seq: number; reason: string },
+): Promise<void> {
+  const { seq } = o;
+  if (!Number.isInteger(seq) || seq < 1 || seq > 999_999_999)
+    throw new ReviewUsageError("hide needs the response number shown by status");
+  const actor = actorOf(o);
+  const reason = reasonOf(o);
+  await applyCommand(o.dir, o.now, (l) => {
+    const found = [...l.view.subjects.values()]
+      .flatMap((sv) => sv.responses)
+      .find((r) => r.seq === seq);
+    if (!found)
+      throw new ReviewRefusedError(
+        "there is no response with that number; run status for the responses",
+      );
+    if (found.hidden)
+      throw new ReviewRefusedError("that response is already hidden");
+    return [{ actor, body: { type: "response.hidden", response: seq, reason } }];
   });
 }
 
