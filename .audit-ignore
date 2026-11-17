@@ -1,4 +1,5 @@
 # Advisories ignored by CI audit jobs (npm gate and pnpm auditConfig). Remove when fixed.
 # picomatch <=4.0.7 ReDoS (single-branch repeated extglobs). No patched release exists
 # (4.0.7 is latest, advisory has no first_patched_version). Re-check weekly.
+# Added 2026-11-17. Remove when a patched picomatch ships (also remove pnpm.auditConfig in package.json).
 GHSA-fc5q-39xc-vjpf
