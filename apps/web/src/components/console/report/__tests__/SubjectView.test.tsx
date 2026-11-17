@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { fakeFetch, ok, refused } from "../../../../lib/__tests__/fakes";
 import { SubjectView } from "../SubjectView";
@@ -189,5 +189,21 @@ describe("SubjectView summary editor", () => {
     mount(subjectView({ state: "released" }));
     expect(await screen.findByRole("heading", { name: "Clarity" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit the summary" })).toBeNull();
+  });
+});
+
+describe("SubjectView hide a response", () => {
+  it("confirming the hide dialog posts { seq, reason, by } to the hide route and then reads the subject again", async () => {
+    const f = mount(subjectView({ responses: [{ seq: 12, role: "account_manager", text: "We start Monday.", dispute: false }] }));
+    fireEvent.click(await screen.findByRole("button", { name: "Hide response 12" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "Names a colleague." } });
+    const reads = () => f.calls.filter((c) => c.init.method === "GET").length;
+    const before = reads();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Hide" }));
+    await waitFor(() => expect(reads()).toBe(before + 1));
+    expect(posts(f)).toHaveLength(1);
+    expect(posts(f)[0]).toMatchObject({ url: `${BASE}/hide`, body: { seq: 12, reason: "Names a colleague.", by: "kamal" } });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });

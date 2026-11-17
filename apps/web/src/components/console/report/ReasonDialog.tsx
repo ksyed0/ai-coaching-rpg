@@ -57,7 +57,7 @@ export function ReasonDialog(p: ReasonDialogProps) {
         <textarea id={`${id}-reason`} className="t" rows={3} required value={reason} onChange={(e) => setReason(e.target.value)} {...(p.maxLength === undefined ? {} : { maxLength: p.maxLength })} />
         {p.maxLength === undefined ? null : (
           <p className="small muted" aria-live="polite">
-            {REPORT_CONSOLE.reasonCount([...reason].length, p.maxLength)}
+            {REPORT_CONSOLE.reasonCount(reason.length, p.maxLength)}
           </p>
         )}
       </div>

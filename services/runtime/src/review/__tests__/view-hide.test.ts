@@ -168,5 +168,6 @@ describe("a released snapshot after an amend (frozenView reads sv.responses)", (
     expect(JSON.stringify(exportedReport(t, l))).not.toContain(CANARY);
     expect(exportedMarkdown(t, l, [])).not.toContain(CANARY);
     expect(JSON.stringify(await alice())).not.toContain(CANARY);
+    expect(JSON.stringify(await alice())).toContain("a visible reply");
   });
 });

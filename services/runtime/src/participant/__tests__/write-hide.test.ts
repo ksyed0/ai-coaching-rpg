@@ -72,8 +72,8 @@ describe("submitResponse after a hide", () => {
     env = await liveReview();
     await releaseAlice(env);
     // two links so the per-link cap is not what stops us: 25 + 25 = 50
-    for (let i = 0; i < 25; i++) await say(env, `a${i}`, "AAAAAAAAAAA");
-    for (let i = 0; i < 25; i++) await say(env, `b${i}`, "BBBBBBBBBBA");
+    for (let i = 0; i < 25; i++) expect((await say(env, `a${i}`, "AAAAAAAAAAA")).kind).toBe("ok");
+    for (let i = 0; i < 25; i++) expect((await say(env, `b${i}`, "BBBBBBBBBBA")).kind).toBe("ok");
     await hideLast(env);
     expect(await say(env, "one more", "CCCCCCCCCCA")).toEqual({ kind: "too_many" });
   });

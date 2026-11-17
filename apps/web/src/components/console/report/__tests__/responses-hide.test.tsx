@@ -19,7 +19,7 @@ const responses: ReportResponse[] = [
 const names = (id: string) => (id === "clarity" ? "Clarity" : id);
 const mount = (over: Partial<Parameters<typeof ResponsesPanel>[0]> = {}) => {
   const onHide = vi.fn(async (): Promise<string | null> => null);
-  render(<ResponsesPanel responses={responses} canWrite pending={false} criterionName={names} onHide={onHide} {...over} />);
+  render(<ResponsesPanel responses={responses} canWrite pending={false} criterionName={names} author="kamal" onHide={onHide} {...over} />);
   return onHide;
 };
 
@@ -37,7 +37,7 @@ describe("ResponsesPanel", () => {
   });
 
   it("renders nothing without responses", () => {
-    const { container } = render(<ResponsesPanel responses={[]} canWrite pending={false} criterionName={names} onHide={vi.fn()} />);
+    const { container } = render(<ResponsesPanel responses={[]} canWrite pending={false} criterionName={names} author="kamal" onHide={vi.fn()} />);
     expect(container.innerHTML).toBe("");
   });
 
@@ -112,6 +112,8 @@ describe("ResponsesPanel", () => {
     expect(box.maxLength).toBe(500);
     fireEvent.change(box, { target: { value: "abc" } });
     expect(screen.getByText("3 of 500")).toBeTruthy();
+    fireEvent.change(box, { target: { value: "x".repeat(500) } });
+    expect(screen.getByText("500 of 500")).toBeTruthy();
   });
 });
 

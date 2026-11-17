@@ -14,7 +14,7 @@ export type ResponsesPanelProps = {
   pending: boolean;
   criterionName: (id: string) => string;
   /** The typed name the hide is recorded under (shown in the dialog). */
-  author?: string;
+  author: string;
   /** Resolves to null when saved, else the fixed sentence of the refusal. */
   onHide: (seq: number, reason: string) => Promise<string | null>;
 };
@@ -23,7 +23,7 @@ const when = (ms: number) => new Date(ms).toLocaleString();
 /** `<time>` needs a valid date; an out-of-range value would make toISOString throw. */
 const iso = (ms: number): string | undefined => (Number.isFinite(new Date(ms).getTime()) ? new Date(ms).toISOString() : undefined);
 
-export function ResponsesPanel({ responses, canWrite, pending, criterionName, author = "", onHide }: ResponsesPanelProps) {
+export function ResponsesPanel({ responses, canWrite, pending, criterionName, author, onHide }: ResponsesPanelProps) {
   const [open, setOpen] = useState<{ response: { seq: number; text: string }; opener: HTMLElement } | null>(null);
   const [error, setError] = useState("");
   if (responses.length === 0) return null;
