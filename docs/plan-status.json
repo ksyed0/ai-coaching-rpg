@@ -8459,7 +8459,7 @@
       "id": "TC-0336",
       "title": "The response.hidden event and the fold: who, when, why, and both caps unchanged",
       "relatedStory": "US-0069",
-      "relatedTask": "TASK-0146",
+      "relatedTask": "TASK-0144",
       "relatedAC": "AC-0392, AC-0394, AC-0395",
       "type": "Unit",
       "status": "Pass",
@@ -8469,7 +8469,7 @@
       "id": "TC-0337",
       "title": "Supersede carries a hide to the new review and drops it with an uncarried response",
       "relatedStory": "US-0069",
-      "relatedTask": "TASK-0146",
+      "relatedTask": "TASK-0144",
       "relatedAC": "AC-0392, AC-0394",
       "type": "Unit",
       "status": "Pass",
@@ -8479,7 +8479,7 @@
       "id": "TC-0338",
       "title": "Read paths: no reader of responses shows hidden text (participant page, group report, Markdown, JSON, facilitator export after an amend, console DTO)",
       "relatedStory": "US-0069",
-      "relatedTask": "TASK-0146",
+      "relatedTask": "TASK-0144",
       "relatedAC": "AC-0393",
       "type": "Unit",
       "status": "Pass",
@@ -8489,7 +8489,7 @@
       "id": "TC-0339",
       "title": "A resend after a hide is written again; the caps still count the hidden response",
       "relatedStory": "US-0069",
-      "relatedTask": "TASK-0146",
+      "relatedTask": "TASK-0144",
       "relatedAC": "AC-0395",
       "type": "Unit",
       "status": "Pass",
@@ -8499,7 +8499,7 @@
       "id": "TC-0340",
       "title": "The hide command in the runtime and the CLI: refusals, status lines, resolve on a hidden dispute",
       "relatedStory": "US-0069",
-      "relatedTask": "TASK-0146",
+      "relatedTask": "TASK-0144",
       "relatedAC": "AC-0392, AC-0394",
       "type": "Unit",
       "status": "Pass",
@@ -8509,7 +8509,7 @@
       "id": "TC-0341",
       "title": "Control and the web BFF: the hide route, the service and the console client",
       "relatedStory": "US-0069",
-      "relatedTask": "TASK-0146",
+      "relatedTask": "TASK-0145",
       "relatedAC": "AC-0392, AC-0393",
       "type": "Integration",
       "status": "Pass",
@@ -10771,9 +10771,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-17T16:19:33.225Z",
-  "commitSha": "8e51cbf6",
-  "buildNumber": "581",
+  "generatedAt": "2026-11-17T16:22:03.889Z",
+  "commitSha": "e6a94c5a",
+  "buildNumber": "582",
   "branch": "feature/EPIC-0002-US-0069-hide-response",
   "sessionTimeline": [
     {
@@ -11011,7 +11011,7 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Mar 2",
+    "likelyDate": "Mar 3",
     "rangeStart": "Nov 29",
     "rangeEnd": "Jun 5",
     "velocityWeeks": 7,
@@ -11031,7 +11031,7 @@
       "2026-11-16T18:19:57.554Z",
       "2026-11-16T23:04:57.325Z",
       "2026-11-16T23:35:00.447Z",
-      "2026-11-17T16:19:33.313Z"
+      "2026-11-17T16:22:04.000Z"
     ],
     "doneCounts": [
       0,

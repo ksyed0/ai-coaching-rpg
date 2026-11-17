@@ -844,7 +844,7 @@ The whole-branch review of US-0090 and US-0091 and its fixes; then the PR into `
 
 ### Verification (2026-11-17, macOS arm64, the Task 6 run)
 
-`pnpm --filter <pkg> exec vitest run --coverage` all passed: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010; line coverage 98.47, 98.13 and 98.1 percent. `tsc --noEmit` clean for runtime, control and web. `npm run plan:generate` and `npm run plan:test` were run (see the Task 6 report for the counts). Not run: the forked `*.real.test.ts` variants and a real browser (the console dialog is proven in jsdom only).
+`pnpm --filter <pkg> exec vitest run --coverage` all passed: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010; line coverage 98.47, 98.13 and 98.1 percent. `tsc --noEmit` clean for runtime, control and web. `npm run plan:generate` (9 epics, 87 stories, 330 TCs) and `npm run plan:test` (61 suites, 1247 tests) passed. Not run: the forked `*.real.test.ts` variants and a real browser (the console dialog is proven in jsdom only).
 
 ### Known gaps (deferred follow-ups worth keeping)
 

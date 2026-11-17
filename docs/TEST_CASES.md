@@ -4794,7 +4794,7 @@ Notes: Filed 2026-11-16 (Task 8). Not run by the agents: no real room, real micr
 
 TC-0336: The response.hidden event and the fold: who, when, why, and both caps unchanged
 Related Story: US-0069
-Related Task: TASK-0146
+Related Task: TASK-0144
 Related AC: AC-0392, AC-0394, AC-0395
 Type: Unit
 Preconditions: A checkout with dependencies installed.
@@ -4808,7 +4808,7 @@ Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
 
 TC-0337: Supersede carries a hide to the new review and drops it with an uncarried response
 Related Story: US-0069
-Related Task: TASK-0146
+Related Task: TASK-0144
 Related AC: AC-0392, AC-0394
 Type: Unit
 Preconditions: A checkout with dependencies installed.
@@ -4822,7 +4822,7 @@ Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
 
 TC-0338: Read paths: no reader of responses shows hidden text (participant page, group report, Markdown, JSON, facilitator export after an amend, console DTO)
 Related Story: US-0069
-Related Task: TASK-0146
+Related Task: TASK-0144
 Related AC: AC-0393
 Type: Unit
 Preconditions: A checkout with dependencies installed.
@@ -4836,7 +4836,7 @@ Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6. The con
 
 TC-0339: A resend after a hide is written again; the caps still count the hidden response
 Related Story: US-0069
-Related Task: TASK-0146
+Related Task: TASK-0144
 Related AC: AC-0395
 Type: Unit
 Preconditions: A checkout with dependencies installed.
@@ -4850,7 +4850,7 @@ Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
 
 TC-0340: The hide command in the runtime and the CLI: refusals, status lines, resolve on a hidden dispute
 Related Story: US-0069
-Related Task: TASK-0146
+Related Task: TASK-0144
 Related AC: AC-0392, AC-0394
 Type: Unit
 Preconditions: A checkout with dependencies installed.
@@ -4864,7 +4864,7 @@ Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6.
 
 TC-0341: Control and the web BFF: the hide route, the service and the console client
 Related Story: US-0069
-Related Task: TASK-0146
+Related Task: TASK-0145
 Related AC: AC-0392, AC-0393
 Type: Integration
 Preconditions: A checkout with dependencies installed.
