@@ -174,7 +174,11 @@ export function viewReport(
           ...(c.self.note !== undefined ? { note: c.self.note } : {}),
         };
     if (Object.keys(self).length) r.self = self;
-    const responses = a.audience === "released" ? liveResponses : sv.responses;
+    // A hidden response (US-0069) is out of every audience's report: the released audience reads the live list, the facilitator
+    // audience (CLI show, console, and the export of a released snapshot through frozenView) reads sv.responses, so BOTH are filtered.
+    const responses = (
+      a.audience === "released" ? liveResponses : sv.responses
+    ).filter((x) => x.hidden === null);
     if (responses.length)
       r.responses = responses.map((x) => ({
         ...(x.criterion !== undefined ? { criterion: x.criterion } : {}),

@@ -34,7 +34,7 @@ function subjectStatus(sv: SubjectView): SubjectStatus {
     scoreByHand: scoreByHand(sv),
     selfRated: sv.criteria.filter((c) => c.self).length,
     openDisputes: sv.responses
-      .filter((r) => r.dispute && !r.resolution)
+      .filter((r) => r.dispute && !r.resolution && !r.hidden)
       .map((r) => ({
         seq: r.seq,
         role: r.role,
@@ -88,7 +88,8 @@ const STATUS = {
 
 /**
  * The facilitator's view of one subject, field by field: only the fields of `SubjectViewDto`, every string through `cleanLine`
- * (hidden and control characters out, secrets and machine paths redacted), as `show` cleans each rendered line. No author names.
+ * (hidden and control characters out, secrets and machine paths redacted), as `show` cleans each rendered line. No author names, except
+ * the one a hide carries: who hid a response is shown to the facilitator beside the reason (and a hidden response has no text).
  */
 export async function subjectView(
   dir: string,
@@ -148,7 +149,17 @@ export async function subjectView(
     responses: sv.responses.map((r) => ({
       seq: r.seq,
       role: t(r.role),
-      text: t(r.text),
+      // a hidden response is shown by its hide only: its text never leaves the review
+      ...(r.hidden === null ? { text: t(r.text) } : {}),
+      ...(r.hidden !== null
+        ? {
+            hidden: {
+              reason: t(r.hidden.reason),
+              by: t(r.hidden.by),
+              at: r.hidden.ts,
+            },
+          }
+        : {}),
       ...(r.criterion !== undefined ? { criterion: t(r.criterion) } : {}),
       dispute: r.dispute,
       ...(r.resolution

@@ -178,7 +178,7 @@ export function statusLines(l: Loaded): string[] {
         `  ${sv.id}: rated ${rated} of ${sv.criteria.length} criteria${links.length ? ` via web link ${links.join(", ")}` : ""}`,
       );
     }
-    for (const r of sv.responses.filter((x) => x.dispute && !x.resolution))
+    for (const r of sv.responses.filter((x) => x.dispute && !x.resolution && !x.hidden))
       out.push(
         `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}${r.via ? ` via web link ${r.via}` : ""}`,
       );

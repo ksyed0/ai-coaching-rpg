@@ -62,10 +62,13 @@ export type SubjectViewDto = {
   responses: {
     seq: number;
     role: string;
-    text: string;
+    /** Absent for a hidden response: its text never leaves the review. */
+    text?: string;
     criterion?: string;
     dispute: boolean;
     resolution?: { outcome: string; reason: string };
+    /** Present only for a hidden response: why, by whom (the one author name the DTO carries) and when (epoch ms). */
+    hidden?: { reason: string; by: string; at: number };
   }[];
   versions: number[];
 };
