@@ -628,7 +628,7 @@ The controller's final independent review; then the PR into `develop`; then the 
 ### Open owner items
 
 1. DECIDED (owner, 2026-11-11): audio recorded before a participant opts out stays until expiry (or the A2b manual delete), matching the notice v3 wording.
-2. PENDING, delegated by the owner to the facilitator (2026-11-11): the future-time clamp: keep (a corrupt future time never expires), fall back to the folder's own mtime, or record a first-seen time. The clamp stays as built until then.
+2. DECIDED (facilitator, delegated by the owner; decided 2026-11-16: keep as built): the future-time clamp stays: a corrupt future audio time counts as now and never expires; no fall-back to the folder's own mtime and no first-seen record.
 3. DECIDED (owner, 2026-11-11): R12, an expired folder is deleted even when its audit line cannot be written.
 4. Run TC-0218 (runbook section 11 item 10) with the room test; decide when A2b is scheduled. Voice must not go live before A2b and the deferred compliance items. Still open from before: A1c's real run (TC-0204), the OpenRouter key rotation, the domain and certificate (US-0048), the uncommitted cost-log rows.
 
@@ -665,7 +665,7 @@ The controller's final whole-branch review, then the PR into `develop` (US-0073 
 
 ### Open owner items
 
-1. PENDING, delegated by the owner to the facilitator (2026-11-11): the future-time clamp (keep, fall back to the folder's own mtime, or record a first-seen time); the clamp stays as built.
+1. DECIDED (decided 2026-11-16: keep as built): the future-time clamp stays; a corrupt future audio time counts as now and never expires (no mtime fall-back, no first-seen record).
 2. TO CONFIRM (owner, in the PR): the `by` reading, `<name>-console` with the name at most 56 characters and the whole header at most 64 (the spec text said "at most 56 characters").
 3. DECIDED (owner, 2026-11-12): replay is whole-file with no Range (deviation from parent spec section 8).
 4. Run TC-0218 and TC-0232 with the room test (runbook section 11 item 10); still open from before: A1c's real run (TC-0204), the OpenRouter key rotation, the domain and certificate (US-0048), the uncommitted cost-log rows. Voice must not go live before delete (A2b-1b), the console panel (A2b-2) and the deferred compliance items.
@@ -821,3 +821,13 @@ The whole-branch review of US-0090 and its fixes; then the PR into `develop` (th
 ### Next
 
 The whole-branch review of US-0090 and US-0091 and its fixes; then the PR into `develop` (both stories stay In Progress until the review has passed; nothing is pushed or merged); then A3b (live partial transcripts for the facilitator), brainstorm and plan first with the capacity decision the 4-to-8 talker room test should inform.
+
+## Session 51 — 2026-11-16 (docs: file US-0080 to US-0082 on develop; the future-time clamp decided)
+
+- **Branch:** `docs/file-us-0080-82-and-clamp-decision` (from `origin/develop`; docs only, not pushed, no PR yet).
+- **Filed:** US-0080, US-0081 and US-0082 (EPIC-0002, Complete: their code reached develop inside the squash merges of PR #140 and PR #142), TASK-0120 to TASK-0122 (Done) and AC-0460 to AC-0499 (ticked as the notes in `docs/superpowers/notes/US-0080-notes.md`, `US-0081-notes.md` and `US-0082-notes.md` record them) in `docs/RELEASE_PLAN.md`, before US-0083. US-0083's status is unchanged. Test cases in `docs/TEST_CASES.md`: TC-0243 to TC-0269 with the notes' ids, and the notes' TC-0240 to TC-0242 (US-0080) as TC-0333 to TC-0335, because develop's TC-0240 to TC-0242 are US-0075. All 30 are Not Run: the notes name the automated tests (all present on develop) but record no result per case. `docs/ID_REGISTRY.md`: TC Next TC-0336, Last TC-0335; the "not filed" reconciliation text updated.
+- **Documents:** `docs/ARCHITECTURE.md` gained "Facilitator accounts (US-0083)", written against develop's code (login fold `trim().toLowerCase()` in control and in the web per-login throttle key, the heartbeat re-check of the account and the session's owner, `CONSOLE_STREAM_OUTAGE_MS`, the admin routes and the account store); the BFF console row and the `FACILITATOR_SECRET` sentence were updated. `docs/demo/CLIENT_DEMO.md` step 3 now says the console shows each role's join link beside its code, with a matching note and troubleshooting row.
+- **Decision (facilitator, delegated by the owner; decided 2026-11-16: keep as built):** the voice audio future-time clamp stays: a corrupt future audio time counts as now and never expires; no fall-back to the folder's own mtime and no first-seen record. Recorded in the A2a and A2b-1a open-item lists above, `docs/THREAT_MODEL.md`, `docs/VOICE_RUNBOOK.md`, `docs/memory/backlog-and-decisions.md`, `docs/memory/architecture-and-security.md` and `MEMORY.md`.
+- **Verification:** `npm run plan:generate` (9 epics, 87 stories, 320 TCs, 34 bugs, 43 lessons) and `npm run plan:test:coverage` (61 suites, 1247 tests pass). No code changed, so the pnpm workspace suites were not run. No CHANGELOG entry (nothing user-visible changed).
+- **Next:** the controller opens the PR into `develop`.
+

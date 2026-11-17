@@ -3394,6 +3394,249 @@
       ]
     },
     {
+      "id": "US-0080",
+      "epicId": "EPIC-0002",
+      "title": "As a player, I want to see each scene's objective and end rule and be told when a scene ends, so that I know what the scene is for and what comes next.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Complete",
+      "branch": "feature/EPIC-0002-demo-feedback-fixes",
+      "acs": [
+        {
+          "id": "AC-0460",
+          "text": "a scene in `script.yaml` may carry an optional `ends_when`: one plain-language line, trimmed, 1 to 200 characters, no control characters; a scene without it loads with no such key",
+          "done": true
+        },
+        {
+          "id": "AC-0461",
+          "text": "a scenario that does not use `ends_when` keeps the same canonical scenario hash, so a session in progress against it still resumes (pinned pre-change hashes)",
+          "done": true
+        },
+        {
+          "id": "AC-0462",
+          "text": "the rule text a player sees is resolved on the server: the scene's `ends_when`, else its first `gm_detects` condition that passes the same rule, else none",
+          "done": true
+        },
+        {
+          "id": "AC-0463",
+          "text": "a player's `joined.scenes` entries carry an OPTIONAL `endsWhen`, built field by field and only for the player's own scenes; the browser picks scene fields one by one and drops a non-string or over-200-character value; the console carries it too",
+          "done": true
+        },
+        {
+          "id": "AC-0464",
+          "text": "the scene card shows \"Objective: <goal>\" prominently and \"Ends when: <rule>, at N min, or when your facilitator moves on\" (without the rule when there is none); the console's live view uses the same card",
+          "done": true
+        },
+        {
+          "id": "AC-0465",
+          "text": "when the live page receives `scene.exited` with reason `gm_detects`, `time_box_elapsed` or `facilitator_advance`, an inform-only dialog says why and names the player's next scene with its objective and end rule, or that the player has no more scenes while the session goes on; a Continue button closes it",
+          "done": true
+        },
+        {
+          "id": "AC-0466",
+          "text": "the dialog is not modal: the next scene runs underneath, the transcript and updates keep arriving, the say box stays usable and keeps a typed draft; focus moves to Continue only when nothing holds it and the draft is empty; Escape closes it; it is a labelled, described dialog with a polite status announcement",
+          "done": true
+        },
+        {
+          "id": "AC-0467",
+          "text": "the final scene's end shows the \"Session complete\" variant (the facilitator can now run the evaluation); End session (`facilitator_end`) opens no dialog and closes an open one",
+          "done": true
+        },
+        {
+          "id": "AC-0468",
+          "text": "the dialog opens only for a `scene.exited` the live page received, so a late join or a reload shows none",
+          "done": true
+        },
+        {
+          "id": "AC-0469",
+          "text": "every scene of `friday-escalation` and `friday-escalation-extended` has an `ends_when` and scenes 2 and 3 of both gained an opening inject addressed to exactly that scene's players; rubrics are byte-identical and the demo counts are unchanged (29, 14, 42, 14)",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0056"
+      ]
+    },
+    {
+      "id": "US-0081",
+      "epicId": "EPIC-0002",
+      "title": "As a facilitator running a session with AI players, I want the AI players to prompt a quiet human and the Game Master to wait for a human line, so that AI-only dialogue cannot end a scene and no AI player invents a name for a participant.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Complete",
+      "branch": "feature/EPIC-0002-demo-feedback-fixes",
+      "acs": [
+        {
+          "id": "AC-0470",
+          "text": "a nudge addresses the human seat in the current scene that has spoken least (ties: silent longest, then scenario role order) by its role title, with one short question toward the scene goal, and forbids inventing names",
+          "done": true
+        },
+        {
+          "id": "AC-0471",
+          "text": "only one AI player of a session nudges at a time; after a said nudge no further nudge fires until a human line arrives in the scene; a new scene opens the floor again and a skipped or dropped nudge frees it",
+          "done": true
+        },
+        {
+          "id": "AC-0472",
+          "text": "every live AI player prompt and every AI character prompt carries the one addressing sentence and a roster of role titles; the live prompt no longer advises first names; no participant name is in any prompt",
+          "done": true
+        },
+        {
+          "id": "AC-0473",
+          "text": "there is no nudge when no ready human seat is in the scene, and an AI player does not reply to another AI player's nudge",
+          "done": true
+        },
+        {
+          "id": "AC-0474",
+          "text": "in a session with at least one human seat, the Game Master requests and applies no exit-condition verdict for a scene until a human player seat has spoken in it; the first human line is judged at once if the cadence is due (since 2026-11-16 the gate counts the human seats among the scene's participants: a scene with no human participant is not gated, TC-0295)",
+          "done": true
+        },
+        {
+          "id": "AC-0475",
+          "text": "`earned_when` checks are behind the same gate",
+          "done": true
+        },
+        {
+          "id": "AC-0476",
+          "text": "time box and facilitator advance exits are unchanged, a session with no human seat is not gated, and the demo counts are unchanged (29, 14, 42)",
+          "done": true
+        },
+        {
+          "id": "AC-0477",
+          "text": "while the gate holds back an evaluation, the facilitator gets one info alert per scene and players never see it",
+          "done": true
+        },
+        {
+          "id": "AC-0478",
+          "text": "no wire or log-format change; `AI_PLAYER_NUDGE_MS` still defaults to 90000; the demo's simulated-trainee prompt is byte-identical",
+          "done": true
+        },
+        {
+          "id": "AC-0479",
+          "text": "after a rejoin, an AI player line after the last human line in the replayed scene keeps the nudge floor closed",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0060"
+      ]
+    },
+    {
+      "id": "US-0082",
+      "epicId": "EPIC-0002",
+      "title": "As a participant or facilitator, I want to see when an AI is composing a reply and to direct a line at one role, so that I know whom the room is waiting for and who a line is meant for.",
+      "priority": "Medium",
+      "estimate": "L",
+      "status": "Complete",
+      "branch": "feature/EPIC-0002-demo-feedback-fixes",
+      "acs": [
+        {
+          "id": "AC-0480",
+          "text": "while an AI character or a live AI player composes a reply, the player page and the console show \"<name> is thinking...\" and it disappears when the reply lands, the turn ends, the scene changes or the session pauses or ends",
+          "done": true
+        },
+        {
+          "id": "AC-0481",
+          "text": "the thinking signal is never written to the session log: no event, alert or field; replay, resume, evaluation, reports and the log format are unchanged",
+          "done": true
+        },
+        {
+          "id": "AC-0482",
+          "text": "a player receives an `activity` frame only for a role that shares the player's current scene, and never the outcome",
+          "done": true
+        },
+        {
+          "id": "AC-0483",
+          "text": "only an AI player seat may report its turn; a human seat or the facilitator is refused, an extra key is a bad message, a report for a role outside the current scene is ignored, and a closed bot socket ends its activity",
+          "done": true
+        },
+        {
+          "id": "AC-0484",
+          "text": "a viewer that joins or rejoins mid-turn is told who is thinking right after `joined`, by the same rule",
+          "done": true
+        },
+        {
+          "id": "AC-0485",
+          "text": "the page clears a thinking indicator by itself after 120 s, and the runtime does not re-announce an older entry",
+          "done": true
+        },
+        {
+          "id": "AC-0486",
+          "text": "the facilitator's AI players panel shows per AI player role Thinking, Waiting, Timed out (turn skipped) or No usable reply (turn skipped), in text and not by colour alone",
+          "done": true
+        },
+        {
+          "id": "AC-0487",
+          "text": "every client ignores an unknown frame, so an old client with a new runtime and a new web app with an old runtime keep working; a bot reports activity only when its `joined` says the runtime accepts it",
+          "done": true
+        },
+        {
+          "id": "AC-0488",
+          "text": "the utterance event may carry an optional `to` (a role id); without it the event and the log are byte-identical to before and the log format is not bumped",
+          "done": true
+        },
+        {
+          "id": "AC-0489",
+          "text": "the runtime keeps `to` only when it names another role of the speaker's current scene; any other value is dropped and the line is recorded without it",
+          "done": true
+        },
+        {
+          "id": "AC-0490",
+          "text": "AI character and live AI player prompts carry the addressing rule and, when the latest line was addressed, who it was addressed to; the cached NPC prefix is unchanged",
+          "done": true
+        },
+        {
+          "id": "AC-0491",
+          "text": "a line addressed to an AI character puts that character first and it must speak; a line addressed to a player lets every character stay silent and raises no alert",
+          "done": true
+        },
+        {
+          "id": "AC-0492",
+          "text": "a line addressed to a live AI player makes its reply due at once, within the minimum gap, the per-scene cap and the session budget; a bot never reacts to another AI player",
+          "done": true
+        },
+        {
+          "id": "AC-0493",
+          "text": "an AI reply that begins with \"@\" and another role of the current scene is recorded with `to` and the token stripped; any other \"@...\" is left as written, with no `to`",
+          "done": true
+        },
+        {
+          "id": "AC-0494",
+          "text": "in the player composer, typing \"@\" opens a list of the other roles of the current scene with keyboard and mouse choice, and choosing inserts \"@Role title \" and directs the line",
+          "done": true
+        },
+        {
+          "id": "AC-0495",
+          "text": "removing the \"@Role title\" drops the direction; one addressee per line; the line stays public and the composer says so",
+          "done": true
+        },
+        {
+          "id": "AC-0496",
+          "text": "the player transcript and the console timeline show \"to <name>\" on an addressed line (\"to you\" highlighted in words on the addressee's page); the evaluator transcript is unchanged",
+          "done": true
+        },
+        {
+          "id": "AC-0497",
+          "text": "the addressed human sees a \"Waiting for you\" banner while the latest AI line addressed to them in the current scene is unanswered; any line by that role, a scene change or the end clears it; it survives a reload; an AI seat never gets one",
+          "done": true
+        },
+        {
+          "id": "AC-0498",
+          "text": "the web server accepts `to` on `POST /api/v1/say` only as a string of 1 to the id limit and passes it through; the console copy of an utterance keeps `to`",
+          "done": true
+        },
+        {
+          "id": "AC-0499",
+          "text": "the demo counts are unchanged (29, 32, 39, 42, 14 showcase) and `pnpm demo --web` W-01 to W-08 pass",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0060",
+        "US-0081"
+      ]
+    },
+    {
       "id": "US-0083",
       "epicId": "EPIC-0002",
       "title": "As an admin, I want per-person facilitator accounts that I manage from the console, with each session owned by the facilitator who created it, so that a client rollout can add and remove people, keep each person's sessions private and stop a person's access at once.",
@@ -4809,6 +5052,36 @@
       "status": "Done",
       "branch": "feature/EPIC-0003-US-0075-voice-audio-delete",
       "notes": "Plan: docs/superpowers/plans/2026-11-13-voice-a2b1b-audio-delete.md (Task 1: the `deleted` index line in the speech protocol and the filing; then the typed lock acquirer and shared mutex, the fail-closed index reader, the deleted-aware sweep, the delete core and route, wiring, end to end with mutation checks, documents). Covers AC-0442 to AC-0450 (TC-0233 to TC-0241). Filed 2026-11-13; Tasks 1 to 9 built the same day and Task 10 (the documents) closed it. Done 2026-11-13 on feature/EPIC-0003-US-0075-voice-audio-delete; the PR into `develop` is not yet opened. Test cases TC-0233 to TC-0241 Pass (TC-0241's mutation checks are prior evidence); TC-0242 (the owner-run real delete) is Not Run."
+    },
+    {
+      "id": "TASK-0120",
+      "storyId": "US-0080",
+      "title": "Build the scene objective, end rule and scene-ended dialog",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-demo-feedback-fixes",
+      "notes": "See docs/superpowers/notes/US-0080-notes.md (files and tests). Test cases TC-0333 to TC-0335 (the notes' TC-0240 to TC-0242) and TC-0243 to TC-0249."
+    },
+    {
+      "id": "TASK-0121",
+      "storyId": "US-0081",
+      "title": "Build the human nudge target, nudge floor, addressing rule and Game Master human-line gate",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-demo-feedback-fixes",
+      "notes": "See docs/superpowers/notes/US-0081-notes.md (files and tests)."
+    },
+    {
+      "id": "TASK-0122",
+      "storyId": "US-0082",
+      "title": "Build activity frames, thinking and waiting indicators and @ addressing",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-demo-feedback-fixes",
+      "notes": "See docs/superpowers/notes/US-0082-notes.md (files and tests)."
     },
     {
       "id": "TASK-0130",
@@ -7363,6 +7636,306 @@
       "defect": "None"
     },
     {
+      "id": "TC-0333",
+      "title": "`ends_when` schema rule",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0460",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0334",
+      "title": "Resolved player rule text",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0462",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0335",
+      "title": "Scenario hash stability",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0461",
+      "type": "Regression",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0243",
+      "title": "`joined.scenes` on the wire",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0463",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0244",
+      "title": "Player view `lastExit`",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0468",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0245",
+      "title": "Scene card copy",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0464",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0246",
+      "title": "Scene-ended dialog content",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0465",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0247",
+      "title": "Scene-ended dialog focus and draft",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0466",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0248",
+      "title": "Scene-ended dialog variants and live-only",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0467, AC-0468",
+      "type": "Edge Case",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0249",
+      "title": "Scene card and dialog in a browser",
+      "relatedStory": "US-0080",
+      "relatedTask": "TASK-0120",
+      "relatedAC": "AC-0464, AC-0465, AC-0466, AC-0467",
+      "type": "Accessibility",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0250",
+      "title": "The nudge prompts the quietest human seat by role title",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0470",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0251",
+      "title": "One nudge until a human speaks",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0471",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0252",
+      "title": "Prompts address by role title only",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0472",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0253",
+      "title": "No nudge without a human seat in the scene; no AI-to-AI reply",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0473",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0254",
+      "title": "The Game Master does not judge AI-only dialogue",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0474",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0255",
+      "title": "earned_when is behind the same gate",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0475",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0256",
+      "title": "Unchanged exits and ungated sessions",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0476",
+      "type": "Regression",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0257",
+      "title": "One facilitator alert per held scene",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0477",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0258",
+      "title": "No wire, log or default change",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0478",
+      "type": "Regression",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0259",
+      "title": "Conservative nudge floor after a rejoin",
+      "relatedStory": "US-0081",
+      "relatedTask": "TASK-0121",
+      "relatedAC": "AC-0479",
+      "type": "Edge Case",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0260",
+      "title": "AI character thinking reaches only the scene and the facilitator",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0480, AC-0482, AC-0484",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0261",
+      "title": "Activity never reaches the log",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0481",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0262",
+      "title": "Bot activity, outcome and refusal",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0483, AC-0485",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0263",
+      "title": "Addressee validation",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0488, AC-0489",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0264",
+      "title": "Addressed AI character answers first",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0491",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0265",
+      "title": "A line for a player forces no answer and no alert",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0491",
+      "type": "Edge Case",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0266",
+      "title": "AI player addressed reply timing",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0492",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0267",
+      "title": "AI reply address parsing",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0493",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0268",
+      "title": "Composer @ list and direction",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0494, AC-0495, AC-0496, AC-0498",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0269",
+      "title": "Waiting for you and expiry",
+      "relatedStory": "US-0082",
+      "relatedTask": "TASK-0122",
+      "relatedAC": "AC-0485, AC-0486, AC-0497",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
       "id": "TC-0270",
       "title": "Accounts on disk: hashes, the safe file and the store",
       "relatedStory": "US-0083",
@@ -8266,505 +8839,523 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0070": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0071": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0072": {
       "projectedUsd": 1600,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0073": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0074": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0075": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0080": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.189497,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0081": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.189497,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0082": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0083": {
       "projectedUsd": 3200,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0084": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0085": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0086": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0087": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0088": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0089": {
       "projectedUsd": 0.9,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0090": {
       "projectedUsd": 1600,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0091": {
       "projectedUsd": 1600,
-      "costUsd": 9.517693,
+      "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -9579,6 +10170,27 @@
       "openCriticalBug": false,
       "isAtRisk": false
     },
+    "US-0080": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0081": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0082": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
     "US-0083": {
       "missingTCs": false,
       "noBranch": false,
@@ -10029,10 +10641,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-16T23:35:00.369Z",
-  "commitSha": "bb48677f",
-  "buildNumber": "587",
-  "branch": "feature/EPIC-0003-US-0091-facilitator-mute",
+  "generatedAt": "2026-11-17T00:32:19.483Z",
+  "commitSha": "e088e2be",
+  "buildNumber": "570",
+  "branch": "docs/file-us-0080-82-and-clamp-decision",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -10176,7 +10788,7 @@
   "budget": {
     "totalBudget": 812.9862,
     "totalSpent": 799.4862,
-    "totalProjected": 20063.000000000007,
+    "totalProjected": 20065.700000000004,
     "percentUsed": 98,
     "burnRate": 0,
     "daysRemaining": null,
@@ -10196,64 +10808,64 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 133.24770199999998,
-        "spent": 133.24770199999998,
+        "budget": 128.652958,
+        "spent": 128.652958,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0003",
         "title": "Slice 3 — voice over LiveKit",
-        "budget": 76.141544,
-        "spent": 76.141544,
+        "budget": 73.51597600000001,
+        "spent": 73.51597600000001,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 133.24770199999998,
-        "spent": 133.24770199999998,
+        "budget": 128.652958,
+        "spent": 128.652958,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 142.76539499999998,
-        "spent": 142.76539499999998,
+        "budget": 137.842455,
+        "spent": 137.842455,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 233.82463200000007,
-        "spent": 228.42463200000006,
+        "budget": 253.51641899999987,
+        "spent": 248.11641899999987,
         "remaining": 5.400000000000006,
         "percentUsed": 98
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 41.670772,
-        "spent": 38.070772,
+        "budget": 40.357988,
+        "spent": 36.757988,
         "remaining": 3.6000000000000014,
         "percentUsed": 91
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 41.670772,
-        "spent": 38.070772,
+        "budget": 40.357988,
+        "spent": 36.757988,
         "remaining": 3.6000000000000014,
         "percentUsed": 91
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 10.417693,
-        "spent": 9.517693,
+        "budget": 10.089497,
+        "spent": 9.189497,
         "remaining": 0.9000000000000004,
         "percentUsed": 91
       },
@@ -10269,9 +10881,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Feb 7",
-    "rangeStart": "Nov 9",
-    "rangeEnd": "May 6",
+    "likelyDate": "Feb 24",
+    "rangeStart": "Nov 23",
+    "rangeEnd": "May 27",
     "velocityWeeks": 6,
     "storiesPerWeek": 0.9,
     "pointsPerWeek": 4.5
@@ -10279,162 +10891,60 @@
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-11T18:08:18.602Z",
-      "2026-11-11T19:47:52.607Z",
-      "2026-11-12T20:37:55.878Z",
-      "2026-11-12T21:50:41.141Z",
-      "2026-11-13T17:35:13.525Z",
-      "2026-11-13T18:05:24.013Z",
-      "2026-11-13T22:28:39.904Z",
-      "2026-11-16T18:19:57.554Z",
-      "2026-11-16T23:04:57.325Z",
-      "2026-11-16T23:35:00.447Z"
+      "2026-11-17T00:32:19.546Z"
     ],
     "doneCounts": [
       0,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
       6
     ],
     "totalStories": [
       13,
-      73,
-      73,
-      74,
-      74,
-      75,
-      75,
-      82,
-      83,
-      84,
-      84
+      87
     ],
     "aiCosts": [
       54.2322,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
       799.4862
     ],
     "coverage": [
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
       null,
       null
     ],
     "velocity": [
       0,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
       29
     ],
     "openBugs": [
       0,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
       1
     ],
     "atRisk": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0
     ],
     "inputTokens": [
       3089930,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
-      1.135820895522388,
-      1.135820895522388,
-      1.1352941176470586,
-      1.1352941176470586,
-      1.1347826086956518,
-      1.1347826086956518,
-      1.135526315789473,
-      1.1389610389610385,
-      1.1423076923076918,
-      1.1423076923076918
+      1.1407407407407402
     ],
     "velocityByWeek": {
       "labels": [
         "2026-W40",
-        "2026-W46",
         "2026-W47"
       ],
       "points": [
         0,
-        29,
-        0
+        29
       ],
       "rollingAvg": [
         0,
-        14.5,
-        9.7
+        14.5
       ]
     }
   }

@@ -30,6 +30,7 @@ Always use exactly `http://localhost:3000`, never `127.0.0.1` (every POST would 
 - **Thinking and waiting:** "<role> is thinking..." while an AI composes; "Waiting for you" when an AI has addressed you.
 - **@role:** type `@` in the say box to direct a line at someone in the scene (everyone still sees it).
 - **AI players** speak up only to ask the quiet human a question by role title, and the Game Master will not end a scene until a human has spoken in it.
+- **Join links:** the console shows each role's join link beside its code, with **Copy link** (the code is never in the link; the player types it).
 - Injects: the console button reads **Fire inject**; scene 1's opening email is already fired, `cfo_pressure` (scene 2) goes to Priya only.
 
 ## Live script (about 25 min)
@@ -38,7 +39,7 @@ Always use exactly `http://localhost:3000`, never `127.0.0.1` (every POST would 
 
 **2. Create the session (3 min).** Console, sign in with your facilitator account, **New session**, pick *The Friday Escalation*. Codes are shown once: copy them (do not read them out). On the readiness screen click **Make AI player** on `tech_lead`; point at the AI label and the consent notice that says a seat may be played by an AI.
 
-**3. Humans join (3 min).** The console shows each role's code once but no ready-made player link (the code is never put in a URL). The join link is `http://localhost:3000/join?session=<id>&role=<role>`: `<id>` is the last part of the console URL (`/console/<id>`), and the roles are `delivery_lead` and `account_manager`. Run `docs/demo/demo-up.sh links <id>` in a second terminal to print both full URLs, ready to paste into the other browsers. Each human opens their own URL in their own browser, types a name and **their own code**, then agrees to the consent notice. **Start** stays disabled ("Waiting for: ...") until both consent and the AI bot has joined. Press **Start**.
+**3. Humans join (3 min).** The console shows each role's **join link beside its code** (**Copy link**; the code is never put in a link). The link is `http://localhost:3000/join?session=<id>&role=<role>`, and the roles are `delivery_lead` and `account_manager`. If you need the links again later, `<id>` is the last part of the console URL (`/console/<id>`): run `docs/demo/demo-up.sh links <id>` in a second terminal to print the join URLs (no codes). Each human opens their own URL in their own browser, types a name and **their own code**, then agrees to the consent notice. **Start** stays disabled ("Waiting for: ...") until both consent and the AI bot has joined. Press **Start**.
 - Players must be on this Mac: the seat cookie is `Secure`, and browsers accept it over plain HTTP only on `localhost`. Remote players need an HTTPS front end and `PUBLIC_ORIGIN` set to it, which this kit does not set up.
 
 **4. Scene 1, Team huddle (3 to 4 min).** Priya's email arrives. Humans talk; the AI tech lead answers after about 4 s of quiet.
@@ -72,6 +73,7 @@ Always use exactly `http://localhost:3000`, never `127.0.0.1` (every POST would 
 | --- | --- |
 | AI lines read `[mock reply]` | The `.env` was not loaded. Stop, run `docs/demo/demo-up.sh check`, restart the control service, create a NEW session (running sessions keep old settings). |
 | Priya says "Sorry, you cut out for a second there" | Model timed out. Ask the player to repeat; if it keeps happening switch to the recording. |
+| A player needs the join link again | The codes panel shows it beside the code with **Copy link**; once the codes are dismissed, run `docs/demo/demo-up.sh links <id>` (it prints the links, never the codes). A lost code needs **Reissue code**. |
 | A player's seat is stuck or overwritten | Facilitator **Reissue code** for that role; the player rejoins in their own browser. |
 | Page refuses actions | You are on `127.0.0.1`; use `localhost`. |
 | Start disabled | Read the reason under the button (someone has not consented, or the AI bot has not joined). |
