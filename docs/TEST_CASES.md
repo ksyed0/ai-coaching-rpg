@@ -4832,7 +4832,7 @@ Expected Result: `viewReport` drops hidden responses on BOTH branches (the relea
 Actual Result: As expected (`view-hide.test.ts`, `read-hide.test.ts`). Mutation checks: dropping the filter, filtering only the live list, nulling `hidden` in `frozenView` and sending `text` in the DTO each fail named tests (TC-0344). 2026-11-17 (macOS arm64; the suites run with coverage on this branch: runtime 4697 (+1 skipped), control 1737 (+1 skipped), web 2010, all passed; line coverage 98.47, 98.13 and 98.1 percent; `tsc --noEmit` clean for runtime, control and web).
 Status: [x] Pass
 Defect Raised: None
-Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6. The console DTO and the facilitator's own `show` are the only readers that show a hide at all, and they show the reason and the name, never the text.
+Notes: Filed 2026-11-17 (Task 6); run and recorded 2026-11-17 in Task 6. The console DTO is the only reader that shows a hide (reason, name and time, never the text); CLI `status` marks it `hidden`; `show` and every export leave it out entirely.
 
 TC-0339: A resend after a hide is written again; the caps still count the hidden response
 Related Story: US-0069

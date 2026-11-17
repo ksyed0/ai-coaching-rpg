@@ -76,7 +76,7 @@ export type ResponseView = {
     reason: string;
     by: string;
   } | null;
-  /** The facilitator hid the response from the player's own view (it stays here); null when shown. `ts` is the event's. */
+  /** The facilitator hid the response from every page and export (it stays here; the console shows the hide); null when shown. `ts` is the event's. */
   hidden: { seq: number; ts: number; reason: string; by: string } | null;
 };
 export type GroupTable = {
