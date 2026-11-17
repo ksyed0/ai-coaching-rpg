@@ -77,6 +77,13 @@
   },
   "private": true,
   "packageManager": "pnpm@9.15.9",
+  "pnpm": {
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-fc5q-39xc-vjpf"
+      ]
+    }
+  },
   "engines": {
     "node": ">=22"
   }

@@ -86,7 +86,9 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: '22'
-      - run: npm audit --audit-level=high
+      # GHSA-fc5q-39xc-vjpf (picomatch ReDoS) is allowlisted in .audit-ignore, added 2026-11-17.
+      # Remove it, and this wrapper, when a patched picomatch ships. Any other high/critical still fails.
+      - run: node tools/npm-audit-gate.js
 
   secrets:
     name: Secret Scanning
@@ -174,6 +176,8 @@ jobs:
           node-version: '22'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # GHSA-fc5q-39xc-vjpf (picomatch ReDoS) is ignored via pnpm.auditConfig in package.json, added 2026-11-17.
+      # Remove it when a patched picomatch ships.
       - run: pnpm audit --audit-level=high
 
   web-e2e:
