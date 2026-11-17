@@ -2,6 +2,8 @@
 
 Story: **US-0080** "Players see each scene's objective and end rule, and a dialog when a scene ends" (EPIC-0002 demo feedback fixes), task **TASK-0120**. These notes hold what the owner folds into `docs/RELEASE_PLAN.md`, `docs/TEST_CASES.md`, `docs/ID_REGISTRY.md`, `CHANGELOG.md`, `docs/THREAT_MODEL.md` and `docs/ROLLBACK.md`; none of those files was edited on this branch.
 
+Filed on develop 2026-11-16: the story, TASK-0120 and AC-0460 to AC-0469 are in `docs/RELEASE_PLAN.md`, and the test cases are in `docs/TEST_CASES.md`. The table below keeps its original ids, but TC-0240, TC-0241 and TC-0242 were filed as **TC-0333, TC-0334 and TC-0335**, because develop already uses TC-0240 to TC-0242 for US-0075. TC-0243 to TC-0249 kept their ids.
+
 ## Acceptance criteria
 
 - [x] AC-0460: A scene in `script.yaml` may carry an optional `ends_when`: one plain-language line, trimmed, 1 to 200 characters, no control characters (line breaks included). A scene without it loads with no such key. (`packages/script/src/schema.ts`)

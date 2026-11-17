@@ -2238,6 +2238,106 @@ Notes: Plan: docs/superpowers/plans/2026-11-13-voice-a2b1b-audio-delete.md (Task
 ```
 
 ```
+US-0080 (EPIC-0002): As a player, I want to see each scene's objective and end rule and be told when a scene ends, so that I know what the scene is for and what comes next.
+Priority: Medium
+Estimate: M
+Status: Complete
+Branch: feature/EPIC-0002-demo-feedback-fixes
+Dependencies: US-0056
+Acceptance Criteria:
+  - [x] AC-0460: a scene in `script.yaml` may carry an optional `ends_when`: one plain-language line, trimmed, 1 to 200 characters, no control characters; a scene without it loads with no such key
+  - [x] AC-0461: a scenario that does not use `ends_when` keeps the same canonical scenario hash, so a session in progress against it still resumes (pinned pre-change hashes)
+  - [x] AC-0462: the rule text a player sees is resolved on the server: the scene's `ends_when`, else its first `gm_detects` condition that passes the same rule, else none
+  - [x] AC-0463: a player's `joined.scenes` entries carry an OPTIONAL `endsWhen`, built field by field and only for the player's own scenes; the browser picks scene fields one by one and drops a non-string or over-200-character value; the console carries it too
+  - [x] AC-0464: the scene card shows "Objective: <goal>" prominently and "Ends when: <rule>, at N min, or when your facilitator moves on" (without the rule when there is none); the console's live view uses the same card
+  - [x] AC-0465: when the live page receives `scene.exited` with reason `gm_detects`, `time_box_elapsed` or `facilitator_advance`, an inform-only dialog says why and names the player's next scene with its objective and end rule, or that the player has no more scenes while the session goes on; a Continue button closes it
+  - [x] AC-0466: the dialog is not modal: the next scene runs underneath, the transcript and updates keep arriving, the say box stays usable and keeps a typed draft; focus moves to Continue only when nothing holds it and the draft is empty; Escape closes it; it is a labelled, described dialog with a polite status announcement
+  - [x] AC-0467: the final scene's end shows the "Session complete" variant (the facilitator can now run the evaluation); End session (`facilitator_end`) opens no dialog and closes an open one
+  - [x] AC-0468: the dialog opens only for a `scene.exited` the live page received, so a late join or a reload shows none
+  - [x] AC-0469: every scene of `friday-escalation` and `friday-escalation-extended` has an `ends_when` and scenes 2 and 3 of both gained an opening inject addressed to exactly that scene's players; rubrics are byte-identical and the demo counts are unchanged (29, 14, 42, 14)
+Notes: Built on feature/EPIC-0002-demo-feedback-fixes (TASK-0120). Filed on develop 2026-11-16 (branch docs/file-us-0080-82-and-clamp-decision) from the notes; the code reached develop inside the squash merges of PR #140 and PR #142 (the branch feature/EPIC-0002-demo-feedback-fixes was never merged as such, so these entries were missing). Notes with the threat-model and rollback text: docs/superpowers/notes/US-0080-notes.md. Test cases TC-0333 to TC-0335 (the notes' TC-0240 to TC-0242, renumbered because develop's TC-0240 to TC-0242 are US-0075) and TC-0243 to TC-0249, all Not Run: the notes list the automated tests but record no result per case. The Friday scenarios' hash changed, so a Friday session in progress at deploy time will not resume (docs/ROLLBACK.md, "US-0080 to US-0082"). Scenario version fields were not bumped.
+```
+
+```
+TASK-0120 (US-0080): Build the scene objective, end rule and scene-ended dialog
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-demo-feedback-fixes
+Notes: See docs/superpowers/notes/US-0080-notes.md (files and tests). Test cases TC-0333 to TC-0335 (the notes' TC-0240 to TC-0242) and TC-0243 to TC-0249.
+```
+
+```
+US-0081 (EPIC-0002): As a facilitator running a session with AI players, I want the AI players to prompt a quiet human and the Game Master to wait for a human line, so that AI-only dialogue cannot end a scene and no AI player invents a name for a participant.
+Priority: Medium
+Estimate: M
+Status: Complete
+Branch: feature/EPIC-0002-demo-feedback-fixes
+Dependencies: US-0060
+Acceptance Criteria:
+  - [x] AC-0470: a nudge addresses the human seat in the current scene that has spoken least (ties: silent longest, then scenario role order) by its role title, with one short question toward the scene goal, and forbids inventing names
+  - [x] AC-0471: only one AI player of a session nudges at a time; after a said nudge no further nudge fires until a human line arrives in the scene; a new scene opens the floor again and a skipped or dropped nudge frees it
+  - [x] AC-0472: every live AI player prompt and every AI character prompt carries the one addressing sentence and a roster of role titles; the live prompt no longer advises first names; no participant name is in any prompt
+  - [x] AC-0473: there is no nudge when no ready human seat is in the scene, and an AI player does not reply to another AI player's nudge
+  - [x] AC-0474: in a session with at least one human seat, the Game Master requests and applies no exit-condition verdict for a scene until a human player seat has spoken in it; the first human line is judged at once if the cadence is due (since 2026-11-16 the gate counts the human seats among the scene's participants: a scene with no human participant is not gated, TC-0295)
+  - [x] AC-0475: `earned_when` checks are behind the same gate
+  - [x] AC-0476: time box and facilitator advance exits are unchanged, a session with no human seat is not gated, and the demo counts are unchanged (29, 14, 42)
+  - [x] AC-0477: while the gate holds back an evaluation, the facilitator gets one info alert per scene and players never see it
+  - [x] AC-0478: no wire or log-format change; `AI_PLAYER_NUDGE_MS` still defaults to 90000; the demo's simulated-trainee prompt is byte-identical
+  - [x] AC-0479: after a rejoin, an AI player line after the last human line in the replayed scene keeps the nudge floor closed
+Notes: Built on feature/EPIC-0002-demo-feedback-fixes (TASK-0121). Filed on develop 2026-11-16 (branch docs/file-us-0080-82-and-clamp-decision) from the notes; the code reached develop inside the squash merges of PR #140 and PR #142 (the branch feature/EPIC-0002-demo-feedback-fixes was never merged as such, so these entries were missing). Notes with the test cases (TC-0250 to TC-0259, Not Run: no result per case is recorded), threat-model and rollback text: docs/superpowers/notes/US-0081-notes.md. The final review of US-0083 (2026-11-16, commit a2eefb26, TC-0295 Pass) made the Game Master gate count the human seats of the scene rather than of the session (`humanLineGateOpen(state, scene)` in services/runtime/src/agents/game-master.ts). Code only: deploy order between control and runtime does not matter.
+```
+
+```
+TASK-0121 (US-0081): Build the human nudge target, nudge floor, addressing rule and Game Master human-line gate
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-demo-feedback-fixes
+Notes: See docs/superpowers/notes/US-0081-notes.md (files and tests).
+```
+
+```
+US-0082 (EPIC-0002): As a participant or facilitator, I want to see when an AI is composing a reply and to direct a line at one role, so that I know whom the room is waiting for and who a line is meant for.
+Priority: Medium
+Estimate: L
+Status: Complete
+Branch: feature/EPIC-0002-demo-feedback-fixes
+Dependencies: US-0060, US-0081
+Acceptance Criteria:
+  - [x] AC-0480: while an AI character or a live AI player composes a reply, the player page and the console show "<name> is thinking..." and it disappears when the reply lands, the turn ends, the scene changes or the session pauses or ends
+  - [x] AC-0481: the thinking signal is never written to the session log: no event, alert or field; replay, resume, evaluation, reports and the log format are unchanged
+  - [x] AC-0482: a player receives an `activity` frame only for a role that shares the player's current scene, and never the outcome
+  - [x] AC-0483: only an AI player seat may report its turn; a human seat or the facilitator is refused, an extra key is a bad message, a report for a role outside the current scene is ignored, and a closed bot socket ends its activity
+  - [x] AC-0484: a viewer that joins or rejoins mid-turn is told who is thinking right after `joined`, by the same rule
+  - [x] AC-0485: the page clears a thinking indicator by itself after 120 s, and the runtime does not re-announce an older entry
+  - [x] AC-0486: the facilitator's AI players panel shows per AI player role Thinking, Waiting, Timed out (turn skipped) or No usable reply (turn skipped), in text and not by colour alone
+  - [x] AC-0487: every client ignores an unknown frame, so an old client with a new runtime and a new web app with an old runtime keep working; a bot reports activity only when its `joined` says the runtime accepts it
+  - [x] AC-0488: the utterance event may carry an optional `to` (a role id); without it the event and the log are byte-identical to before and the log format is not bumped
+  - [x] AC-0489: the runtime keeps `to` only when it names another role of the speaker's current scene; any other value is dropped and the line is recorded without it
+  - [x] AC-0490: AI character and live AI player prompts carry the addressing rule and, when the latest line was addressed, who it was addressed to; the cached NPC prefix is unchanged
+  - [x] AC-0491: a line addressed to an AI character puts that character first and it must speak; a line addressed to a player lets every character stay silent and raises no alert
+  - [x] AC-0492: a line addressed to a live AI player makes its reply due at once, within the minimum gap, the per-scene cap and the session budget; a bot never reacts to another AI player
+  - [x] AC-0493: an AI reply that begins with "@" and another role of the current scene is recorded with `to` and the token stripped; any other "@..." is left as written, with no `to`
+  - [x] AC-0494: in the player composer, typing "@" opens a list of the other roles of the current scene with keyboard and mouse choice, and choosing inserts "@Role title " and directs the line
+  - [x] AC-0495: removing the "@Role title" drops the direction; one addressee per line; the line stays public and the composer says so
+  - [x] AC-0496: the player transcript and the console timeline show "to <name>" on an addressed line ("to you" highlighted in words on the addressee's page); the evaluator transcript is unchanged
+  - [x] AC-0497: the addressed human sees a "Waiting for you" banner while the latest AI line addressed to them in the current scene is unanswered; any line by that role, a scene change or the end clears it; it survives a reload; an AI seat never gets one
+  - [x] AC-0498: the web server accepts `to` on `POST /api/v1/say` only as a string of 1 to the id limit and passes it through; the console copy of an utterance keeps `to`
+  - [x] AC-0499: the demo counts are unchanged (29, 32, 39, 42, 14 showcase) and `pnpm demo --web` W-01 to W-08 pass
+Notes: Built on feature/EPIC-0002-demo-feedback-fixes (TASK-0122). Filed on develop 2026-11-16 (branch docs/file-us-0080-82-and-clamp-decision) from the notes; the code reached develop inside the squash merges of PR #140 and PR #142 (the branch feature/EPIC-0002-demo-feedback-fixes was never merged as such, so these entries were missing). Notes with the test cases (TC-0260 to TC-0269, Not Run: no result per case is recorded), threat-model and rollback text: docs/superpowers/notes/US-0082-notes.md. Not verified by the builder: the UI in a real browser, screen-reader output and a real model's use of "@role".
+```
+
+```
+TASK-0122 (US-0082): Build activity frames, thinking and waiting indicators and @ addressing
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-demo-feedback-fixes
+Notes: See docs/superpowers/notes/US-0082-notes.md (files and tests).
+```
+
+```
 US-0083 (EPIC-0002): As an admin, I want per-person facilitator accounts that I manage from the console, with each session owned by the facilitator who created it, so that a client rollout can add and remove people, keep each person's sessions private and stop a person's access at once.
 Priority: High
 Estimate: XL

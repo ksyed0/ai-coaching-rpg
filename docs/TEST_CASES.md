@@ -3672,6 +3672,438 @@ Status: [ ] Not Run
 Defect Raised: None
 Notes: Filed 2026-11-13 (Task 10). Not run by the agents: no real room, real hardware or real recorded session exists for A2b-1b. The owner runs it with the room test.
 
+## US-0080: scene objective, end rule and scene-ended dialog
+
+TC-0333: `ends_when` schema rule
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0460
+Type: Functional
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Parse a scene with `ends_when` "  text  ", "", spaces only, 201 characters, a line break, a tab, a bell, a number and a list, and with exactly 200 characters.
+Expected Result: Trimmed text is kept; every bad value is refused; 200 characters are accepted; the minimal fixture has no `ends_when` key.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `packages/script/src/__tests__/ends-when.test.ts`. The notes call this case TC-0240; renumbered to TC-0333 because develop already uses TC-0240 for US-0075.
+
+TC-0334: Resolved player rule text
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0462
+Type: Functional
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Call `sceneEndsWhen` with `ends_when` and `gm_detects`, with only `gm_detects` (two conditions), with neither, and with a `gm_detects` that is empty, long or multi-line.
+Expected Result: `ends_when` wins; otherwise the first usable condition, trimmed; otherwise undefined; an unusable condition is skipped.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `ends-when.test.ts`. The notes call this case TC-0241; renumbered to TC-0334 because develop already uses TC-0241 for US-0075.
+
+TC-0335: Scenario hash stability
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0461
+Type: Regression
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Hash the minimal fixture; set `ends_when: undefined` on every scene; set one; load each shipped Friday scenario and undo exactly the US-0080 edits.
+Expected Result: The minimal hash equals the pinned pre-change hash (also with undefined keys); a present `ends_when` changes it; each shipped scenario's hash moved and, with the edits undone, equals its pinned pre-change hash.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `services/runtime/src/engine/__tests__/scenario-hash-ends-when.test.ts`. The notes call this case TC-0242; renumbered to TC-0335 because develop already uses TC-0242 for US-0075.
+
+TC-0243: `joined.scenes` on the wire
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0463
+Type: Functional
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Over a real socket join a player and the facilitator and run the session through a scene only another player is in.
+Expected Result: Player scenes are exactly `{id,title,goal,timeBoxMinutes[,endsWhen]}` (no key without a rule); the facilitator's scenes carry it too; a scene the player is not in leaks neither title, goal nor rule; `scene.exited` reaches the player with its reason.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `ws-server.scenes.test.ts`, `hub.runtime.test.ts`.
+
+TC-0244: Player view `lastExit`
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0468
+Type: Functional
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Apply `scene.exited` (good, duplicate, malformed), `scene.entered` and a second exit; initialise from a snapshot with scene history.
+Expected Result: `lastExit` is `{seq, sceneId, reason}` of the latest live exit and survives `scene.entered`; a malformed exit sets none; a duplicate changes nothing; a snapshot never has one.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `player-view.test.ts`.
+
+TC-0245: Scene card copy
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0464
+Type: Functional
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Render the card with and without `endsWhen` and with markup in the rule; build the sentences for each reason and for fractional minutes.
+Expected Result: "Objective: ..." in its own class; "Ends when: <rule>, at 10 min, or when your facilitator moves on" or the form without the rule; markup renders as text; reasons worded as in AC-0465.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `components.test.tsx`, `scene-copy.test.ts`.
+
+TC-0246: Scene-ended dialog content
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0465
+Type: Functional
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Emit exits with each reason, with and without a following `scene.entered`, after the player's last scene, then a second exit; try an older runtime without rules.
+Expected Result: Title, reason, next scene, objective and end rule as in AC-0465; transcript lines arrive behind it; Continue closes it; a second exit reopens it; no inline styles.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `scene-ended-dialog.test.tsx`.
+
+TC-0247: Scene-ended dialog focus and draft
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0466
+Type: Functional
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. With a focused say box holding a draft, with a draft and the focus dropped, and with nothing focused, press Escape and Continue.
+Expected Result: Focus and draft are untouched while the dialog is open; Escape closes it from the say box; Continue returns focus to the say box with the draft intact; with nothing focused the focus goes to Continue.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `scene-ended-dialog.test.tsx`.
+
+TC-0248: Scene-ended dialog variants and live-only
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0467, AC-0468
+Type: Edge Case
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. Final exit then `session.ended script_complete`; `facilitator_end`; an earlier exit then End session; a page opened after the exit (snapshot only).
+Expected Result: The "Session complete" variant names the evaluation; End session opens no dialog and closes an open one; a reload or late join shows none.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `scene-ended-dialog.test.tsx`.
+
+TC-0249: Scene card and dialog in a browser
+Related Story: US-0080
+Related Task: TASK-0120
+Related AC: AC-0464, AC-0465, AC-0466, AC-0467
+Type: Accessibility
+Preconditions: A checkout with dependencies installed. A built web app for the Playwright case.
+Steps:
+  1. `participant-flow.spec.ts`: check the card, type a draft, advance, check each page's dialog, press Escape, advance to the end.
+  2. `axe.spec.ts`: run Axe on the open dialog in light and dark and check for horizontal scroll at 400 px.
+Expected Result: As AC-0464 to AC-0467 in a real browser; no serious or critical Axe violation; scroll width 400 at 400 px.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0080-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `participant-flow.spec.ts`, `axe.spec.ts` (Playwright).
+
+## US-0081: AI players prompt the quiet human; the Game Master needs a human line
+
+TC-0250: The nudge prompts the quietest human seat by role title
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0470
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Start friday-escalation with `tech_lead` as an AI player and humans `delivery_lead` and `account_manager`, both ready.
+  2. Have `delivery_lead` speak once and let the AI player reply, then wait one nudge interval.
+Expected Result: The nudge request's system text holds the nudge intent for "Account manager" and not for "Delivery lead"; ties go to the seat silent longest, then scenario order.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `bot-host.nudge.test.ts`, `nudge.test.ts`, `live.test.ts`.
+
+TC-0251: One nudge until a human speaks
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0471
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Use two AI players and one human and wait one nudge interval, then twenty more.
+  2. Have the human speak, let the replies run and wait two intervals.
+Expected Result: Exactly one AI line after the first interval and still one (one model call) after twenty more; after the human speaks, the replies and then exactly one more nudge.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `bot-host.nudge.test.ts`, `turn-policy.test.ts`, `nudge-floor.test.ts`.
+
+TC-0252: Prompts address by role title only
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0472
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Build a live AI player request and an AI character request for a scene with a human and an AI player seat.
+Expected Result: Both hold the addressing sentence; the live prompt has its roster and no "by first name"; the AI character prompt lists the players after the current scene with the AI seat marked; no participant name appears; the NPC stable prefix holds the rule.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `live.test.ts`, `npc-prompt.prefix.test.ts`.
+
+TC-0253: No nudge without a human seat in the scene; no AI-to-AI reply
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0473
+Type: Negative
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. With two AI players and an AI character in the scene and the human connected but elsewhere, wait twenty nudge intervals.
+  2. In the usual room, wait for the nudge and then ten settle times.
+Expected Result: No model call in the first case; no reply-intent request after the AI nudge in the second.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `bot-host.nudge.test.ts`.
+
+TC-0254: The Game Master does not judge AI-only dialogue
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0474
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Start friday-escalation with `delivery_lead` and `tech_lead` as AI players, cadence 2 and a model that answers true; give twelve AI lines with ticks.
+  2. Give one line from `account_manager`, then a tick.
+Expected Result: No model call, no verdict and no final evaluation after the AI-only lines; one call at once after the human line, and the scene ends on the true verdict.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `game-master.human-gate.test.ts`.
+
+TC-0255: earned_when is behind the same gate
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0475
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. In the minimal fixture with an `earned_when` on the AI character, give three AI character lines with ticks, then one host line.
+Expected Result: No exit or fact check before the human line, then one exit check and one fact check.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `game-master.human-gate.test.ts`.
+
+TC-0256: Unchanged exits and ungated sessions
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0476
+Type: Regression
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Run a gated scene past its time box; run a session whose every seat is AI; run a session without AI roles.
+  2. Run `pnpm -s demo --fast`, `--showcase --fast` and `--fast --security --resume`.
+Expected Result: The time box ends the scene; the other two are judged on the cadence as before; 29, 14 and 42 checks pass.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `game-master.human-gate.test.ts`; the demo runs.
+
+TC-0257: One facilitator alert per held scene
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0477
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Give eight AI-only lines with ticks in a gated scene; separately give a human line first.
+Expected Result: Exactly one `facilitator.alert` at level `info` in the first case, none in the second; players never receive it.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `game-master.human-gate.test.ts`.
+
+TC-0258: No wire, log or default change
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0478
+Type: Regression
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Run the bot-frame real test, the settings test, the demo prompt byte-identity test and the full runtime and control suites.
+Expected Result: All pass; `AI_PLAYER_NUDGE_MS` is 90000; no new event or frame field.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `settings.test.ts`, `live.test.ts`, `bot-frames.real.test.ts`.
+
+TC-0259: Conservative nudge floor after a rejoin
+Related Story: US-0081
+Related Task: TASK-0121
+Related AC: AC-0479
+Type: Edge Case
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Seed the policy with replayed history of a human line then an AI player line; separately with the reverse order.
+Expected Result: No nudge is due in the first case; a nudge is due after the interval in the second.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0081-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `turn-policy.test.ts`.
+
+## US-0082: AI activity indicators, Waiting for you and @role addressing
+
+TC-0260: AI character thinking reaches only the scene and the facilitator
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0480, AC-0482, AC-0484
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Start Friday with `tech_lead` as an AI player, advance to scene 2 and have `delivery_lead` say a line while the NPC reply is held.
+Expected Result: delivery_lead, account_manager and the facilitator get `activity client_sponsor thinking`, then `idle` after the line; the tech_lead seat (not in scene 2) gets none; a facilitator joining mid-turn gets `thinking` after `joined`.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `ws-server.activity.test.ts`.
+
+TC-0261: Activity never reaches the log
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0481
+Type: Negative
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Run the same session and read the log.
+Expected Result: No `activity` or thinking text in any event; routing it through `engine.alert` makes the test fail (mutation check).
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `ws-server.activity.test.ts`.
+
+TC-0262: Bot activity, outcome and refusal
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0483, AC-0485
+Type: Negative
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. The AI seat sends `activity thinking`, then `idle timed_out`; a human seat sends `activity`; the bot sends an extra key; the bot socket closes while thinking.
+Expected Result: Players get role and state only, the facilitator also the outcome; the human is `forbidden`; the extra key is `bad_message`; closing clears the board.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `ws-server.activity.test.ts`.
+
+TC-0263: Addressee validation
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0488, AC-0489
+Type: Negative
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. delivery_lead says a line with `to` set to account_manager, client_sponsor (another scene), itself, `nobody` and `__proto__`.
+Expected Result: Only the first is recorded with `to`; the rest are recorded without it (mutation-checked).
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: the runtime engine and socket tests of the story (see the notes file).
+
+TC-0264: Addressed AI character answers first
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0491
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. Two AI characters (junior first by seniority); the host addresses the senior one.
+Expected Result: The senior answers first, then the junior; the line carries `to`.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: the runtime `npc-agent` tests of the story.
+
+TC-0265: A line for a player forces no answer and no alert
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0491
+Type: Edge Case
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. A lone AI character; the host addresses another player; the model answers `<silent/>`.
+Expected Result: No utterance and no "stayed silent" alert.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: the runtime `npc-agent` tests of the story.
+
+TC-0266: AI player addressed reply timing
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0492
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. TurnPolicy: an addressed human line; then one right after the bot spoke; a line for someone else; an AI player's addressed line.
+Expected Result: Due at once; still waits for the minimum gap; no reply for someone else's line; never reacts to an AI player.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: `turn-policy.test.ts`.
+
+TC-0267: AI reply address parsing
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0493
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. NPC reply "@host, which date..." and "@cfo ..."; live AI player "@account_manager ..." and "@Priya Raman ..." (another scene); no participants.
+Expected Result: Valid addressees are stripped into `to`; the others are left unchanged with no `to`.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: the runtime `npc-agent` and `players` tests of the story.
+
+TC-0268: Composer @ list and direction
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0494, AC-0495, AC-0496, AC-0498
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. In jsdom type "@", filter, use Enter, Tab, arrows, Escape and click; delete the mention; submit.
+Expected Result: A list of the other scene roles; "@Role title " is inserted; `onSay(text, roleId)`; a dropped mention sends `onSay(text)`; the transcript and console timeline show "to ..." and "to you" highlighted in words.
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: the web component tests of the story.
+
+TC-0269: Waiting for you and expiry
+Related Story: US-0082
+Related Task: TASK-0122
+Related AC: AC-0485, AC-0486, AC-0497
+Type: Functional
+Preconditions: A checkout with dependencies installed.
+Steps:
+  1. In jsdom: an AI line addressed to me; I answer; another scene; ended; an AI seat; a thinking line left without idle for 120 s.
+Expected Result: The banner shows only while unanswered in the current scene; the thinking line clears itself after the expiry; the console turn labels read Thinking, Waiting and Timed out (turn skipped).
+Actual Result: 
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed on develop 2026-11-16 from docs/superpowers/notes/US-0082-notes.md (first drafted 2026-11-13 on feature/EPIC-0002-demo-feedback-fixes, whose code reached develop in PR #140 and PR #142). The notes name the automated tests but record no result for this case, and it was not re-run when filed (the named test files are on develop). Automated: the web component tests of the story. Not run: a real browser, a screen reader and a real model's use of "@role" (manual).
+
 ## US-0083: facilitator accounts and the admin console
 TC-0270: Accounts on disk: hashes, the safe file and the store
 Related Story: US-0083
@@ -4016,7 +4448,7 @@ Expected Result: A scene whose participants include no human player seat (only A
 Actual Result: As expected (2026-11-16): test_game_master_scene_without_a_human_participant_is_not_gated and test_game_master_scene_without_a_human_participant_final_evaluation_runs (the AI-only scene), test_game_master_ai_only_dialogue_is_never_judged_and_never_ends_the_scene and test_game_master_first_human_line_opens_the_gate_at_once (a human seat waits for a human line), test_game_master_session_without_a_human_seat_is_not_gated and test_game_master_time_box_still_ends_a_gated_scene, all in game-master.human-gate.test.ts.
 Status: [x] Pass
 Defect Raised: None
-Notes: Final review fix, commit a2eefb26 (`humanLineGateOpen(state, scene)`). AC-0474 and AC-0476 are the US-0081 ids from docs/superpowers/notes/US-0081-notes.md; they are not filed in this plan yet.
+Notes: Final review fix, commit a2eefb26 (`humanLineGateOpen(state, scene)`). AC-0474 and AC-0476 are the US-0081 ids from docs/superpowers/notes/US-0081-notes.md, filed in docs/RELEASE_PLAN.md on 2026-11-16.
 
 ## US-0090: voice audio review and delete panel (EPIC-0003 voice A2b-2)
 
