@@ -860,4 +860,4 @@ The whole-branch review of US-0090 and US-0091 and its fixes; then the PR into `
 
 ### Next
 
-The whole-branch review of US-0069 and its fixes; then the PR into `develop` (the story stays In Progress until the review has passed; nothing is pushed or merged).
+US-0069 was merged into `develop` on 2026-11-18 as PR #151 (after a develop merge picked up the picomatch audit ignore, PR #152) and marked Complete by the owner. Left: an owner-run real-browser check of the hide dialog, and removing the picomatch ignore (`.audit-ignore`, `pnpm.auditConfig`, `tools/npm-audit-gate.js`) once a patched picomatch ships.
