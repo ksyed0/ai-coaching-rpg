@@ -2971,7 +2971,7 @@
       "title": "As a facilitator, I want to hide a participant response from the released report, so that an abusive or mistaken response can be removed without deleting the record.",
       "priority": "Low",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0069-hide-response",
       "acs": [
         {
@@ -9370,7 +9370,7 @@
       "outputTokens": 0
     },
     "US-0069": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
@@ -10771,10 +10771,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-17T16:30:46.923Z",
-  "commitSha": "65b551e6",
-  "buildNumber": "583",
-  "branch": "feature/EPIC-0002-US-0069-hide-response",
+  "generatedAt": "2026-11-18T14:59:00.811Z",
+  "commitSha": "ec13546e",
+  "buildNumber": "573",
+  "branch": "docs/US-0069-complete",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -10918,7 +10918,7 @@
   "budget": {
     "totalBudget": 812.0862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 20864.800000000007,
+    "totalProjected": 20065.700000000004,
     "percentUsed": 98,
     "burnRate": 0,
     "daysRemaining": null,
@@ -11011,183 +11011,70 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Mar 3",
-    "rangeStart": "Nov 29",
-    "rangeEnd": "Jun 5",
+    "likelyDate": "Mar 13",
+    "rangeStart": "Dec 8",
+    "rangeEnd": "Jun 17",
     "velocityWeeks": 7,
     "storiesPerWeek": 0.9,
-    "pointsPerWeek": 4.5
+    "pointsPerWeek": 4.4
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-11T18:08:18.602Z",
-      "2026-11-11T19:47:52.607Z",
-      "2026-11-12T20:37:55.878Z",
-      "2026-11-12T21:50:41.141Z",
-      "2026-11-13T17:35:13.525Z",
-      "2026-11-13T18:05:24.013Z",
-      "2026-11-13T22:28:39.904Z",
-      "2026-11-16T18:19:57.554Z",
-      "2026-11-16T23:04:57.325Z",
-      "2026-11-16T23:35:00.447Z",
-      "2026-11-17T16:30:47.010Z"
+      "2026-11-18T14:59:00.904Z"
     ],
     "doneCounts": [
       0,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
       6
     ],
     "totalStories": [
       13,
-      73,
-      73,
-      74,
-      74,
-      75,
-      75,
-      82,
-      83,
-      84,
-      84,
       87
     ],
     "aiCosts": [
       54.2322,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
-      799.4862,
       799.4862
     ],
     "coverage": [
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
       null,
       null
     ],
     "velocity": [
       0,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
-      29,
       29
     ],
     "openBugs": [
       0,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
       1
     ],
     "atRisk": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0
     ],
     "inputTokens": [
       3089930,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
-      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
-      5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
-      1.135820895522388,
-      1.135820895522388,
-      1.1352941176470586,
-      1.1352941176470586,
-      1.1347826086956518,
-      1.1347826086956518,
-      1.135526315789473,
-      1.1389610389610385,
-      1.1423076923076918,
-      1.1423076923076918,
-      1.144444444444444
+      1.1407407407407402
     ],
     "velocityByWeek": {
       "labels": [
         "2026-W40",
-        "2026-W46",
         "2026-W47"
       ],
       "points": [
         0,
-        29,
-        0
+        29
       ],
       "rollingAvg": [
         0,
-        14.5,
-        9.7
+        14.5
       ]
     }
   }
