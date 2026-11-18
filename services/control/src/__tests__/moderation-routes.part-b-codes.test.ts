@@ -23,6 +23,7 @@ const R = (s: string): string => `/sessions/${ID}/report${s}`;
 const ROUTES: Record<string, Route> = {
   release: { name: "release", path: R("/release"), body: { subjects: ["alice"], ...BY } },
   resolve: { name: "resolve", path: R("/resolve"), body: { seq: 4, outcome: "declined", reason: "Stands.", ...BY } },
+  hide: { name: "hide", path: R("/hide"), body: { seq: 4, reason: "Has a phone number.", ...BY } },
   export: { name: "export", path: R("/export"), body: { subject: "alice", audience: "facilitator", ...BY } },
   amend: { name: "amend", path: R("/subjects/alice/amend"), body: { reason: "Fix.", ...BY } },
   withdraw: { name: "withdraw", path: R("/subjects/alice/withdraw"), body: { reason: "Gone.", ...BY } },
@@ -55,17 +56,19 @@ afterEach(async () => {
 const REFUSALS: [string, string][] = [
   ["release", "no_review"], ["release", "not_editable"], ["release", "superseded"], ["release", "refused"],
   ["resolve", "no_review"], ["resolve", "refused"], ["resolve", "superseded"],
+  ["hide", "no_review"], ["hide", "refused"], ["hide", "superseded"],
   ["export", "no_review"], ["export", "not_released"], ["export", "refused"], ["export", "superseded"],
   ["amend", "no_review"], ["amend", "not_editable"], ["amend", "refused"],
   ["withdraw", "no_review"], ["withdraw", "not_editable"], ["withdraw", "superseded"], ["withdraw", "refused"],
 ];
-const ALL = ["release", "resolve", "export", "amend", "withdraw"];
+const ALL = ["release", "resolve", "hide", "export", "amend", "withdraw"];
 
 // What each route must hand its service call: the session id, then (for the two subject routes) the path subject, then the parsed body, then `by`.
 // Distinctive values, so a dropped or renamed field, or a swapped argument, fails the exact match.
 const FORWARDED: Record<string, { body: unknown; call: unknown[] }> = {
   release: { body: { subjects: ["alice", "bob"], by: "priya" }, call: [ID, { subjects: ["alice", "bob"] }, "priya"] },
   resolve: { body: { seq: 4, outcome: "amended", reason: "Because.", by: "dana" }, call: [ID, { seq: 4, outcome: "amended", reason: "Because." }, "dana"] },
+  hide: { body: { seq: 4, reason: "Because.", by: "dana" }, call: [ID, { seq: 4, reason: "Because." }, "dana"] },
   export: { body: { subject: "bob", audience: "participant:alice", by: "eli" }, call: [ID, { subject: "bob", audience: "participant:alice" }, "eli"] },
   amend: { body: { reason: "Fix it.", by: "fran" }, call: [ID, "bob", { reason: "Fix it." }, "fran"] },
   withdraw: { body: { reason: "Gone now.", by: "gus" }, call: [ID, "bob", { reason: "Gone now." }, "gus"] },

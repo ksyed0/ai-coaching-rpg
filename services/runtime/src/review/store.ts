@@ -488,8 +488,8 @@ export async function supersedeReview(
         },
       };
       // In the old order: moderation of byte-identical subjects, and what every player still in the re-run said (self-ratings,
-      // responses, disputes) with the facilitator's answers. A response is marked carried (it claims no version of the new review); a resolution is pointed
-      // at the response's new seq. Nothing is carried that its audience could not already see: the new review starts every
+      // responses, disputes) with the facilitator's answers and hides. A response is marked carried (it claims no version of the new review); a resolution
+      // or a hide is pointed at the response's new seq (dropped with it when the response is not carried). Nothing is carried that its audience could not already see: the new review starts every
       // subject in draft, and a player sees only their own events after a release there.
       const carried: Entry[] = [];
       const newSeq = new Map<number, number>();
@@ -500,7 +500,7 @@ export async function supersedeReview(
         false;
       // A link holder may resubmit a self-rating many times: only the latest per role and criterion is carried, or a long run
       // of saves could overflow the event limit of the new log. Superseded ratings are skipped INSIDE the loop, never filtered
-      // afterwards: newSeq is assigned in push order, so every carried dispute.resolved still points at the right response.
+      // afterwards: newSeq is assigned in push order, so every carried dispute.resolved and response.hidden still points at the right response.
       const latestSelf = new Map<string, number>();
       for (const e of old.events)
         if (e.type === "self.rated")
@@ -527,13 +527,14 @@ export async function supersedeReview(
           const r = oldView.subjects
             .get(e.role)
             ?.responses.find((x) => x.seq === e.seq);
-          const what = !r?.dispute
+          const kind = !r?.dispute
             ? "response"
             : r.resolution
               ? "answered dispute"
               : "open dispute";
+          const what = r?.hidden ? "hidden response" : kind;
           if (!players.includes(e.role)) {
-            // the player is not in the re-run: their moderation is dropped; an open dispute is worth naming
+            // the player is not in the re-run: their moderation is dropped; an open dispute is worth naming (a hidden one is not open to anyone)
             if (what === "open dispute")
               notCarried.push(
                 `open dispute #${e.seq} by ${e.role} (${e.role} is not in the new run; the earlier review becomes read-only)`,
@@ -550,7 +551,10 @@ export async function supersedeReview(
             body = stripEnvelope(e);
             newSeq.set(e.seq, carried.length + 2); // the opener is seq 1
           }
-        } else if (e.type === "dispute.resolved" && newSeq.has(e.response))
+        } else if (
+          (e.type === "dispute.resolved" || e.type === "response.hidden") &&
+          newSeq.has(e.response)
+        )
           body = {
             ...(stripEnvelope(e) as typeof e),
             response: newSeq.get(e.response)!,

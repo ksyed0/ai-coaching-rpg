@@ -215,11 +215,13 @@ export async function submitResponse(
         return [];
       }
       // BUG-0029: a resend (for example after a BFF timeout) is a no-op when ANY earlier response of this role is identical (same
-      // criterion, cleaned text and dispute flag) and unresolved. Only a dispute can be resolved (`dispute.resolved`), so an identical
+      // criterion, cleaned text and dispute flag), unresolved and not hidden (a hidden one is gone for the participant, so the same
+      // words may be sent again; it still counts toward both caps below). Only a dispute can be resolved (`dispute.resolved`), so an identical
       // comment is always a no-op, and the same dispute may be raised again once its earlier copy has a resolution.
       if (
         sv.responses.some(
           (r) =>
+            r.hidden === null &&
             r.resolution === null &&
             r.criterion === c.criterion &&
             r.text === text &&

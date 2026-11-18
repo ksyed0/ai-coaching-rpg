@@ -298,6 +298,16 @@ export const REPORT_CONSOLE = {
   withdrawHidden: "It is no longer shown to:",
   withdrawn: "The report was withdrawn.",
   amendToChange: "Amend the report to change it.",
+  // US-0069: hide a participant response.
+  responsesHeading: "Responses",
+  hideTitle: (n: number) => `Hide response ${n}?`,
+  hideIrreversible: "Hiding cannot be undone, and the participant is not told. It is removed from every export and page.",
+  hideIntro: "This response will be hidden:",
+  hideReasonLabel: "Reason for hiding (required)",
+  hideButton: (n: number) => `Hide response ${n}`,
+  hiddenBy: "Hidden by facilitator",
+  hiddenDetail: (reason: string, by: string) => `Reason: ${reason}. Hidden by ${by}`,
+  reasonCount: (n: number, max: number) => `${n} of ${max}`,
   amendFirst: "To resolve it as amended, amend the report and release the new version first.",
   exported: (fileName: string) => `Downloaded ${fileName}.`,
   // BUG-0033: each export view names the report and who it is for (components/console/report/ExportMenu.tsx).

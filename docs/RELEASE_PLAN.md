@@ -2036,15 +2036,15 @@ Notes: Complete 2026-11-08 (TASK-0105). AC-0389 verified by TC-0158 (`report-ai-
 US-0069 (EPIC-0002): As a facilitator, I want to hide a participant response from the released report, so that an abusive or mistaken response can be removed without deleting the record.
 Priority: Low
 Estimate: M
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0002-US-0069-hide-response
 Dependencies: US-0063
 Acceptance Criteria:
-  - [ ] AC-0392: the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason)
-  - [ ] AC-0393: a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as "hidden by facilitator"
-  - [ ] AC-0394: the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event
-  - [ ] AC-0395: a hidden response still counts toward BOTH response caps, the per-link cap (25, counted from the `response.added` events) and the per-role cap (50, today `sv.responses.length` in the fold's list), so hiding never refunds a budget; a hide that removes a response from the fold's list must keep it in the per-role count
-Notes: Filed 2026-11-07 with the owner's BUG-0030 decision: a per-link response cap (25 per link, bugfix/BUG-0025-throttle-resend-link-cap) is built now; redaction is this later story, for when real misuse appears. A response is the participant's own text and is not redacted today (docs/THREAT_MODEL.md, "Participant ratings and responses"). The fold has no hide event yet, so the work is a new review event type, a fold and policy change, the console action and the export filter.
+  - [x] AC-0392: the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason); ticked 2026-11-17: the console lists every response with a Hide button and a confirm dialog that shows the text and requires a reason (TC-0342, TC-0341); the hide is one `response.hidden` event with the facilitator's name, the time and the reason (TC-0336, TC-0340, TC-0343)
+  - [x] AC-0393: a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as "hidden by facilitator"; ticked 2026-11-17: one filter in `viewReport` covers both audiences; a canary is in no participant page, participant or facilitator export (including the facilitator export after an amend and a second release), group report, Markdown, JSON or `show`; the console shows "Hidden by facilitator" with the reason and the name, never the text (TC-0338, TC-0342, TC-0343)
+  - [x] AC-0394: the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event; ticked 2026-11-17: the log still holds the `response.added` text and exactly one `response.hidden`; the event is never rewritten (TC-0336, TC-0343)
+  - [x] AC-0395: a hidden response still counts toward BOTH response caps, the per-link cap (25, counted from the `response.added` events) and the per-role cap (50, today `sv.responses.length` in the fold's list), so hiding never refunds a budget; a hide that removes a response from the fold's list must keep it in the per-role count; ticked 2026-11-17: the fold keeps a hidden response in the list and the per-link count reads `response.added` events, so neither cap is refunded: 25 through one link then the 26th is `link_full`, 50 in all then a fresh link is `too_many`, with one hidden in each (TC-0336, TC-0339, TC-0343)
+Notes: Filed 2026-11-07 with the owner's BUG-0030 decision: a per-link response cap (25 per link, bugfix/BUG-0025-throttle-resend-link-cap) is built now; redaction is this later story, for when real misuse appears. A response is the participant's own text and was not redacted before US-0069 (docs/THREAT_MODEL.md, "Participant ratings and responses"). At filing, the fold had no hide event yet, so the work is a new review event type, a fold and policy change, the console action and the export filter. Built 2026-11-17 on feature/EPIC-0002-US-0069-hide-response (TASK-0144 to TASK-0146; spec docs/superpowers/specs/2026-11-17-hide-participant-response-design.md, plan docs/superpowers/plans/2026-11-17-hide-participant-response.md, a review per task, an Opus plan review first; ledger `.superpowers/sdd/2026-11-17-hide-participant-response/progress.md`). A new facilitator-only review event `response.hidden { response, reason }` (no schema bump, no unhide): the response stays in the fold's list with a `hidden` mark, so both caps behave as before; one filter in `viewReport` drops it for every non-console reader (the Opus plan review's C1: the facilitator branch reads `sv.responses`, also through the frozen snapshot after an amend); `supersede` carries a hide with its response; the BUG-0029 resend check ignores hidden responses; `pnpm moderate hide`, control `POST /sessions/:id/report/hide`, the BFF route and the console responses list with a confirm dialog. Test cases TC-0336 to TC-0345 Pass (jsdom only for the console; no real-browser run). Eight mutation checks (TC-0344: seven plus one on the per-role cap) each fail a named test. Documented limits (docs/THREAT_MODEL.md): the text stays in the log, the participant is not told, a forwarded link can post again and be hidden again (the per-link cap bounds it), the participant's "used N of 50" counter counts visible responses only, a carried hide's time after a re-run is the re-run time. Rolling back: docs/ROLLBACK.md, "US-0069" (a runtime older than this change refuses a log that holds `response.hidden`; roll the web app, control and runtime back together). Status is In Progress, not Complete, until the whole-branch review has passed: the controller flips it. The PR into `develop` is not yet opened.
 ```
 
 ```
@@ -2605,4 +2605,31 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0003-US-0090-voice-audio-panel
 Notes: Plan: docs/superpowers/plans/2026-11-16-voice-a3a-facilitator-mute.md (Task 1: the command, schema and reducer state; Task 2: the host ordering, rollback and in-mutex guard; Task 3: players, roster and the holder's frame; Task 4: bots unaffected; Task 5: the web command and stream; Task 6: the console button and status line; Task 7: the participant notices; Task 8: end to end, mutation checks and the documents). Covers AC-0550 to AC-0559 (TC-0322 to TC-0331). Filed 2026-11-16; Tasks 1 to 7 built the same day with a review per task (fix rounds on Tasks 5, 6 and 7) and Task 8 closed it. Done 2026-11-16 on feature/EPIC-0003-US-0090-voice-audio-panel; the PR into `develop` is not yet opened. Test cases TC-0322 to TC-0331 Pass; TC-0332 (the owner-run real-room mute with a real browser) is Not Run.
+```
+
+```
+TASK-0144 (US-0069): Build the hide event, the read filter and the hide command (Tasks 1 to 3)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0069-hide-response
+Notes: Plan: docs/superpowers/plans/2026-11-17-hide-participant-response.md. Task 1: the `response.hidden` event, the fold and the supersede carry; Task 2: the single filter in `viewReport` and every other reader of responses (the console DTO without text, open disputes, the resend check); Task 3: `hideResponse`, the CLI `hide` and the `status` lines. Covers AC-0392 to AC-0395 (TC-0336 to TC-0340). Done 2026-11-17 with a review per task.
+```
+
+```
+TASK-0145 (US-0069): Build the hide route in control and the web BFF (Task 4)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0069-hide-response
+Notes: Plan: docs/superpowers/plans/2026-11-17-hide-participant-response.md, Task 4: `ModerationService.hide` and `POST /sessions/:id/report/hide` in control, the web handler, the launcher client and the console client parser (a hidden response has `hidden` and no `text`). Covers AC-0392 and AC-0393 (TC-0341). Done 2026-11-17.
+```
+
+```
+TASK-0146 (US-0069): Build the console hide dialog, then the end-to-end proof and documents (Tasks 5 and 6)
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0069-hide-response
+Notes: Plan: docs/superpowers/plans/2026-11-17-hide-participant-response.md. Task 5: the console responses list, the Hide button and the confirm dialog (a shared reason dialog with a 500-character counter); Task 6: the control end-to-end test `hide-response.e2e.test.ts`, the mutation checks (TC-0344), and the documents (threat model, rollback, evaluator guide, changelog, test cases, this plan, `progress.md`, `MEMORY.md`). Covers AC-0392 to AC-0395 (TC-0342 to TC-0345). Done 2026-11-17.
 ```

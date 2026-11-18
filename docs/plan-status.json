@@ -2971,28 +2971,28 @@
       "title": "As a facilitator, I want to hide a participant response from the released report, so that an abusive or mistaken response can be removed without deleting the record.",
       "priority": "Low",
       "estimate": "M",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0069-hide-response",
       "acs": [
         {
           "id": "AC-0392",
-          "text": "the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason)",
-          "done": false
+          "text": "the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason); ticked 2026-11-17: the console lists every response with a Hide button and a confirm dialog that shows the text and requires a reason (TC-0342, TC-0341); the hide is one `response.hidden` event with the facilitator's name, the time and the reason (TC-0336, TC-0340, TC-0343)",
+          "done": true
         },
         {
           "id": "AC-0393",
-          "text": "a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as \"hidden by facilitator\"",
-          "done": false
+          "text": "a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as \"hidden by facilitator\"; ticked 2026-11-17: one filter in `viewReport` covers both audiences; a canary is in no participant page, participant or facilitator export (including the facilitator export after an amend and a second release), group report, Markdown, JSON or `show`; the console shows \"Hidden by facilitator\" with the reason and the name, never the text (TC-0338, TC-0342, TC-0343)",
+          "done": true
         },
         {
           "id": "AC-0394",
-          "text": "the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event",
-          "done": false
+          "text": "the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event; ticked 2026-11-17: the log still holds the `response.added` text and exactly one `response.hidden`; the event is never rewritten (TC-0336, TC-0343)",
+          "done": true
         },
         {
           "id": "AC-0395",
-          "text": "a hidden response still counts toward BOTH response caps, the per-link cap (25, counted from the `response.added` events) and the per-role cap (50, today `sv.responses.length` in the fold's list), so hiding never refunds a budget; a hide that removes a response from the fold's list must keep it in the per-role count",
-          "done": false
+          "text": "a hidden response still counts toward BOTH response caps, the per-link cap (25, counted from the `response.added` events) and the per-role cap (50, today `sv.responses.length` in the fold's list), so hiding never refunds a budget; a hide that removes a response from the fold's list must keep it in the per-role count; ticked 2026-11-17: the fold keeps a hidden response in the list and the per-link count reads `response.added` events, so neither cap is refunded: 25 through one link then the 26th is `link_full`, 50 in all then a fresh link is `too_many`, with one hidden in each (TC-0336, TC-0339, TC-0343)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -5222,6 +5222,36 @@
       "status": "Done",
       "branch": "feature/EPIC-0003-US-0090-voice-audio-panel",
       "notes": "Plan: docs/superpowers/plans/2026-11-16-voice-a3a-facilitator-mute.md (Task 1: the command, schema and reducer state; Task 2: the host ordering, rollback and in-mutex guard; Task 3: players, roster and the holder's frame; Task 4: bots unaffected; Task 5: the web command and stream; Task 6: the console button and status line; Task 7: the participant notices; Task 8: end to end, mutation checks and the documents). Covers AC-0550 to AC-0559 (TC-0322 to TC-0331). Filed 2026-11-16; Tasks 1 to 7 built the same day with a review per task (fix rounds on Tasks 5, 6 and 7) and Task 8 closed it. Done 2026-11-16 on feature/EPIC-0003-US-0090-voice-audio-panel; the PR into `develop` is not yet opened. Test cases TC-0322 to TC-0331 Pass; TC-0332 (the owner-run real-room mute with a real browser) is Not Run."
+    },
+    {
+      "id": "TASK-0144",
+      "storyId": "US-0069",
+      "title": "Build the hide event, the read filter and the hide command (Tasks 1 to 3)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0069-hide-response",
+      "notes": "Plan: docs/superpowers/plans/2026-11-17-hide-participant-response.md. Task 1: the `response.hidden` event, the fold and the supersede carry; Task 2: the single filter in `viewReport` and every other reader of responses (the console DTO without text, open disputes, the resend check); Task 3: `hideResponse`, the CLI `hide` and the `status` lines. Covers AC-0392 to AC-0395 (TC-0336 to TC-0340). Done 2026-11-17 with a review per task."
+    },
+    {
+      "id": "TASK-0145",
+      "storyId": "US-0069",
+      "title": "Build the hide route in control and the web BFF (Task 4)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0069-hide-response",
+      "notes": "Plan: docs/superpowers/plans/2026-11-17-hide-participant-response.md, Task 4: `ModerationService.hide` and `POST /sessions/:id/report/hide` in control, the web handler, the launcher client and the console client parser (a hidden response has `hidden` and no `text`). Covers AC-0392 and AC-0393 (TC-0341). Done 2026-11-17."
+    },
+    {
+      "id": "TASK-0146",
+      "storyId": "US-0069",
+      "title": "Build the console hide dialog, then the end-to-end proof and documents (Tasks 5 and 6)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0069-hide-response",
+      "notes": "Plan: docs/superpowers/plans/2026-11-17-hide-participant-response.md. Task 5: the console responses list, the Hide button and the confirm dialog (a shared reason dialog with a 500-character counter); Task 6: the control end-to-end test `hide-response.e2e.test.ts`, the mutation checks (TC-0344), and the documents (threat model, rollback, evaluator guide, changelog, test cases, this plan, `progress.md`, `MEMORY.md`). Covers AC-0392 to AC-0395 (TC-0342 to TC-0345). Done 2026-11-17."
     }
   ],
   "testCases": [
@@ -8424,6 +8454,106 @@
       "type": "Manual",
       "status": "Not Run",
       "defect": "None"
+    },
+    {
+      "id": "TC-0336",
+      "title": "The response.hidden event and the fold: who, when, why, and both caps unchanged",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0144",
+      "relatedAC": "AC-0392, AC-0394, AC-0395",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0337",
+      "title": "Supersede carries a hide to the new review and drops it with an uncarried response",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0144",
+      "relatedAC": "AC-0392, AC-0394",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0338",
+      "title": "Read paths: no reader of responses shows hidden text (participant page, group report, Markdown, JSON, facilitator export after an amend, console DTO)",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0144",
+      "relatedAC": "AC-0393",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0339",
+      "title": "A resend after a hide is written again; the caps still count the hidden response",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0144",
+      "relatedAC": "AC-0395",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0340",
+      "title": "The hide command in the runtime and the CLI: refusals, status lines, resolve on a hidden dispute",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0144",
+      "relatedAC": "AC-0392, AC-0394",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0341",
+      "title": "Control and the web BFF: the hide route, the service and the console client",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0145",
+      "relatedAC": "AC-0392, AC-0393",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0342",
+      "title": "Console: the responses list and the hide confirm dialog (jsdom)",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0146",
+      "relatedAC": "AC-0392, AC-0393",
+      "type": "Component",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0343",
+      "title": "End to end: a hidden response reaches no page or export, and the caps hold",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0146",
+      "relatedAC": "AC-0392, AC-0393, AC-0394, AC-0395",
+      "type": "E2E",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0344",
+      "title": "Mutation checks: each makes a named test fail",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0146",
+      "relatedAC": "AC-0392, AC-0393, AC-0394, AC-0395",
+      "type": "Mutation",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0345",
+      "title": "The documents are filed and consistent",
+      "relatedStory": "US-0069",
+      "relatedTask": "TASK-0146",
+      "relatedAC": "AC-0392, AC-0393, AC-0394, AC-0395",
+      "type": "Review",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -9240,7 +9370,7 @@
       "outputTokens": 0
     },
     "US-0069": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 9.189497,
       "inputTokens": 0,
       "outputTokens": 0
@@ -10115,11 +10245,11 @@
       "isAtRisk": false
     },
     "US-0069": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0067": {
       "missingTCs": true,
@@ -10641,10 +10771,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-17T00:32:19.483Z",
-  "commitSha": "e088e2be",
-  "buildNumber": "570",
-  "branch": "docs/file-us-0080-82-and-clamp-decision",
+  "generatedAt": "2026-11-17T16:30:46.923Z",
+  "commitSha": "65b551e6",
+  "buildNumber": "583",
+  "branch": "feature/EPIC-0002-US-0069-hide-response",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -10786,9 +10916,9 @@
     }
   },
   "budget": {
-    "totalBudget": 812.9862,
+    "totalBudget": 812.0862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 20065.700000000004,
+    "totalProjected": 20864.800000000007,
     "percentUsed": 98,
     "burnRate": 0,
     "daysRemaining": null,
@@ -10840,9 +10970,9 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 253.51641899999987,
+        "budget": 252.61641899999987,
         "spent": 248.11641899999987,
-        "remaining": 5.400000000000006,
+        "remaining": 4.5,
         "percentUsed": 98
       },
       {
@@ -10881,70 +11011,183 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Feb 24",
-    "rangeStart": "Nov 23",
-    "rangeEnd": "May 27",
-    "velocityWeeks": 6,
+    "likelyDate": "Mar 3",
+    "rangeStart": "Nov 29",
+    "rangeEnd": "Jun 5",
+    "velocityWeeks": 7,
     "storiesPerWeek": 0.9,
     "pointsPerWeek": 4.5
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-17T00:32:19.546Z"
+      "2026-11-11T18:08:18.602Z",
+      "2026-11-11T19:47:52.607Z",
+      "2026-11-12T20:37:55.878Z",
+      "2026-11-12T21:50:41.141Z",
+      "2026-11-13T17:35:13.525Z",
+      "2026-11-13T18:05:24.013Z",
+      "2026-11-13T22:28:39.904Z",
+      "2026-11-16T18:19:57.554Z",
+      "2026-11-16T23:04:57.325Z",
+      "2026-11-16T23:35:00.447Z",
+      "2026-11-17T16:30:47.010Z"
     ],
     "doneCounts": [
       0,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
       6
     ],
     "totalStories": [
       13,
+      73,
+      73,
+      74,
+      74,
+      75,
+      75,
+      82,
+      83,
+      84,
+      84,
       87
     ],
     "aiCosts": [
       54.2322,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
       null,
       null
     ],
     "velocity": [
       0,
+      29,
+      29,
+      29,
+      29,
+      29,
+      29,
+      29,
+      29,
+      29,
+      29,
       29
     ],
     "openBugs": [
       0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
       1
     ],
     "atRisk": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0
     ],
     "inputTokens": [
       3089930,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
-      1.1407407407407402
+      1.135820895522388,
+      1.135820895522388,
+      1.1352941176470586,
+      1.1352941176470586,
+      1.1347826086956518,
+      1.1347826086956518,
+      1.135526315789473,
+      1.1389610389610385,
+      1.1423076923076918,
+      1.1423076923076918,
+      1.144444444444444
     ],
     "velocityByWeek": {
       "labels": [
         "2026-W40",
+        "2026-W46",
         "2026-W47"
       ],
       "points": [
         0,
-        29
+        29,
+        0
       ],
       "rollingAvg": [
         0,
-        14.5
+        14.5,
+        9.7
       ]
     }
   }

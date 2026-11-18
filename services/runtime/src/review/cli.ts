@@ -33,6 +33,7 @@ import {
 } from "../moderation/write.js";
 import {
   amendSubject,
+  hideResponse,
   releaseRefusal,
   releaseWith,
   resolveDispute,
@@ -56,6 +57,7 @@ export const MODERATE_USAGE = [
   "  self-assess <dir> --role <role> --list   |   self-assess <dir> --role <role> --rate <criterion>=<1|2|3|4|na>... [--note <text>] --by <facilitator>   blind self-rating before release (the facilitator attests)",
   "  respond <dir> --role <role> --text <text> [--criterion <id>] [--dispute] --by <facilitator>   a participant's response after release; --dispute puts it on the facilitator's list",
   "  resolve <dir> <response-number> --outcome upheld|amended|declined --reason <text> --by <name>   close a dispute; the reason is shown to the participant (`amended` needs an amend of that report first)",
+  "  hide <dir> <response-number> --reason <text> --by <name>   take a participant's response out of every report and page (status lists the numbers; it cannot be undone)",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
 ].join("\n");
@@ -124,6 +126,7 @@ export const ALLOWED: Record<string, string[]> = {
   "self-assess": ["role", "by", "rate", "note", "list"],
   respond: ["role", "by", "criterion", "text", "dispute"],
   resolve: ["by", "outcome", "reason"],
+  hide: ["by", "reason"],
 };
 
 /** Most positional arguments after <dir> each subcommand takes. */
@@ -143,6 +146,7 @@ const ARITY: Record<string, number> = {
   "self-assess": 0,
   respond: 0,
   resolve: 1,
+  hide: 1,
 };
 // `releaseRefusal` moved to the moderation module (part B); re-exported so `pnpm moderate` and its tests keep the one text.
 export { releaseRefusal };
@@ -178,7 +182,11 @@ export function statusLines(l: Loaded): string[] {
         `  ${sv.id}: rated ${rated} of ${sv.criteria.length} criteria${links.length ? ` via web link ${links.join(", ")}` : ""}`,
       );
     }
-    for (const r of sv.responses.filter((x) => x.dispute && !x.resolution))
+    for (const r of sv.responses)
+      out.push(
+        `  response #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}${r.dispute ? " (dispute)" : ""}${r.hidden ? " hidden" : ""}`,
+      );
+    for (const r of sv.responses.filter((x) => x.dispute && !x.resolution && !x.hidden))
       out.push(
         `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}${r.via ? ` via web link ${r.via}` : ""}`,
       );
@@ -513,6 +521,22 @@ export const HANDLERS: Record<string, Handler> = {
     c.out(`dispute #${seq} resolved: ${outcome}`);
     return 0;
   },
+  async hide(c) {
+    const arg = c.args[0] ?? "";
+    if (!/^[1-9]\d{0,8}$/.test(arg))
+      throw new ReviewUsageError("hide needs the response number shown by status");
+    const seq = Number(arg);
+    await hideResponse({
+      dir: c.dir,
+      by: cleanBy(c.values.by),
+      now: c.now,
+      secrets: c.secrets,
+      seq,
+      reason: String(c.values.reason ?? ""),
+    });
+    c.out(`response #${seq} hidden`);
+    return 0;
+  },
   export: exportHandler,
   async supersede(c) {
     const newArg = c.args[0];
@@ -534,7 +558,7 @@ export const HANDLERS: Record<string, Handler> = {
     );
     if (r.participantEvents > 0)
       c.out(
-        `carried ${r.participantEvents} self-rating, response and dispute event(s) of the players; open disputes stay open in the new review, and players already released there cannot self-rate again`,
+        `carried ${r.participantEvents} self-rating, response and dispute event(s) of the players; open disputes stay open (a hidden one stays hidden and cannot be resolved), and players already released there cannot self-rate again`,
       );
     if (r.dropped.length)
       c.out(

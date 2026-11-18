@@ -313,7 +313,8 @@ export type ReportSubjectDetail = {
   /** The log sequence numbers of this subject's releases, oldest first. */
   versions: number[];
 };
-export type ReportResponse = { seq: number; role: string; text: string; criterion?: string; dispute: boolean; resolution?: { outcome: string; reason: string } };
+/** A hidden response has `hidden` and no `text`; a visible one has `text` and no `hidden`. */
+export type ReportResponse = { seq: number; role: string; text?: string; hidden?: { reason: string; by: string; at: number }; criterion?: string; dispute: boolean; resolution?: { outcome: string; reason: string } };
 export type ResolveOutcome = "upheld" | "amended" | "declined";
 /** What an edit names as the level it expects to replace (`--expect`): the level the form showed. */
 export type ReportExpect = "1" | "2" | "3" | "4" | "na" | "invalid";
@@ -421,11 +422,16 @@ export function parseReportSubject(v: unknown): ReportSubjectDetail | null {
   });
   const responses = each(o.responses, (x): ReportResponse | null => {
     const r = obj(x);
-    if (!r || !count(r.seq) || !str(r.role) || !str(r.text) || typeof r.dispute !== "boolean" || !(r.criterion === undefined || str(r.criterion))) return null;
+    if (!r || !count(r.seq) || !str(r.role) || typeof r.dispute !== "boolean" || !(r.criterion === undefined || str(r.criterion))) return null;
+    // US-0069: a hidden response carries its marker and never its text; a visible one carries its text.
+    const hid = obj(r.hidden);
+    if (r.hidden !== undefined ? r.text !== undefined || !(hid && str(hid.reason) && str(hid.by) && num(hid.at)) : !str(r.text)) return null;
     const res = obj(r.resolution);
     if (r.resolution !== undefined && !(res && str(res.outcome) && str(res.reason))) return null;
     return {
-      seq: r.seq, role: r.role, text: r.text, dispute: r.dispute, ...(str(r.criterion) ? { criterion: r.criterion } : {}),
+      seq: r.seq, role: r.role, dispute: r.dispute,
+      ...(hid && str(hid.reason) && str(hid.by) && num(hid.at) ? { hidden: { reason: hid.reason, by: hid.by, at: hid.at } } : { text: r.text as string }),
+      ...(str(r.criterion) ? { criterion: r.criterion } : {}),
       ...(res && str(res.outcome) && str(res.reason) ? { resolution: { outcome: res.outcome, reason: res.reason } } : {}),
     };
   });
@@ -496,6 +502,8 @@ export const amendSubject = (sessionId: string, subject: string, reason: string,
   postJson(`${subjectPath(sessionId, subject)}/amend`, { reason, by }, f);
 export const withdrawSubject = (sessionId: string, subject: string, reason: string, by: string, f?: typeof fetch) =>
   postJson(`${subjectPath(sessionId, subject)}/withdraw`, { reason, by }, f);
+export const hideResponse = (sessionId: string, b: { seq: number; reason: string; by: string }, f?: typeof fetch) =>
+  postJson(`${reportPath(sessionId)}/hide`, b, f);
 export const resolveDispute = (sessionId: string, b: { seq: number; outcome: ResolveOutcome; reason: string; by: string }, f?: typeof fetch) =>
   postJson(`${reportPath(sessionId)}/resolve`, b, f);
 /** The export is a POST (it records the export first); the answer is the Markdown text to save, never to render. */

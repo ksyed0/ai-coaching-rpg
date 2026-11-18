@@ -6,6 +6,7 @@ import {
   commentOn,
   editCriterion,
   fetchReportSubject,
+  hideResponse,
   parseReportSubject,
   reportFailureText,
   resolveDispute,
@@ -16,6 +17,7 @@ import type { ApiResult } from "../../../lib/api";
 import { REPORT_CONSOLE } from "../../../lib/messages";
 import { CriterionRow, type EditInput } from "./CriterionRow";
 import { ResolveDisputePanel } from "./ResolveDisputePanel";
+import { ResponsesPanel } from "./ResponsesPanel";
 import { SummaryEditor } from "./SummaryEditor";
 import { subjectLabel } from "./SubjectList";
 
@@ -109,6 +111,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
   const edit = (criterion: string) => (input: EditInput) => run(editCriterion(sessionId, subject, { criterion, ...input, by }, fetchImpl), true);
   const accept = (criterion: string) => void run(acceptItem(sessionId, subject, { criterion, by }, fetchImpl));
   const resolve = (seq: number, outcome: ResolveOutcome, reason: string) => run(resolveDispute(sessionId, { seq, outcome, reason, by }, fetchImpl), true);
+  const hide = (seq: number, reason: string) => run(hideResponse(sessionId, { seq, reason, by }, fetchImpl), true);
   async function sendComment() {
     if (!canWrite || comment.trim() === "") return;
     const refusal = await run(commentOn(sessionId, subject, { text: comment, ...(about !== "" ? { criterion: about } : {}), ...(feedback ? { feedback: true as const } : {}), by }, fetchImpl));
@@ -208,6 +211,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
             </div>
           ) : null}
 
+          <ResponsesPanel responses={view.responses} canWrite={canWrite} pending={pending} criterionName={nameOf} author={by} onHide={hide} />
           <ResolveDisputePanel responses={view.responses} versions={view.versions} canWrite={canWrite} pending={pending} criterionName={nameOf} onResolve={resolve} />
         </>
       )}

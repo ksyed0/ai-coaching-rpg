@@ -311,6 +311,17 @@ export const handleConsoleReportResolve = (req: Request, deps: Deps): Promise<Re
     },
   });
 
+/** POST .../report/hide { seq, reason, by } (16 KB): hides one participant response from every export and page. */
+export const handleConsoleReportHide = (req: Request, deps: Deps): Promise<Response> =>
+  write(req, deps, {
+    keys: ["seq", "reason"], max: MAX_TEXT_BODY_BYTES, subject: false, named: true,
+    valid: (b) => typeof b.seq === "number" && Number.isInteger(b.seq) && b.seq >= 1 && b.seq <= 999_999_999 && isStr(b.reason),
+    send: async (d, id, _s, b, by) => {
+      await d.launcher.reportHide(id, { seq: b.seq as number, reason: b.reason as string, by });
+      return {};
+    },
+  });
+
 /** POST .../report/subjects/:subject/amend { reason, by } (16 KB) */
 export const handleConsoleReportAmend = (req: Request, deps: Deps): Promise<Response> =>
   write(req, deps, {

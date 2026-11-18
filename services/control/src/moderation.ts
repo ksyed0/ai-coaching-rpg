@@ -10,6 +10,7 @@ import {
   editScore,
   editSummary,
   exportReport,
+  hideResponse,
   moderationStatus,
   openFacilitatorReview,
   releaseSubjects,
@@ -75,6 +76,7 @@ export type CommentBody = { text: string; criterion?: string; feedback?: boolean
 export type ReleaseBody = { subjects: string[] };
 export type ReasonBody = { reason: string };
 export type ResolveBody = { seq: number; outcome: "upheld" | "amended" | "declined"; reason: string };
+export type HideBody = { seq: number; reason: string };
 export type ExportBody = { subject: string; audience: "facilitator" | `participant:${string}` };
 /** At most this many subjects in one release (a session has a handful of players and the group). */
 export const RELEASE_MAX_SUBJECTS = 50;
@@ -369,6 +371,11 @@ export class ModerationService {
   /** Closes a dispute by the response number the status shows. */
   resolve(id: string, body: ResolveBody, name: string): Promise<ModOutcome<void>> {
     return this.write(id, name, (b) => resolveDispute({ ...b, seq: body?.seq, outcome: body?.outcome, reason: body?.reason }));
+  }
+
+  /** Hides a participant response from every export and page, by the response number the status shows; a reason is required. */
+  hide(id: string, body: HideBody, name: string): Promise<ModOutcome<void>> {
+    return this.write(id, name, (b) => hideResponse({ ...b, seq: body?.seq, reason: body?.reason }));
   }
 
   /**
