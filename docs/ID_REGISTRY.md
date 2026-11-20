@@ -3,9 +3,9 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0092               | US-0091           |
+| US           | US-0093               | US-0092           |
 | TASK         | TASK-0147             | TASK-0146         |
-| AC           | AC-0560               | AC-0559           |
+| AC           | AC-0564               | AC-0563           |
 | TC           | TC-0346               | TC-0345           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0044                | L-0043            |
@@ -127,3 +127,5 @@ Assigned 2026-11-16 (voice slice A3a, the facilitator mute of a participant's mi
 Assigned 2026-11-16 (filing the client-demo stories on develop, docs/file-us-0080-82-and-clamp-decision): US-0080, US-0081 and US-0082 (EPIC-0002), TASK-0120..TASK-0122 and AC-0460..AC-0499 are now filed in `docs/RELEASE_PLAN.md`, with the ids the branch `feature/EPIC-0002-demo-feedback-fixes` gave them in `docs/superpowers/notes/US-0080-notes.md`, `US-0081-notes.md` and `US-0082-notes.md` (their code reached develop in PR #140 and PR #142). Their test cases are filed in `docs/TEST_CASES.md` as TC-0243..TC-0269 (the notes' ids, all free on develop) and TC-0333..TC-0335: the notes' TC-0240, TC-0241 and TC-0242 (US-0080) collide with develop's US-0075 cases of the same ids, so they were renumbered to TC-0333, TC-0334 and TC-0335 in that order. US-0076..US-0079, TASK-0112..TASK-0119 and TASK-0123..TASK-0129 stay unfiled and are not reassigned. The next US is US-0092, the next TASK is TASK-0144, the next AC is AC-0560, the next TC is TC-0336, the next BUG is BUG-0035, the next L is L-0044.
 
 Reserved blocks (2026-11-17, hide response): TASK-0144..TASK-0146 and TC-0336..TC-0345 (US-0069, hiding a participant response; the story and its AC-0392..AC-0395 were reserved on 2026-11-07). Ids in a block that its story does not use stay unused. The Next and Last rows above point past this block.
+
+Reserved blocks (2026-11-20, voice slice A3b parked, branch docs/park-a3b): US-0092 (EPIC-0003, live partial transcripts for the facilitator, deferred, status Blocked) and AC-0560..AC-0563. No TASK or TC is assigned until the story is resumed. Ids in a block that its story does not use stay unused.

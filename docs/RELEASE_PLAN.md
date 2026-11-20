@@ -2482,6 +2482,21 @@ Notes: Spec docs/superpowers/specs/2026-11-16-voice-a3a-facilitator-mute-design.
 ```
 
 ```
+US-0092 (EPIC-0003): As the facilitator running a live voice session, I want to see what a participant is saying while they are still speaking, so that I can follow a long answer without waiting for the line to finish.
+Priority: Low
+Estimate: L
+Status: Blocked
+Branch: feature/EPIC-0003-US-0092-voice-live-partials
+Dependencies: US-0091
+Notes: DEFERRED (not Cancelled) on 2026-11-20, owner decision "park A3b until the room test" (voice slice A3b). plan_visualizer.md allows only Planned | In Progress | Complete | Blocked for a story, so the closest status, Blocked, is used and means deferred (the same convention as US-0038). Not filed before 2026-11-20; no spec, plan or code exists. Why deferred: the speech worker already cuts audio into short chunks (500 ms hangover, `maxSegmentMs` 2.5 s, configurable 2 to 6 s), so partial text would show about 1 to 2 s sooner than the finished lines the facilitator already gets, while the cost is real: extra GPU load, a new worker, control, runtime and web channel, and contention for the control-brokered speech slots. The deciding evidence is the owner-run in-room voice test (TC-0242, TC-0320, TC-0321, TC-0332, all Not Run). Resume only if that test shows the finished-line delay hurts a live session. If resumed, the approach to design and review first: re-transcribe the open segment about every 700 ms; facilitator-only and never written to the log or the audio store; off by default behind a toggle; limited to the 2 or 3 most recent talkers; shed first when the queue grows. EPIC-0003 itself is not deferred: its other stories are built.
+Acceptance Criteria:
+  - [ ] AC-0560: a facilitator can turn on live partial transcripts for a voice session; they are off by default and the setting is per session (not started)
+  - [ ] AC-0561: while on, the facilitator console shows the open segment's text for the most recent talkers (at most 3) within about 1 s of speech, replaced by the finished line when it lands; participants never see a partial (not started)
+  - [ ] AC-0562: a partial is never written to the sealed log, the transcript, the audio store or any export, and a facilitator-muted seat produces none (not started)
+  - [ ] AC-0563: under load the partials are shed before any finished line is delayed, and the finished-line latency does not regress beyond an agreed bound measured in the room test (not started)
+```
+
+```
 TASK-0130 (US-0083): Build the safe JSON file, password primitives and account store (Task 1)
 Type: Dev
 Assignee: Agent

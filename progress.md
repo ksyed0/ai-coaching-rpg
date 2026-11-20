@@ -861,3 +861,24 @@ The whole-branch review of US-0090 and US-0091 and its fixes; then the PR into `
 ### Next
 
 US-0069 was merged into `develop` on 2026-11-18 as PR #151 (after a develop merge picked up the picomatch audit ignore, PR #152) and marked Complete by the owner. Left: an owner-run real-browser check of the hide dialog, and removing the picomatch ignore (`.audit-ignore`, `pnpm.auditConfig`, `tools/npm-audit-gate.js`) once a patched picomatch ships.
+
+## Session 53 — 2026-11-20 (docs: voice slice A3b parked, US-0092 filed as deferred)
+
+### What Was Done
+
+- **Decision (owner, 2026-11-17, "park A3b until the room test"; written down 2026-11-20):** voice slice A3b (live partial transcripts for the facilitator) is parked. The speech worker already cuts audio into short chunks (500 ms hangover, `maxSegmentMs` 2.5 s, configurable 2 to 6 s), so partials would show text only about 1 to 2 s sooner than the finished lines the facilitator already gets; the cost is extra GPU load, a new worker, control, runtime and web channel, and contention for the control-brokered speech slots.
+- **Filed US-0092 (EPIC-0003, Low, L, status Blocked = deferred, the US-0038 convention) with AC-0560 to AC-0563, all unticked.** No spec, plan or code exists. Ids: next free US-0093, AC-0564. EPIC-0003 itself is not deferred; its other stories are built.
+- **If resumed:** re-transcribe the open segment about every 700 ms; facilitator-only and never written to the log or audio store; off by default behind a toggle; at most the 2 or 3 most recent talkers; shed first when the queue grows. Design and review it before any code.
+
+### Verification
+
+`npm run plan:generate` and the plan tests (including the id-registry test). Docs only; no code changed.
+
+### Open owner items
+
+1. TO RUN (owner): the in-room voice test, which decides whether A3b is ever resumed: TC-0242, TC-0320, TC-0321, TC-0332 (all Not Run).
+2. Still open from before: the US-0083 Complete decision, US-0038 Deferred vs Cancelled, a second Sonnet probe batch, the 7 excerpt levels (AC-0191), the real-browser check of the hide dialog, the picomatch ignore removal when a patched release ships.
+
+### Next
+
+Run the room test; then decide whether to resume US-0092 (A3b) or leave it deferred.
