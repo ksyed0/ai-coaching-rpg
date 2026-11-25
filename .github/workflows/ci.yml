@@ -4,6 +4,7 @@ name: CI
 # The npm-based jobs above the "pnpm workspace" divider guard the PlanVisualizer tooling and are
 # required branch-protection checks: never rename them. The jobs below the divider cover the
 # TypeScript workspace (US-0012) and the demo run (US-0021); they are intentionally NOT required checks yet.
+# A docs-only pull request skips the code-only jobs (see the `changes` job). Test & Coverage Gate, Build and Secret Scanning always run.
 on:
   pull_request:
     branches: [main, develop]
@@ -22,9 +23,45 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Decides which jobs a pull request needs. A docs-only PR (Markdown or PNG under docs/, or a root Markdown file: see
+  # tools/ci-docs-only.js) skips the code-only jobs below. Skipping is done per job, never per workflow: a skipped job
+  # reports "skipped", which satisfies a required check, whereas a path-filtered workflow would leave the required checks
+  # pending forever. The gate is `!cancelled() && docs_only != 'true'`, not a bare `docs_only != 'true'`, so that a failure
+  # here leaves docs_only empty and every gated job runs (fail closed), instead of being skipped and counting as a pass.
+  # Test & Coverage Gate, Build and Secret Scanning do not depend on this job and always run.
+  # Push and manual runs always run everything.
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      doc_tests: ${{ steps.classify.outputs.doc_tests }}
+    steps:
+      # A pull_request run checks out the merge commit of the PR into its base: HEAD^1 is the base tip, so the diff is exactly the PR.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: classify
+        shell: bash
+        run: |
+          set -uo pipefail
+          # --no-renames lists both paths of a rename, so moving code into docs/ still counts as a code change.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] \
+            && git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt" \
+            && out=$(node tools/ci-docs-only.js < "$RUNNER_TEMP/changed.txt"); then
+            echo "Changed files: $(wc -l < "$RUNNER_TEMP/changed.txt")"
+            echo "$out" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "Not a pull request, or the diff could not be read: running every job."
+            printf 'docs_only=false\ndoc_tests=false\n' | tee -a "$GITHUB_OUTPUT"
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -71,6 +108,8 @@ jobs:
   orchestrator:
     name: Orchestrator Validation
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -81,6 +120,8 @@ jobs:
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
@@ -106,7 +147,8 @@ jobs:
     runs-on: ubuntu-latest
     # Code scanning on a private repo needs GitHub Advanced Security. Skipped until
     # then; set repo variable ENABLE_CODEQL=true once Advanced Security is enabled.
-    if: ${{ !github.event.repository.private || vars.ENABLE_CODEQL == 'true' }}
+    needs: changes
+    if: ${{ !cancelled() && (!github.event.repository.private || vars.ENABLE_CODEQL == 'true') && needs.changes.outputs.docs_only != 'true' }}
     permissions:
       actions: read
       contents: read
@@ -124,6 +166,8 @@ jobs:
   ws-typecheck:
     name: Workspace Typecheck
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -137,6 +181,8 @@ jobs:
   ws-test:
     name: Workspace Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -148,9 +194,32 @@ jobs:
       # Per-package vitest runs: the 80% line thresholds in each package's vitest config fail the job.
       - run: pnpm test:coverage
 
+  # A docs-only PR skips Workspace Tests, but a few of them assert on documents (see TEST_READ_DOCS in tools/ci-docs-only.js).
+  # When one of those documents changed, run just those test files. tests/unit/ci-docs-only.test.js keeps the list complete.
+  ws-doc-tests:
+    name: Workspace Doc Tests
+    runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only == 'true' && needs.changes.outputs.doc_tests == 'true' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: >-
+          pnpm --filter @acr/runtime exec vitest run
+          src/__tests__/plan-text.test.ts
+          src/calibration/__tests__/docs-example.test.ts
+          src/review/__tests__/agent-rule.test.ts
+
   sdk-guard:
     name: SDK Import Guard
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -168,6 +237,8 @@ jobs:
   ws-audit:
     name: Workspace Audit
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -183,6 +254,8 @@ jobs:
   web-e2e:
     name: Web E2E
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     # Two production builds of apps/web (about 1 min each), the Playwright suite, launcher-mode console specs included (each test starts its own stack: a runtime or a control service, and next start) and
     # the web demo: a few minutes on a normal runner. The limit only stops a hang from holding a runner for the default 6 hours.
     timeout-minutes: 20
@@ -211,6 +284,8 @@ jobs:
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       # Build only (no push): proves the runtime image builds from a clean checkout.
@@ -245,6 +320,8 @@ jobs:
   demo-run:
     name: Demo Run
     runs-on: ubuntu-latest
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     permissions:
       contents: read
     steps:

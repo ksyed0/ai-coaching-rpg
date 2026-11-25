@@ -422,7 +422,9 @@ All PRs to `main` and `develop` must pass these checks before merge:
 | Orchestrator Validation | `node orchestrator/spawn.js --list-platforms` | Smoke test spawn abstraction + adapters                                 |
 | Dependency Audit        | `npm audit --audit-level=high`                | Dependency vulnerability scan (no install needed)                       |
 | Secret Scanning         | `trufflehog` (full history)                   | Detect leaked credentials or secrets                                    |
-| Analyze JavaScript      | CodeQL `security-extended` queries            | Static security analysis — skipped on docs-only PRs (`*.md`, `docs/**`) |
+| Analyze JavaScript      | CodeQL `security-extended` queries            | Static security analysis — skipped on docs-only PRs (see below)         |
+
+**Docs-only PRs.** A `Detect Changes` job (`tools/ci-docs-only.js`) classifies each PR. When every changed file is Markdown or PNG under `docs/`, or a Markdown file at the repository root, the code-only jobs are skipped (a skipped job satisfies a required check; the check names never change). Test & Coverage Gate, Build and Secret Scanning always run. If the PR changes a document that a workspace test reads (the list is `TEST_READ_DOCS` in `tools/ci-docs-only.js`), a `Workspace Doc Tests` job runs those tests too. Anything else, including `docs/*.json`, `.github/**` and Markdown outside the root and `docs/`, runs the full pipeline, and so does every push to `main` or `develop`. Do not make a required check depend on a path filter, and gate a new job with `needs: changes` and `if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}`, never a bare `docs_only != 'true'` (a failed `Detect Changes` would then skip the job and count as a pass).
 
 > **Rule:** If it isn’t in version control, it doesn’t exist. If it isn’t on a branch, it isn’t safe.
 
