@@ -3990,6 +3990,40 @@
         "US-0073",
         "US-0090"
       ]
+    },
+    {
+      "id": "US-0092",
+      "epicId": "EPIC-0003",
+      "title": "As the facilitator running a live voice session, I want to see what a participant is saying while they are still speaking, so that I can follow a long answer without waiting for the line to finish.",
+      "priority": "Low",
+      "estimate": "L",
+      "status": "Blocked",
+      "branch": "feature/EPIC-0003-US-0092-voice-live-partials",
+      "acs": [
+        {
+          "id": "AC-0560",
+          "text": "a facilitator can turn on live partial transcripts for a voice session; they are off by default and the setting is per session (not started)",
+          "done": false
+        },
+        {
+          "id": "AC-0561",
+          "text": "while on, the facilitator console shows the open segment's text for the most recent talkers (at most 3) within about 1 s of speech, replaced by the finished line when it lands; participants never see a partial (not started)",
+          "done": false
+        },
+        {
+          "id": "AC-0562",
+          "text": "a partial is never written to the sealed log, the transcript, the audio store or any export, and a facilitator-muted seat produces none (not started)",
+          "done": false
+        },
+        {
+          "id": "AC-0563",
+          "text": "under load the partials are shed before any finished line is delayed, and the finished-line latency does not regress beyond an agreed bound measured in the room test (not started)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0091"
+      ]
     }
   ],
   "tasks": [
@@ -8969,523 +9003,529 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0070": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0071": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0072": {
       "projectedUsd": 1600,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0073": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0074": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0075": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0080": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0081": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0082": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0083": {
       "projectedUsd": 3200,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0084": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0085": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0086": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0087": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0088": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0089": {
       "projectedUsd": 0.9,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0090": {
       "projectedUsd": 1600,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0091": {
       "projectedUsd": 1600,
-      "costUsd": 9.189497,
+      "costUsd": 9.08507,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0092": {
+      "projectedUsd": 0.9,
+      "costUsd": 9.08507,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -10383,6 +10423,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": false
+    },
+    "US-0092": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -10771,10 +10818,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-18T14:59:00.811Z",
-  "commitSha": "ec13546e",
-  "buildNumber": "573",
-  "branch": "docs/US-0069-complete",
+  "generatedAt": "2026-11-20T16:29:30.044Z",
+  "commitSha": "83dc0c73",
+  "buildNumber": "574",
+  "branch": "docs/park-a3b",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -10918,7 +10965,7 @@
   "budget": {
     "totalBudget": 812.0862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 20065.700000000004,
+    "totalProjected": 20066.600000000006,
     "percentUsed": 98,
     "burnRate": 0,
     "daysRemaining": null,
@@ -10938,64 +10985,64 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 128.652958,
-        "spent": 128.652958,
+        "budget": 127.19098000000001,
+        "spent": 127.19098000000001,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0003",
         "title": "Slice 3 — voice over LiveKit",
-        "budget": 73.51597600000001,
-        "spent": 73.51597600000001,
+        "budget": 81.76563,
+        "spent": 81.76563,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 128.652958,
-        "spent": 128.652958,
+        "budget": 127.19098000000001,
+        "spent": 127.19098000000001,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 137.842455,
-        "spent": 137.842455,
+        "budget": 136.27605,
+        "spent": 136.27605,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 252.61641899999987,
-        "spent": 248.11641899999987,
+        "budget": 249.79689000000002,
+        "spent": 245.29689000000002,
         "remaining": 4.5,
         "percentUsed": 98
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 40.357988,
-        "spent": 36.757988,
+        "budget": 39.94028,
+        "spent": 36.34028,
         "remaining": 3.6000000000000014,
         "percentUsed": 91
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 40.357988,
-        "spent": 36.757988,
+        "budget": 39.94028,
+        "spent": 36.34028,
         "remaining": 3.6000000000000014,
         "percentUsed": 91
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 10.089497,
-        "spent": 9.189497,
+        "budget": 9.98507,
+        "spent": 9.08507,
         "remaining": 0.9000000000000004,
         "percentUsed": 91
       },
@@ -11011,17 +11058,17 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Mar 13",
-    "rangeStart": "Dec 8",
-    "rangeEnd": "Jun 17",
+    "likelyDate": "Apr 14",
+    "rangeStart": "Jan 3",
+    "rangeEnd": "Jul 25",
     "velocityWeeks": 7,
     "storiesPerWeek": 0.9,
-    "pointsPerWeek": 4.4
+    "pointsPerWeek": 4.2
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-18T14:59:00.904Z"
+      "2026-11-20T16:29:30.142Z"
     ],
     "doneCounts": [
       0,
@@ -11029,7 +11076,7 @@
     ],
     "totalStories": [
       13,
-      87
+      88
     ],
     "aiCosts": [
       54.2322,
@@ -11061,7 +11108,7 @@
     ],
     "avgRisk": [
       1.0999999999999999,
-      1.1407407407407402
+      1.1512195121951214
     ],
     "velocityByWeek": {
       "labels": [
