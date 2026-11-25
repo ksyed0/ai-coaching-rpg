@@ -882,3 +882,20 @@ US-0069 was merged into `develop` on 2026-11-18 as PR #151 (after a develop merg
 ### Next
 
 Run the room test; then decide whether to resume US-0092 (A3b) or leave it deferred.
+
+## Session 54 — 2026-11-25 (chore: CI skips code-only jobs on docs-only PRs)
+
+### What Was Done
+
+- **New `Detect Changes` job in `ci.yml`** classifies a PR with `tools/ci-docs-only.js` (Markdown or PNG under `docs/`, or a root Markdown file, is docs). On a docs-only PR the code-only jobs are skipped; Test & Coverage Gate, Build and Secret Scanning always run, and the required check names are unchanged. Skipping is per job, not per workflow, because a skipped job satisfies a required check and a path-filtered workflow would leave them pending.
+- **Fails closed:** gated jobs use `needs: changes` with `if: !cancelled() && docs_only != 'true'`, so a failed `Detect Changes` runs everything instead of skipping (a skip counts as a pass). Push and manual runs always run everything. `--no-renames` makes a rename of code into `docs/` count as code.
+- **Opus review (before building) changed the design:** it caught the fail-open on `needs`, and that three workspace vitest files read `AGENTS.md`, `docs/EVALUATOR.md`, `docs/RELEASE_PLAN.md` and the slice-1 plan. Rather than treat those docs as code (RELEASE_PLAN is in most docs PRs), a new `Workspace Doc Tests` job runs just those three files when one of them changed. `tests/unit/ci-docs-only.test.js` fails when a workspace test starts reading a doc that is not on the list. `docs/*.json`, `*.html`, scripts and Markdown outside the root and `docs/` count as code.
+
+### Verification
+
+`actionlint`, the new jest file (22 tests, and a deliberate list mutation fails it), the three vitest files alone, and the full plan tests. **Not yet proven on GitHub:** a docs-only PR must show the gated jobs as skipped and mergeable (branch protection applies only to `main` and `develop`, so this can only be seen after merge on a real docs PR).
+
+### Open owner items
+
+1. After merge: watch the next docs-only PR into `develop`. It should show Lint, Orchestrator Validation, Dependency Audit, Analyze JavaScript and the workspace jobs as skipped, and be mergeable.
+2. Rollback is one revert of this change; no branch-protection change is involved.

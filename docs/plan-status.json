@@ -10818,10 +10818,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-20T16:29:30.044Z",
-  "commitSha": "83dc0c73",
-  "buildNumber": "574",
-  "branch": "docs/park-a3b",
+  "generatedAt": "2026-11-25T16:54:46.324Z",
+  "commitSha": "a8dc8621",
+  "buildNumber": "576",
+  "branch": "chore/ci-docs-only-gating",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -11058,17 +11058,17 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Apr 14",
-    "rangeStart": "Jan 3",
-    "rangeEnd": "Jul 25",
-    "velocityWeeks": 7,
-    "storiesPerWeek": 0.9,
-    "pointsPerWeek": 4.2
+    "likelyDate": "Jun 11",
+    "rangeStart": "Feb 19",
+    "rangeEnd": "Oct 2",
+    "velocityWeeks": 8,
+    "storiesPerWeek": 0.8,
+    "pointsPerWeek": 3.8
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-20T16:29:30.142Z"
+      "2026-11-25T16:54:46.410Z"
     ],
     "doneCounts": [
       0,
@@ -11113,7 +11113,7 @@
     "velocityByWeek": {
       "labels": [
         "2026-W40",
-        "2026-W47"
+        "2026-W48"
       ],
       "points": [
         0,
